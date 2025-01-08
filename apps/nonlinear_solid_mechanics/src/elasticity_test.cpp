@@ -321,12 +321,17 @@ void test_triangles_fvca5( const disk::mechanics::NonLinearParameters< T > &rp,
                            const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/fvca5/mesh1_1.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/fvca5/mesh1_2.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/fvca5/mesh1_3.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/fvca5/mesh1_4.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/fvca5/mesh1_5.typ1" );
+    paths.push_back( mesh_base + "/2D_triangles/fvca5/mesh1_1.typ1" );
+    paths.push_back( mesh_base + "/2D_triangles/fvca5/mesh1_2.typ1" );
+    paths.push_back( mesh_base + "/2D_triangles/fvca5/mesh1_3.typ1" );
+    paths.push_back( mesh_base + "/2D_triangles/fvca5/mesh1_4.typ1" );
+    paths.push_back( mesh_base + "/2D_triangles/fvca5/mesh1_5.typ1" );
 
     std::vector< error_type > error_sumup;
 
@@ -343,12 +348,17 @@ void test_triangles_netgen( const disk::mechanics::NonLinearParameters< T > &rp,
                             const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/netgen/tri01.mesh2d" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/netgen/tri02.mesh2d" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/netgen/tri03.mesh2d" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/netgen/tri04.mesh2d" );
-    paths.push_back( "../../../diskpp/meshes/2D_triangles/netgen/tri05.mesh2d" );
+    paths.push_back( mesh_base + "/2D_triangles/netgen/tri01.mesh2d" );
+    paths.push_back( mesh_base + "/2D_triangles/netgen/tri02.mesh2d" );
+    paths.push_back( mesh_base + "/2D_triangles/netgen/tri03.mesh2d" );
+    paths.push_back( mesh_base + "/2D_triangles/netgen/tri04.mesh2d" );
+    paths.push_back( mesh_base + "/2D_triangles/netgen/tri05.mesh2d" );
 
     std::vector< error_type > error_sumup;
 
@@ -365,12 +375,17 @@ void test_hexagons( const disk::mechanics::NonLinearParameters< T > &rp,
                     const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 5;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/2D_hex/fvca5/hexagonal_1.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_hex/fvca5/hexagonal_2.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_hex/fvca5/hexagonal_3.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_hex/fvca5/hexagonal_4.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_hex/fvca5/hexagonal_5.typ1" );
+    paths.push_back( mesh_base + "/2D_hex/fvca5/hexagonal_1.typ1" );
+    paths.push_back( mesh_base + "/2D_hex/fvca5/hexagonal_2.typ1" );
+    paths.push_back( mesh_base + "/2D_hex/fvca5/hexagonal_3.typ1" );
+    paths.push_back( mesh_base + "/2D_hex/fvca5/hexagonal_4.typ1" );
+    paths.push_back( mesh_base + "/2D_hex/fvca5/hexagonal_5.typ1" );
 
     std::vector< error_type > error_sumup;
 
@@ -387,12 +402,17 @@ void test_kershaws( const disk::mechanics::NonLinearParameters< T > &rp,
                     const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 5;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/2D_kershaw/fvca5/mesh4_1_1.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_kershaw/fvca5/mesh4_1_2.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_kershaw/fvca5/mesh4_1_3.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_kershaw/fvca5/mesh4_1_4.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_kershaw/fvca5/mesh4_1_5.typ1" );
+    paths.push_back( mesh_base + "/2D_kershaw/fvca5/mesh4_1_1.typ1" );
+    paths.push_back( mesh_base + "/2D_kershaw/fvca5/mesh4_1_2.typ1" );
+    paths.push_back( mesh_base + "/2D_kershaw/fvca5/mesh4_1_3.typ1" );
+    paths.push_back( mesh_base + "/2D_kershaw/fvca5/mesh4_1_4.typ1" );
+    paths.push_back( mesh_base + "/2D_kershaw/fvca5/mesh4_1_5.typ1" );
 
     std::vector< error_type > error_sumup;
 
@@ -409,12 +429,17 @@ void test_quads_fvca5( const disk::mechanics::NonLinearParameters< T > &rp,
                        const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 5;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/2D_quads/fvca5/mesh2_1.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/fvca5/mesh2_2.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/fvca5/mesh2_3.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/fvca5/mesh2_4.typ1" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/fvca5/mesh2_5.typ1" );
+    paths.push_back( mesh_base + "/2D_quads/fvca5/mesh2_1.typ1" );
+    paths.push_back( mesh_base + "/2D_quads/fvca5/mesh2_2.typ1" );
+    paths.push_back( mesh_base + "/2D_quads/fvca5/mesh2_3.typ1" );
+    paths.push_back( mesh_base + "/2D_quads/fvca5/mesh2_4.typ1" );
+    paths.push_back( mesh_base + "/2D_quads/fvca5/mesh2_5.typ1" );
 
     std::vector< error_type > error_sumup;
 
@@ -431,12 +456,17 @@ void test_quads_diskpp( const disk::mechanics::NonLinearParameters< T > &rp,
                         const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/2D_quads/diskpp/testmesh-4-4.quad" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/diskpp/testmesh-8-8.quad" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/diskpp/testmesh-16-16.quad" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/diskpp/testmesh-32-32.quad" );
-    paths.push_back( "../../../diskpp/meshes/2D_quads/diskpp/testmesh-256-256.quad" );
+    paths.push_back( mesh_base + "/2D_quads/diskpp/testmesh-4-4.quad" );
+    paths.push_back( mesh_base + "/2D_quads/diskpp/testmesh-8-8.quad" );
+    paths.push_back( mesh_base + "/2D_quads/diskpp/testmesh-16-16.quad" );
+    paths.push_back( mesh_base + "/2D_quads/diskpp/testmesh-32-32.quad" );
+    paths.push_back( mesh_base + "/2D_quads/diskpp/testmesh-256-256.quad" );
 
     std::vector< error_type > error_sumup;
 
@@ -453,12 +483,17 @@ void test_hexahedra_diskpp( const disk::mechanics::NonLinearParameters< T > &rp,
                             const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/diskpp/testmesh-2-2-2.hex" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/diskpp/testmesh-4-4-4.hex" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/diskpp/testmesh-8-8-8.hex" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/diskpp/testmesh-16-16-16.hex" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/diskpp/testmesh-32-32-32.hex" );
+    paths.push_back( mesh_base + "/3D_hexa/diskpp/testmesh-2-2-2.hex" );
+    paths.push_back( mesh_base + "/3D_hexa/diskpp/testmesh-4-4-4.hex" );
+    paths.push_back( mesh_base + "/3D_hexa/diskpp/testmesh-8-8-8.hex" );
+    paths.push_back( mesh_base + "/3D_hexa/diskpp/testmesh-16-16-16.hex" );
+    paths.push_back( mesh_base + "/3D_hexa/diskpp/testmesh-32-32-32.hex" );
 
     std::vector< error_type > error_sumup;
 
@@ -475,12 +510,17 @@ void test_hexahedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
                            const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/fvca6/hexa_2x2x2.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/fvca6/hexa_4x4x4.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/fvca6/hexa_8x8x8.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/fvca6/hexa_16x16x16.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_hexa/fvca6/hexa_32x32x32.hex" );
+    paths.push_back( mesh_base + "/3D_hexa/fvca6/hexa_2x2x2.msh" );
+    paths.push_back( mesh_base + "/3D_hexa/fvca6/hexa_4x4x4.msh" );
+    paths.push_back( mesh_base + "/3D_hexa/fvca6/hexa_8x8x8.msh" );
+    paths.push_back( mesh_base + "/3D_hexa/fvca6/hexa_16x16x16.msh" );
+    paths.push_back( mesh_base + "/3D_hexa/fvca6/hexa_32x32x32.hex" );
 
     std::vector< error_type > error_sumup;
 
@@ -497,12 +537,17 @@ void test_tetrahedra_netgen( const disk::mechanics::NonLinearParameters< T > &rp
                              const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/netgen/fvca6_tet0.mesh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/netgen/fvca6_tet1.mesh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/netgen/fvca6_tet2.mesh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/netgen/fvca6_tet3.mesh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/netgen/fvca6_tet4.mesh" );
+    paths.push_back( mesh_base + "/3D_tetras/netgen/fvca6_tet0.mesh" );
+    paths.push_back( mesh_base + "/3D_tetras/netgen/fvca6_tet1.mesh" );
+    paths.push_back( mesh_base + "/3D_tetras/netgen/fvca6_tet2.mesh" );
+    paths.push_back( mesh_base + "/3D_tetras/netgen/fvca6_tet3.mesh" );
+    paths.push_back( mesh_base + "/3D_tetras/netgen/fvca6_tet4.mesh" );
 
     std::vector< error_type > error_sumup;
 
@@ -519,11 +564,16 @@ void test_polyhedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
                            const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 3;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/3D_general/fvca6/dbls_10.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_general/fvca6/dbls_20.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_general/fvca6/dbls_30.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_general/fvca6/dbls_40.msh" );
+    paths.push_back( mesh_base + "/3D_general/fvca6/dbls_10.msh" );
+    paths.push_back( mesh_base + "/3D_general/fvca6/dbls_20.msh" );
+    paths.push_back( mesh_base + "/3D_general/fvca6/dbls_30.msh" );
+    paths.push_back( mesh_base + "/3D_general/fvca6/dbls_40.msh" );;
 
     std::vector< error_type > error_sumup;
 
@@ -540,12 +590,17 @@ void test_tetrahedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
                             const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
+    char *env_mesh_base = getenv("DISKPP_MESH_PATH");
+    std::string mesh_base = "../../../diskpp/meshes/";
+    if (env_mesh_base)
+        mesh_base = env_mesh_base;
+
     std::vector< std::string > paths;
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/fvca6/tet.0.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/fvca6/tet.1.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/fvca6/tet.2.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/fvca6/tet.3.msh" );
-    paths.push_back( "../../../diskpp/meshes/3D_tetras/fvca6/tet.4.msh" );
+    paths.push_back( mesh_base + "/3D_tetras/fvca6/tet.0.msh" );
+    paths.push_back( mesh_base + "/3D_tetras/fvca6/tet.1.msh" );
+    paths.push_back( mesh_base + "/3D_tetras/fvca6/tet.2.msh" );
+    paths.push_back( mesh_base + "/3D_tetras/fvca6/tet.3.msh" );
+    paths.push_back( mesh_base + "/3D_tetras/fvca6/tet.4.msh" );
 
     std::vector< error_type > error_sumup;
 
@@ -616,6 +671,9 @@ int main( int argc, char **argv ) {
     rp.setStabilizationParameter( 2.0 * material_data.getMu() );
     rp.setVerbose( verbose );
     rp.setPrecomputation( true );
+#ifdef NSM_USE_MUMPS
+    rp.setLinearSolver( disk::solvers::LinearSolverType::MUMPS_LU );
+#endif
 
     argc -= optind;
     argv += optind;

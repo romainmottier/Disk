@@ -10,6 +10,7 @@
 
 
 
+#include "diskpp/common/eigen.hpp"
 namespace disk {
 
 template<typename T, typename U>
@@ -558,6 +559,9 @@ std::pair<dynamic_matrix<T>, dynamic_vector<T>>
 static_condensation(const dynamic_matrix<T>& lhs, const dynamic_vector<T>& rhs,
                     const size_t tf_bnd)
 {
+    assert(lhs.rows() == lhs.cols());
+    assert(lhs.cols() == rhs.rows() or rhs.rows() == tf_bnd);
+
     auto t_size = tf_bnd;
     auto f_size = lhs.rows() - tf_bnd;
 
@@ -567,7 +571,9 @@ static_condensation(const dynamic_matrix<T>& lhs, const dynamic_vector<T>& rhs,
     dynamic_matrix<T> LFF = lhs.block(tf_bnd, tf_bnd, f_size, f_size);
 
     dynamic_vector<T> bT = rhs.segment(     0, t_size);
-    dynamic_vector<T> bF = rhs.segment(tf_bnd, f_size);
+    dynamic_vector<T> bF = dynamic_vector<T>::Zero(f_size);
+    if (rhs.rows() == lhs.cols())
+        rhs.segment(tf_bnd, f_size);
 
     LDLT<dynamic_matrix<T>> ldlt_LTT(LTT);
     if (ldlt_LTT.info() != Eigen::Success)
@@ -584,6 +590,7 @@ dynamic_matrix<T>
 static_condensation(const dynamic_matrix<T>& lhs,
                     const size_t tf_bnd)
 {
+    assert(lhs.rows() == lhs.cols());
     auto t_size = tf_bnd;
     auto f_size = lhs.rows() - tf_bnd;
 
@@ -606,6 +613,7 @@ dynamic_vector<T>
 static_decondensation(const dynamic_matrix<T>& lhs, const dynamic_vector<T>& rhs,
                       const dynamic_vector<T>& uF)
 {
+    assert(lhs.rows() == lhs.cols());
     auto t_size = lhs.rows() - uF.rows();
     auto tf_bnd = t_size;
     auto f_size = uF.rows();
@@ -631,6 +639,7 @@ dynamic_matrix<T>
 static_decondensation(const dynamic_matrix<T>& lhs,
                       const dynamic_matrix<T>& uF)
 {
+    assert(lhs.rows() == lhs.cols());
     auto t_size = lhs.rows() - uF.rows();
     auto tf_bnd = t_size;
     auto f_size = uF.rows();

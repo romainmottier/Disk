@@ -96,7 +96,7 @@ make_vector_hho_symmetric_laplacian(const Mesh&                     msh,
     matrix_type gr_lhs = matrix_type::Zero(rbs_ho + nb_lag, rbs_ho + nb_lag);
     matrix_type gr_rhs = matrix_type::Zero(rbs_ho + nb_lag, num_total_dofs);
 
-    const auto qps = integrate(msh, cl, 2 * (recdeg - 1));
+    const auto qps = integrate(msh, cl, 2 * (recdeg-1));
     for (auto& qp : qps)
     {
         const auto dphi    = rb.eval_sgradients(qp.point());
@@ -151,7 +151,7 @@ make_vector_hho_symmetric_laplacian(const Mesh&                     msh,
     for (auto& qp : qps_2)
     {
         const function_type dphi = lb.eval_gradients(qp.point());
-        Matrix<T, Dynamic, nb_lag> rphi = Matrix<T, Dynamic, nb_lag>::Zero(rbs, N);
+        Matrix<T, Dynamic, nb_lag> rphi = Matrix<T, Dynamic, nb_lag>::Zero(rbs, nb_lag);
 
         int j = 0;
         for (size_t i = 0; i < lb.size(); i++)

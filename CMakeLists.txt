@@ -122,11 +122,13 @@ endif()
 
 ######################################################################
 ## Package: Intel MKL support
-find_package(MKL)
+set(MKL_INTERFACE "lp64")
+find_package(MKL CONFIG REQUIRED PATHS $ENV{MKLROOT})
 if (MKL_FOUND)
-  include_directories(${MKL_INCLUDE_DIRS})
-  set(LINK_LIBS ${LINK_LIBS} MKL)
+  set(LINK_LIBS ${LINK_LIBS} MKL::MKL)
   set(HAVE_INTEL_MKL TRUE)
+  add_definitions(-DHAVE_INTEL_MKL)
+  add_definitions(-DHAVE_PARDISO)
 endif()
 
 ######################################################################
@@ -242,6 +244,10 @@ set(LINK_LIBS ${LINK_LIBS} sol2::sol2)
 #install(TARGETS diskpp LIBRARY DESTINATION lib)
 
 #install(DIRECTORY meshes DESTINATION share)
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/diskpp_config.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/diskpp_config.h @ONLY)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 ## Super-temporary hack
 include_directories(contrib)

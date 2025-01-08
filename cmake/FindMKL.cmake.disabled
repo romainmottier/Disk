@@ -1,3 +1,19 @@
+
+
+
+
+#
+# You should use the CMake configuration provided with Intel MKL.
+# The proper way to do it is to set the MKLROOT environment variable
+# to the appropriate path, for example:
+#
+#   MKLROOT=/opt/intel/oneapi/mkl/latest ccmake ..
+#
+
+
+
+
+
 #
 # This source file is part of EMT, the ElectroMagneticTool.
 #
@@ -69,7 +85,7 @@ endif()
 ###########################################################
 ## mkl_intel_lp64 
 find_library(MKL_mkl_intel_lp64_LIBRARY
-    NAMES   mkl_intel_lp64
+    NAMES   mkl_intel_ilp64
     HINTS ENV MKL_ROOT ${MKL_ROOT} ${MKL_HINTS}
     PATH_SUFFIXES lib lib/intel64 lib/intel64_lin
                   mkl/lib mkl/lib/intel64 mkl/lib/intel64_lin)

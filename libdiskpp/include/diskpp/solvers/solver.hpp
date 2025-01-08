@@ -33,6 +33,8 @@
     //#include "feast.hpp"
 #endif
 
+#include "../contrib/solver_wrappers/iface_mumps/include/mumps.hpp"
+
 namespace disk
 {
 namespace solvers
@@ -368,8 +370,8 @@ Eigen::Matrix<T, Eigen::Dynamic, 1> linear_solver(const LinearSolverType &type,
     }
     case LinearSolverType::MUMPS_LU: {
 #ifdef HAVE_MUMPS
-        // x = mumps_lu(A, b);
-        sucess = false;
+        x = mumps_lu(A, b);
+        sucess = true;
 #else
         throw std::runtime_error("Mumps is not installed");
 #endif /* HAVE_INTEL_MKL */
@@ -377,8 +379,8 @@ Eigen::Matrix<T, Eigen::Dynamic, 1> linear_solver(const LinearSolverType &type,
     }
     case LinearSolverType::MUMPS_LDLT: {
 #ifdef HAVE_MUMPS
-        // x = mumps_ldlt(A, b);
-        sucess = false;
+        x = mumps_ldlt(A, b);
+        sucess = true;
 #else
         throw std::runtime_error("Mumps is not installed");
 #endif /* HAVE_INTEL_MKL */

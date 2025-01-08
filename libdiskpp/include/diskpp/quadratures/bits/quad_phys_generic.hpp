@@ -280,6 +280,8 @@ integrate(const disk::generic_mesh<T, 2>& msh, const typename disk::generic_mesh
         return disk::quadrature::triangle_gauss(degree, pts[0], pts[1], pts[2]);
     }
 
+    /* The coordinate transformation could become non-linear, so use tensorized Gauss
+     * points only on quadrilaterals which are almost square. */
     if ( pts.size() == 4 and quadrature::priv::is_tens_quad( msh, cl ) ) {
         return disk::quadrature::tensorized_gauss_legendre(degree, pts[0], pts[1], pts[2], pts[3]);
     }
