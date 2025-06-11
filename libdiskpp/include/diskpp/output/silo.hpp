@@ -899,6 +899,37 @@ public:
         return err == 0;
     }
 
+    // add variable for unfitted meshes
+    template<typename T>
+    bool add_variable(const std::string& mesh_name,
+                      const std::string& var_name,
+                      T* data,
+                      size_t data_len,
+                      variable_centering_t centering)
+    {
+        static_assert(std::is_same<T,double>::value, "Only double for now");
+
+        if (!m_siloDb)
+        {
+            std::cout << "Silo database not opened" << std::endl;
+            return false;
+        }
+
+        if (centering == zonal_variable_t) {
+            DBPutUcdvar1(m_siloDb, var_name.c_str(), mesh_name.c_str(),
+                         data, data_len, NULL, 0, DB_DOUBLE, DB_ZONECENT, NULL);
+            return true;
+        }
+
+        if (centering == nodal_variable_t) {
+            DBPutUcdvar1(m_siloDb, var_name.c_str(), mesh_name.c_str(),
+                         data, data_len, NULL, 0, DB_DOUBLE, DB_NODECENT, NULL);
+            return true;
+        }
+
+        return false;
+    }
+
     bool add_expression(const std::string& expr_name,
                         const std::string& expr_definition,
                         int expr_type)

@@ -68,7 +68,7 @@ if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
     endif()
 endif()
 
-find_package(Spectra REQUIRED)
+#find_package(Spectra REQUIRED)
 
 ######################################################################
 ## Eigen3

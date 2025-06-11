@@ -331,6 +331,7 @@ public:
 
     size_t  cells_size() const { return this->backend_storage()->surfaces.size(); }
     size_t  faces_size() const { return this->backend_storage()->edges.size(); }
+
 };
 
 /* \brief Template specialization for 1D meshes.
@@ -833,6 +834,23 @@ public:
 
 
 template<typename Mesh>
+class nodes_iterproxy
+{
+    const Mesh& m_msh;
+
+public:
+    nodes_iterproxy(const Mesh& msh)
+        : m_msh(msh)
+    {}
+
+    auto begin()        { return m_msh.nodes_begin(); }
+    auto begin() const  { return m_msh.nodes_begin(); }
+    auto end()          { return m_msh.nodes_end(); }
+    auto end() const    { return m_msh.nodes_end(); }
+};
+
+
+template<typename Mesh>
 class boundary_faces_iterproxy
 {
     Mesh& m_msh;
@@ -890,6 +908,18 @@ auto faces(const mesh<T, DIM, Storage>& msh)
     return priv::faces_iterproxy<Mesh>(msh);
 }
 
+/**
+ * Get iterator proxy to iterate on nodes with
+ *
+ *      for (auto& fc : faces(msh)) {}
+ */
+
+template<typename T, size_t DIM, typename Storage>
+auto nodes(const mesh<T, DIM, Storage>& msh)
+{
+    using Mesh = mesh<T, DIM, Storage>;
+    return priv::faces_iterproxy<Mesh>(msh);
+}
 
 /**
  * Get iterator proxy to iterate on boundary faces with

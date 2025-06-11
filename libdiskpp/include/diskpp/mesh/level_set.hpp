@@ -24,11 +24,9 @@
 template<typename T>
 struct level_set {
    public:
-    virtual T operator()(const disk::point<T,2>& pt) const {
-    }
+    virtual T operator()(const disk::point<T,2>& pt) const = 0;
 
-    virtual Eigen::Matrix<T,2,1> gradient(const disk::point<T,2>& pt) const {
-    }
+    virtual Eigen::Matrix<T,2,1> gradient(const disk::point<T,2>& pt) const = 0;
 
     Eigen::Matrix<T,2,1> normal(const disk::point<T,2>& pt) const {
         Eigen::Matrix<T,2,1> ret;
