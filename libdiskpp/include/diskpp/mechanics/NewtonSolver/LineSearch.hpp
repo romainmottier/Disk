@@ -50,32 +50,36 @@ class ConvergenceAcceleration {
 
     int n_iter;
 
-    vector_type Xa_km, Xa_k;
-    vector_type X_k, X_km;
+    enum kiter {
+        k = 0,
+        km = 1,
+    };
+    std::vector< vector_type > G, Xa;
 
   public:
-    ConvergenceAcceleration() : n_iter( 0 ) {}
+    ConvergenceAcceleration() : n_iter( 0 ) {
+        G.resize( km + 1 );
+        Xa.resize( km + 1 );
+    }
 
-    vector_type aitken( const vector_type &X_kp ) {
+    vector_type aitken( const vector_type &G_k ) {
         // Also called crossed secand method - eq 44.
         if ( n_iter == 0 ) {
             n_iter++;
-            X_km = X_kp;
-            Xa_km = X_km;
-            return Xa_km;
+            Xa[km] = G_k;
+            return G_k;
         } else if ( n_iter == 1 ) {
             n_iter++;
-            X_k = X_kp;
-            Xa_k = X_k;
-            return Xa_k;
+            G[km] = G_k;
+            Xa[k] = G_k;
+            return G_k;
         } else {
             n_iter++;
-            const auto G_k = X_kp;
-            const auto G_km = X_k;
-            const auto dG_k = G_k - G_km;
+            G[k] = G_k;
+            const auto dG_k = G[k] - G[km];
 
-            const auto dX_k = G_k - Xa_k;
-            const auto dX_km = G_km - Xa_km;
+            const auto dX_k = G[k] - Xa[k];
+            const auto dX_km = G[km] - Xa[km];
             const auto ddX = dX_k - dX_km;
 
             // compute acceleration
@@ -85,11 +89,10 @@ class ConvergenceAcceleration {
             const vector_type Xa_kp = G_k - wr * dX_k;
 
             // update
-            X_km = X_k;
-            X_k = X_kp;
+            G[km] = G[k];
 
-            Xa_km = Xa_k;
-            Xa_k = Xa_kp;
+            Xa[km] = Xa[k];
+            Xa[k] = Xa_kp;
 
             return Xa_kp;
         }
@@ -98,16 +101,16 @@ class ConvergenceAcceleration {
     vector_type relaxation( const vector_type &X_kp, const T omega = 0.5 ) {
         if ( n_iter == 0 ) {
             n_iter++;
-            Xa_k = X_kp;
-            return Xa_k;
+            Xa[k] = X_kp;
+            return X_kp;
         } else {
             n_iter++;
 
             // compute accelerted solution
-            const vector_type Xa_kp = ( 1.0 - omega ) * Xa_k + omega * X_kp;
+            const vector_type Xa_kp = ( 1.0 - omega ) * Xa[k] + omega * X_kp;
 
             // update
-            Xa_k = Xa_kp;
+            Xa[k] = Xa_kp;
 
             return Xa_kp;
         }
@@ -133,12 +136,12 @@ class ConvergenceAcceleration {
         // Compute residual.dot(increment) (and update solution)
         // auto _f = [&fvec, &func, &dx, &xold, &n, &x]( const T &rho ) {
         //     for ( int j = 0; j < n; j++ )
-        //         x[j] = xold[j] + rho * dx[j];
+        //         G[j] = xold[j] + rho * dG[j];
         //     const auto norm = func( x );
 
         //     T f = 0.0;
         //     for ( int j = 0; j < n; j++ )
-        //         f += fvec[j] * dx[j];
+        //         f += fvec[j] * dG[j];
         //     return f;
         // };
 
@@ -260,43 +263,77 @@ class ConvergenceAcceleration {
         f = func( rho_opt, false );
     }
 
-    vector_type anderson( const vector_type &X_kp ) {
-        // also called alternate decant method - eq.45
+    vector_type anderson( const vector_type &G_k ) {
+        // also called alternate secant method - eq.45
         if ( n_iter == 0 ) {
             n_iter++;
-            X_km = X_kp;
-            Xa_km = X_km;
-            return Xa_km;
+            Xa[km] = G_k;
+            return G_k;
         } else if ( n_iter == 1 ) {
             n_iter++;
-            X_k = X_kp;
-            Xa_k = X_k;
-            return Xa_k;
-        } else {
-            n_iter++;
-            const auto G_k = X_kp;
-            const auto G_km = X_k;
-
-            const auto dX_k = G_k - Xa_k;
-            const auto dX_km = G_km - Xa_km;
-            const auto ddX = dX_k - dX_km;
-
-            // compute acceleration
-            const T wr = ddX.dot( dX_k ) / ddX.squaredNorm();
-
-            // compute accelerted solution
-            const vector_type Xa_kp = ( 1.0 - wr ) * G_k + wr * G_km;
-
-            // update
-            X_km = X_k;
-            X_k = X_kp;
-
-            Xa_km = Xa_k;
-            Xa_k = Xa_kp;
-
-            return Xa_kp;
+            G[km] = G_k;
+            Xa[k] = G_k;
+            return G_k;
         }
+        n_iter++;
+
+        G[k] = G_k;
+
+        const auto dX_k = G[k] - Xa[k];
+        const auto dX_km = G[km] - Xa[km];
+        const auto ddX = dX_k - dX_km;
+
+        // compute acceleration
+        const T wr = ddX.dot( dX_k ) / ddX.squaredNorm();
+
+        // compute accelerted solution
+        const vector_type Xa_kp = ( 1.0 - wr ) * G[k] + wr * G[km];
+
+        // update
+        G[km] = G[k];
+
+        Xa[km] = Xa[k];
+        Xa[k] = Xa_kp;
+
+        return Xa_kp;
     }
+
+    //     vector_type anderson_M( const vector_type &G_k, const int M ) {
+    //         // also called alternate decant method - eq.45
+    //         if ( n_iter <= 2 ) {
+    //             if ( n_iter == 0 ) {
+    //                 G_k.resize( std::max( M, 2 ) );
+    //                 Xa.resize( std::max( M, 2 ) );
+    //             }
+    //             return anderson( G_k );
+    //         }
+
+    //         n_iter++;
+
+    //         F.erase( F.begin() );
+    //         X.erase( X.begin() );
+
+    //         F.push_back( f_x - x );
+    //         X.push_back( res );
+
+    //         int k = F.size();
+    //         MatrixXd G( n, k );
+    //         for ( int i = 0; i < k; ++i ) {
+    //             G.col( i ) = F[i] - G[i];
+    //         }
+
+    //         VectorXd gamma;
+    //         // Résolution du problème aux moindres carrés
+    //         gamma = G.colPivHouseholderQr().solve( res );
+
+    //         VectorXd dx = -res;
+    //         for ( int i = 0; i < k; ++i ) {
+    //             dx += gamma( i ) * ( F[i] - G[i] );
+    //         }
+    //     }
+
+    //     return Xa_kp;
+    // }
 };
 } // namespace mechanics
 } // namespace disk
