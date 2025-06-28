@@ -57,6 +57,7 @@ enum DynamicType : int {
 
 enum NonLinearSolverType {
     NEWTON,
+    PICARD,
     QNEWTON_BDIAG_JACO,
     QNEWTON_BDIAG_STAB,
     QNEWTON_BDIAG_ELAS,
@@ -193,6 +194,10 @@ std::string NonLinearSolverName( const NonLinearSolverType &type ) {
     switch ( type ) {
     case NonLinearSolverType::NEWTON: {
         return "NEWTON";
+        break;
+    }
+    case NonLinearSolverType::PICARD: {
+        return "PICARD";
         break;
     }
     case NonLinearSolverType::QNEWTON_BDIAG_JACO: {
@@ -487,6 +492,8 @@ class NonLinearParameters {
                 line++;
                 if ( type == "NEWTON" ) {
                     m_nlin_solv = NonLinearSolverType::NEWTON;
+                } else if ( type == "PICARD" ) {
+                    m_nlin_solv = NonLinearSolverType::PICARD;
                 } else if ( type == "QNEWTON_BDIAG_JACO" ) {
                     m_nlin_solv = NonLinearSolverType::QNEWTON_BDIAG_JACO;
                 } else if ( type == "QNEWTON_BDIAG_STAB" ) {

@@ -119,7 +119,8 @@ class NonLinearStep {
         std::unique_ptr< GenericIteration< mesh_type > > nlIter;
 
         switch ( rp.getNonLinearSolver() ) {
-        case NonLinearSolverType::NEWTON: {
+        case NonLinearSolverType::NEWTON:
+        case NonLinearSolverType::PICARD: {
             // Newton step
             nlIter = std::make_unique< NewtonIteration< mesh_type > >( msh, bnd, rp, degree_infos,
                                                                        lin_solv, current_step );

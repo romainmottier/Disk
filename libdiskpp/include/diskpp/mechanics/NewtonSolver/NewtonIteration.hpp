@@ -83,6 +83,7 @@ class NewtonIteration : public GenericIteration< MeshType > {
         this->m_F_int = 0.0;
 
         const bool small_def = ( behavior.getDeformation() == SMALL_DEF );
+        const bool use_tangent_modulus = rp.getNonLinearSolver() == NonLinearSolverType::NEWTON;
 
         // Like if it is an implicit scheme
         auto current_time = this->m_time_step.end_time();
@@ -126,7 +127,7 @@ class NewtonIteration : public GenericIteration< MeshType > {
             tc.tic();
             // std::cout << "Elem" << std::endl;
             elem.compute( msh, cl, bnd, rp, degree_infos, rlf, GT, huT, this->m_time_step, behavior,
-                          stab_manager, small_def );
+                          stab_manager, small_def, true, use_tangent_modulus );
 
             matrix_type lhs = elem.K_int;
             vector_type rhs = elem.RTF;

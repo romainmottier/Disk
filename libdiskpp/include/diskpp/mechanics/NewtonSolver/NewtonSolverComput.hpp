@@ -384,7 +384,8 @@ class mechanical_computation {
                   const std::unique_ptr< func_type > &load, const matrix_type &RkT,
                   const vector_type &uTF, const TimeStep< scalar_type > &time_step,
                   behavior_type &behavior, StabCoeffManager< scalar_type > &stab_manager,
-                  const bool small_def, const bool tangent_matix = true ) {
+                  const bool small_def, const bool tangent_matix = true,
+                  const bool use_tangent_modulus = true ) {
         timecounter tc;
 
         const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
@@ -457,8 +458,8 @@ class mechanical_computation {
             // Compute behavior
             // if small_def stress = Cauchy else stress = PK1
             tc.tic();
-            const auto [stress, Cep] = _compute_behavior( behavior, cell_id, i_qp, RkT_iqn,
-                                                          small_def, true, tangent_matix );
+            const auto [stress, Cep] = _compute_behavior(
+                behavior, cell_id, i_qp, RkT_iqn, small_def, use_tangent_modulus, tangent_matix );
             tc.toc();
             time_law += tc.elapsed();
             // std::cout << "stress: " << stress.norm() << std::endl;

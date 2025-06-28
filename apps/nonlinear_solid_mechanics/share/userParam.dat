@@ -19,7 +19,7 @@ TimeSave
 NLSolver
 NEWTON
 LineSearch
-MIXTE
+SECANT
 StabType
 HHO
 AdaptativeStabilization
