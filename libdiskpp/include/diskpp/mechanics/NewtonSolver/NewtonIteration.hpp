@@ -242,6 +242,10 @@ class NewtonIteration : public GenericIteration< MeshType > {
 
     scalar_type postprocess( const mesh_type &msh, const bnd_type &bnd, const param_type &rp,
                              const MeshDegreeInfo< mesh_type > &degree_infos,
+                             const std::unique_ptr< func_type > &lf,
+                             const std::vector< matrix_type > &gradient_precomputed,
+                             const std::vector< matrix_type > &stab_precomputed,
+                             behavior_type &behavior, StabCoeffManager< scalar_type > &stab_manager,
                              MultiTimeField< scalar_type > &fields ) override {
         timecounter tc;
         tc.tic();

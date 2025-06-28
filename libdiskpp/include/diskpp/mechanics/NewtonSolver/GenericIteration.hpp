@@ -185,10 +185,12 @@ class GenericIteration {
         return SolveInfo( m_assembler.LHS.rows(), m_assembler.LHS.nonZeros(), tc.elapsed() );
     }
 
-    virtual scalar_type postprocess( const mesh_type &msh, const bnd_type &bnd,
-                                     const param_type &rp,
-                                     const MeshDegreeInfo< mesh_type > &degree_infos,
-                                     MultiTimeField< scalar_type > &fields ) {
+    virtual scalar_type postprocess(
+        const mesh_type &msh, const bnd_type &bnd, const param_type &rp,
+        const MeshDegreeInfo< mesh_type > &degree_infos, const std::unique_ptr< func_type > &lf,
+        const std::vector< matrix_type > &gradient_precomputed,
+        const std::vector< matrix_type > &stab_precomputed, behavior_type &behavior,
+        StabCoeffManager< scalar_type > &stab_manager, MultiTimeField< scalar_type > &fields ) {
         throw std::runtime_error( "GenericIteration.postprocess has to be overloaded." );
         return 0.0;
     }

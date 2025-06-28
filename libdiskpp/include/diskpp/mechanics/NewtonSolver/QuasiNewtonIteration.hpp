@@ -117,6 +117,115 @@ class QuasiNewtonIteration : public GenericIteration< MeshType > {
         return mm;
     }
 
+    AssemblyInfo _getResidual( const mesh_type &msh, const bnd_type &bnd, const param_type &rp,
+                               const MeshDegreeInfo< mesh_type > &degree_infos,
+                               const std::unique_ptr< func_type > &lf,
+                               const std::vector< matrix_type > &gradient_precomputed,
+                               const std::vector< matrix_type > &stab_precomputed,
+                               behavior_type &behavior,
+                               StabCoeffManager< scalar_type > &stab_manager,
+                               MultiTimeField< scalar_type > &fields ) {
+        elem_type elem;
+        AssemblyInfo ai;
+
+        // set RHS to zero
+        this->m_assembler.initialize();
+        this->m_F_int = 0.0;
+
+        const bool small_def = ( behavior.getDeformation() == SMALL_DEF );
+
+        const bool mixed_order = rp.m_cell_degree > rp.m_face_degree;
+
+        // Like if it is an implicit scheme
+        auto current_time = this->m_time_step.end_time();
+        auto depl = fields.getCurrentField( FieldName::DEPL );
+        auto depl_faces = fields.getCurrentField( FieldName::DEPL_FACES );
+
+        const auto lhs_loc = this->m_lin_solv->getLocalLhs();
+
+        std::vector< vector_type > resi_cells;
+        resi_cells.reserve( msh.cells_size() );
+
+        const auto rlf = this->_getLoad( lf, current_time );
+
+        timecounter tc, ttot;
+
+        ttot.tic();
+
+        for ( auto &cl : msh ) {
+            const auto cell_i = msh.lookup( cl );
+
+            const auto huT = depl.at( cell_i );
+
+            const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
+            const auto num_cell_dofs = vector_cell_dofs( msh, cell_infos );
+
+            const auto num_tot_dofs = huT.size();
+            const auto num_faces_dofs = num_tot_dofs - num_cell_dofs;
+
+            // Gradient Reconstruction
+            // std::cout << "Grad" << std::endl;
+            tc.tic();
+            matrix_type GT = _gradrec( msh, cl, rp, degree_infos, small_def, gradient_precomputed );
+            tc.toc();
+            ai.m_time_gradrec += tc.elapsed();
+
+            // Mechanical Computation
+
+            tc.tic();
+            // std::cout << "Elem" << std::endl;
+            elem.compute( msh, cl, bnd, rp, degree_infos, rlf, GT, huT, this->m_time_step, behavior,
+                          stab_manager, small_def, false );
+
+            vector_type rhs = elem.RTF.tail( num_faces_dofs );
+            this->m_F_int += elem.F_int.tail( num_faces_dofs ).squaredNorm();
+
+            resi_cells.push_back( elem.RTF.head( num_cell_dofs ) );
+
+            tc.toc();
+            ai.m_time_elem += tc.elapsed();
+
+            tc.tic();
+            if ( rp.m_stab ) {
+                const auto beta_s = stab_manager.getValue( msh, cl );
+
+                matrix_type stab_F =
+                    beta_s * ( _stab( msh, cl, rp, degree_infos, stab_precomputed )
+                                   .bottomLeftCorner( num_faces_dofs, num_tot_dofs ) );
+
+                rhs -= stab_F * huT;
+            }
+            tc.toc();
+            ai.m_time_stab += tc.elapsed();
+
+            tc.tic();
+            this->m_assembler.assemble_nonlinear_rhs( msh, cl, bnd, ( *lhs_loc )[cell_i], rhs,
+                                                      depl_faces );
+            tc.toc();
+            ai.m_time_assembler += tc.elapsed();
+        }
+        fields.setCurrentField( FieldName::RESI_CELLS, resi_cells );
+
+        this->m_F_int = sqrt( this->m_F_int );
+
+        ai.m_time_law += elem.time_law;
+        ai.m_time_contact += elem.time_contact;
+        ai.m_time_load += elem.time_load;
+        ai.m_time_rigi += elem.time_rigi;
+        ai.m_time_fint += elem.time_fint;
+
+        tc.tic();
+        this->m_assembler.impose_neumann_boundary_conditions( msh, bnd );
+        this->m_assembler.finalize();
+        tc.toc();
+        ai.m_time_assembler += tc.elapsed();
+
+        ttot.toc();
+        ai.m_time_assembly = ttot.elapsed();
+        ai.m_linear_system_size = this->m_assembler.LHS.rows();
+        return ai;
+    }
+
   public:
     QuasiNewtonIteration( const mesh_type &msh, const bnd_type &bnd, const param_type &rp,
                           const MeshDegreeInfo< mesh_type > &degree_infos,
@@ -257,102 +366,8 @@ class QuasiNewtonIteration : public GenericIteration< MeshType > {
                            const std::vector< matrix_type > &stab_precomputed,
                            behavior_type &behavior, StabCoeffManager< scalar_type > &stab_manager,
                            MultiTimeField< scalar_type > &fields ) override {
-        elem_type elem;
-        AssemblyInfo ai;
-
-        // set RHS to zero
-        this->m_assembler.initialize();
-
-        const bool small_def = ( behavior.getDeformation() == SMALL_DEF );
-
-        const bool mixed_order = rp.m_cell_degree > rp.m_face_degree;
-
-        // Like if it is an implicit scheme
-        auto current_time = this->m_time_step.end_time();
-        auto depl = fields.getCurrentField( FieldName::DEPL );
-        auto depl_faces = fields.getCurrentField( FieldName::DEPL_FACES );
-
-        const auto lhs_loc = this->m_lin_solv->getLocalLhs();
-
-        std::vector< vector_type > resi_cells;
-        resi_cells.reserve( msh.cells_size() );
-
-        const auto rlf = this->_getLoad( lf, current_time );
-
-        timecounter tc, ttot;
-
-        ttot.tic();
-
-        for ( auto &cl : msh ) {
-            const auto cell_i = msh.lookup( cl );
-
-            const auto huT = depl.at( cell_i );
-
-            const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
-            const auto num_cell_dofs = vector_cell_dofs( msh, cell_infos );
-
-            const auto num_tot_dofs = huT.size();
-            const auto num_faces_dofs = num_tot_dofs - num_cell_dofs;
-
-            // Gradient Reconstruction
-            // std::cout << "Grad" << std::endl;
-            tc.tic();
-            matrix_type GT = _gradrec( msh, cl, rp, degree_infos, small_def, gradient_precomputed );
-            tc.toc();
-            ai.m_time_gradrec += tc.elapsed();
-
-            // Mechanical Computation
-
-            tc.tic();
-            // std::cout << "Elem" << std::endl;
-            elem.compute( msh, cl, bnd, rp, degree_infos, rlf, GT, huT, this->m_time_step, behavior,
-                          stab_manager, small_def, false );
-
-            vector_type rhs = elem.RTF.tail( num_faces_dofs );
-            this->m_F_int += elem.F_int.tail( num_faces_dofs ).squaredNorm();
-
-            resi_cells.push_back( elem.RTF.head( num_cell_dofs ) );
-
-            tc.toc();
-            ai.m_time_elem += tc.elapsed();
-
-            tc.tic();
-            if ( rp.m_stab ) {
-                const auto beta_s = stab_manager.getValue( msh, cl );
-
-                matrix_type stab_F =
-                    beta_s * ( _stab( msh, cl, rp, degree_infos, stab_precomputed )
-                                   .bottomLeftCorner( num_faces_dofs, num_tot_dofs ) );
-
-                rhs -= stab_F * huT;
-            }
-            tc.toc();
-            ai.m_time_stab += tc.elapsed();
-
-            tc.tic();
-            this->m_assembler.assemble_nonlinear_rhs( msh, cl, bnd, ( *lhs_loc )[cell_i], rhs,
-                                                      depl_faces );
-            tc.toc();
-            ai.m_time_assembler += tc.elapsed();
-        }
-        fields.setCurrentField( FieldName::RESI_CELLS, resi_cells );
-
-        ai.m_time_law += elem.time_law;
-        ai.m_time_contact += elem.time_contact;
-        ai.m_time_load += elem.time_load;
-        ai.m_time_rigi += elem.time_rigi;
-        ai.m_time_fint += elem.time_fint;
-
-        tc.tic();
-        this->m_assembler.impose_neumann_boundary_conditions( msh, bnd );
-        this->m_assembler.finalize();
-        tc.toc();
-        ai.m_time_assembler += tc.elapsed();
-
-        ttot.toc();
-        ai.m_time_assembly = ttot.elapsed();
-        ai.m_linear_system_size = this->m_assembler.LHS.rows();
-        return ai;
+        return _getResidual( msh, bnd, rp, degree_infos, lf, gradient_precomputed, stab_precomputed,
+                             behavior, stab_manager, fields );
     }
 
     SolveInfo solve() override {
@@ -372,6 +387,10 @@ class QuasiNewtonIteration : public GenericIteration< MeshType > {
 
     scalar_type postprocess( const mesh_type &msh, const bnd_type &bnd, const param_type &rp,
                              const MeshDegreeInfo< mesh_type > &degree_infos,
+                             const std::unique_ptr< func_type > &lf,
+                             const std::vector< matrix_type > &gradient_precomputed,
+                             const std::vector< matrix_type > &stab_precomputed,
+                             behavior_type &behavior, StabCoeffManager< scalar_type > &stab_manager,
                              MultiTimeField< scalar_type > &fields ) override {
         timecounter tc;
         tc.tic();
@@ -382,65 +401,145 @@ class QuasiNewtonIteration : public GenericIteration< MeshType > {
         auto [dudT, idx] = this->m_assembler.expand_solution_nonlinear(
             msh, bnd, this->m_system_displ, depl_faces );
 
-        // Update  unknowns
-        // Update face Uf^{i+1} = Uf^i + delta Uf^i
-
-        for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
-            const auto fc = *itor;
-            const size_t face_id = msh.lookup( fc );
-
-            depl_faces.at( face_id ) +=
-                dudT.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
-        }
-
         /* TODO: fix acceleration */
-        // const auto vuF = m_accel.relaxation( asVector( depl_faces ) );
 
-        // for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
-        //     const auto fc = *itor;
-        //     const size_t face_id = msh.lookup( fc );
+        if ( rp.getLineSearch() == LineSearchType::SECANT ) {
 
-        //     depl_faces.at( face_id ) =
-        //         vuF.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
-        // }
+            auto _func = [&msh, &bnd, &rp, &degree_infos, &lf, &gradient_precomputed,
+                          &stab_precomputed, &behavior, &stab_manager, &fields, &dudT, &idx,
+                          depl_faces,
+                          this]( const scalar_type &rho, const bool compute = true ) -> auto {
+                // update solution
 
-        fields.setCurrentField( FieldName::DEPL_FACES, depl_faces );
+                // Update  unknowns
+                // Update face Uf^{i+1} = Uf^i + delta Uf^i
 
-        // Update cell
-        for ( auto &cl : msh ) {
-            const auto cell_i = msh.lookup( cl );
+                auto depl_faces_new = depl_faces;
 
-            const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
-            const auto faces_infos = cell_infos.facesDegreeInfo();
-            const auto num_faces_dofs = vector_faces_dofs( msh, faces_infos );
+                for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
+                    const auto fc = *itor;
+                    const size_t face_id = msh.lookup( fc );
 
-            vector_type udT = vector_type( num_faces_dofs );
+                    depl_faces_new.at( face_id ) +=
+                        rho * dudT.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
+                }
 
-            const auto fcs_id = faces_id( msh, cl );
-            size_t face_offset = 0;
-            for ( size_t face_i = 0; face_i < fcs_id.size(); face_i++ ) {
-                const size_t face_id = fcs_id[face_i];
-                const auto n_face_dofs = idx( face_id + 1 ) - idx( face_id );
+                fields.setCurrentField( FieldName::DEPL_FACES, depl_faces_new );
+                auto depl = fields.getCurrentField( FieldName::DEPL );
 
-                udT.segment( face_offset, n_face_dofs ) = depl_faces[face_id];
-                face_offset += n_face_dofs;
+                // Update cell
+                for ( auto &cl : msh ) {
+                    const auto cell_i = msh.lookup( cl );
+
+                    const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
+                    const auto faces_infos = cell_infos.facesDegreeInfo();
+                    const auto num_faces_dofs = vector_faces_dofs( msh, faces_infos );
+
+                    vector_type udT = vector_type( num_faces_dofs );
+
+                    const auto fcs_id = faces_id( msh, cl );
+                    size_t face_offset = 0;
+                    for ( size_t face_i = 0; face_i < fcs_id.size(); face_i++ ) {
+                        const size_t face_id = fcs_id[face_i];
+                        const auto n_face_dofs = idx( face_id + 1 ) - idx( face_id );
+
+                        udT.segment( face_offset, n_face_dofs ) = depl_faces_new[face_id];
+                        face_offset += n_face_dofs;
+                    }
+
+                    // Update element U^{i+1} = U^i + delta U^i
+                    depl.at( cell_i ).tail( num_faces_dofs ) = udT;
+
+                    // std::cout << "KT_F " << m_AL[cell_i].norm() << std::endl;
+                    // std::cout << "sol_F" << std::endl;
+                    // std::cout << xdT.transpose() << std::endl;
+                    // std::cout << "ft" << std::endl;
+                    // std::cout << m_bL[cell_i].transpose() << std::endl;
+                    // std::cout << "sol_T" << std::endl;
+                    // std::cout << xT.transpose() << std::endl;
+                    // std::cout << depl.at(cell_i).transpose() << std::endl;
+                }
+
+                fields.setCurrentField( FieldName::DEPL, depl );
+                this->m_dyna.postprocess( msh, this->m_time_step, fields );
+
+                // compute new residual
+                if ( compute && std::abs( rho ) > 1e-32 )
+                    const auto ai =
+                        _getResidual( msh, bnd, rp, degree_infos, lf, gradient_precomputed,
+                                      stab_precomputed, behavior, stab_manager, fields );
+
+                return dudT.dot( this->m_assembler.RHS );
+            };
+
+            m_accel.secant( _func );
+        } else {
+
+            for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
+                const auto fc = *itor;
+                const size_t face_id = msh.lookup( fc );
+
+                depl_faces.at( face_id ) +=
+                    dudT.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
             }
 
-            // Update element U^{i+1} = U^i + delta U^i
-            depl.at( cell_i ).tail( num_faces_dofs ) = udT;
+            if ( rp.getLineSearch() != LineSearchType::NO_LS ) {
 
-            // std::cout << "KT_F " << m_AL[cell_i].norm() << std::endl;
-            // std::cout << "sol_F" << std::endl;
-            // std::cout << xdT.transpose() << std::endl;
-            // std::cout << "ft" << std::endl;
-            // std::cout << m_bL[cell_i].transpose() << std::endl;
-            // std::cout << "sol_T" << std::endl;
-            // std::cout << xT.transpose() << std::endl;
-            // std::cout << depl.at(cell_i).transpose() << std::endl;
+                vector_type vuF;
+                if ( rp.getLineSearch() == LineSearchType::RELAXATION ) {
+                    vuF = m_accel.relaxation( asVector( depl_faces ) );
+
+                } else if ( rp.getLineSearch() == LineSearchType::AITKEN ) {
+                    vuF = m_accel.aitken( asVector( depl_faces ) );
+                }
+
+                for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
+                    const auto fc = *itor;
+                    const size_t face_id = msh.lookup( fc );
+
+                    depl_faces.at( face_id ) =
+                        vuF.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
+                }
+            }
+
+            fields.setCurrentField( FieldName::DEPL_FACES, depl_faces );
+
+            // Update cell
+            for ( auto &cl : msh ) {
+                const auto cell_i = msh.lookup( cl );
+
+                const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
+                const auto faces_infos = cell_infos.facesDegreeInfo();
+                const auto num_faces_dofs = vector_faces_dofs( msh, faces_infos );
+
+                vector_type udT = vector_type( num_faces_dofs );
+
+                const auto fcs_id = faces_id( msh, cl );
+                size_t face_offset = 0;
+                for ( size_t face_i = 0; face_i < fcs_id.size(); face_i++ ) {
+                    const size_t face_id = fcs_id[face_i];
+                    const auto n_face_dofs = idx( face_id + 1 ) - idx( face_id );
+
+                    udT.segment( face_offset, n_face_dofs ) = depl_faces[face_id];
+                    face_offset += n_face_dofs;
+                }
+
+                // Update element U^{i+1} = U^i + delta U^i
+                depl.at( cell_i ).tail( num_faces_dofs ) = udT;
+
+                // std::cout << "KT_F " << m_AL[cell_i].norm() << std::endl;
+                // std::cout << "sol_F" << std::endl;
+                // std::cout << xdT.transpose() << std::endl;
+                // std::cout << "ft" << std::endl;
+                // std::cout << m_bL[cell_i].transpose() << std::endl;
+                // std::cout << "sol_T" << std::endl;
+                // std::cout << xT.transpose() << std::endl;
+                // std::cout << depl.at(cell_i).transpose() << std::endl;
+            }
+            fields.setCurrentField( FieldName::DEPL, depl );
+
+            this->m_dyna.postprocess( msh, this->m_time_step, fields );
         }
-        fields.setCurrentField( FieldName::DEPL, depl );
-
-        this->m_dyna.postprocess( msh, this->m_time_step, fields );
 
         tc.toc();
         return tc.elapsed();

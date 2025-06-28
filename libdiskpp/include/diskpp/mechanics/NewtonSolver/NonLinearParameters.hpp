@@ -62,25 +62,32 @@ enum NonLinearSolverType {
     QNEWTON_BDIAG_ELAS,
 };
 
+enum LineSearchType {
+    NO_LS,
+    RELAXATION,
+    AITKEN,
+    SECANT,
+};
+
 std::string StabilizationName( const StabilizationType &type ) {
     switch ( type ) {
-    case HDG: {
+    case StabilizationType::HDG: {
         return "HDG";
         break;
     }
-    case HHO: {
+    case StabilizationType::HHO: {
         return "HHO";
         break;
     }
-    case HHO_SYM: {
+    case StabilizationType::HHO_SYM: {
         return "HHO_SYM";
         break;
     }
-    case NO: {
+    case StabilizationType::NO: {
         return "NO";
         break;
     }
-    case DG: {
+    case StabilizationType::DG: {
         return "DG";
         break;
     }
@@ -93,15 +100,15 @@ std::string StabilizationName( const StabilizationType &type ) {
 
 std::string FrictionName( const FrictionType &type ) {
     switch ( type ) {
-    case NO_FRICTION: {
+    case FrictionType::NO_FRICTION: {
         return "NO_FRICTION";
         break;
     }
-    case TRESCA: {
+    case FrictionType::TRESCA: {
         return "TRESCA";
         break;
     }
-    case COULOMB: {
+    case FrictionType::COULOMB: {
         return "COULOMB";
         break;
     }
@@ -114,27 +121,27 @@ std::string FrictionName( const FrictionType &type ) {
 
 std::string DynaSchemeName( const DynamicType &type ) {
     switch ( type ) {
-    case STATIC: {
+    case DynamicType::STATIC: {
         return "STATIC";
         break;
     }
-    case NEWMARK: {
+    case DynamicType::NEWMARK: {
         return "NEWMARK";
         break;
     }
-    case BACKWARD_EULER: {
+    case DynamicType::BACKWARD_EULER: {
         return "BACKWARD_EULER";
         break;
     }
-    case THETA: {
+    case DynamicType::THETA: {
         return "THETA";
         break;
     }
-    case CRANK_NICOLSON: {
+    case DynamicType::CRANK_NICOLSON: {
         return "CRANK_NICOLSON";
         break;
     }
-    case LEAP_FROG: {
+    case DynamicType::LEAP_FROG: {
         return "LEAP_FROG";
         break;
     }
@@ -184,20 +191,45 @@ std::string LinearSolverName( const solvers::LinearSolverType &type ) {
 
 std::string NonLinearSolverName( const NonLinearSolverType &type ) {
     switch ( type ) {
-    case NEWTON: {
+    case NonLinearSolverType::NEWTON: {
         return "NEWTON";
         break;
     }
-    case QNEWTON_BDIAG_JACO: {
+    case NonLinearSolverType::QNEWTON_BDIAG_JACO: {
         return "QNEWTON_BDIAG_JACO";
         break;
     }
-    case QNEWTON_BDIAG_STAB: {
+    case NonLinearSolverType::QNEWTON_BDIAG_STAB: {
         return "QNEWTON_BDIAG_STAB";
         break;
     }
-    case QNEWTON_BDIAG_ELAS: {
+    case NonLinearSolverType::QNEWTON_BDIAG_ELAS: {
         return "QNEWTON_BDIAG_ELAS";
+        break;
+    }
+    default:
+        break;
+    }
+
+    return "Unknown name";
+}
+
+std::string LineSearchName( const LineSearchType &type ) {
+    switch ( type ) {
+    case LineSearchType::NO_LS: {
+        return "NO";
+        break;
+    }
+    case LineSearchType::RELAXATION: {
+        return "RELAXATION";
+        break;
+    }
+    case LineSearchType::AITKEN: {
+        return "AITKEN";
+        break;
+    }
+    case LineSearchType::SECANT: {
+        return "SECANT";
         break;
     }
     default:
@@ -251,6 +283,7 @@ class NonLinearParameters {
 
     solvers::LinearSolverType m_lin_solv; // linear solver
     NonLinearSolverType m_nlin_solv;      // non-linear solver
+    LineSearchType m_lsearch;             // line-search
 
     NonLinearParameters()
         : m_face_degree( 1 ),
@@ -263,7 +296,7 @@ class NonLinearParameters {
           m_precomputation( false ),
           m_stab( true ),
           m_beta( 1 ),
-          m_stab_type( HHO ),
+          m_stab_type( StabilizationType::HHO ),
           m_n_time_save( 0 ),
           m_user_end_time( 1.0 ),
           m_has_user_end_time( false ),
@@ -271,10 +304,11 @@ class NonLinearParameters {
           m_theta( 1 ),
           m_gamma_0( 1 ),
           m_threshold( 0 ),
-          m_frot_type( NO_FRICTION ),
+          m_frot_type( FrictionType::NO_FRICTION ),
           m_dyna_type( DynamicType::STATIC ),
           m_lin_solv( solvers::LinearSolverType::PARDISO_LU ),
-          m_nlin_solv( NonLinearSolverType::NEWTON ) {
+          m_nlin_solv( NonLinearSolverType::NEWTON ),
+          m_lsearch( LineSearchType::NO_LS ) {
         m_time_step.push_back( std::make_pair( m_user_end_time, 1 ) );
     }
 
@@ -294,6 +328,7 @@ class NonLinearParameters {
         std::cout << " - Epsilon: " << m_epsilon << std::endl;
         std::cout << " - LinearSolver: " << LinearSolverName( m_lin_solv ) << std::endl;
         std::cout << " - NonLinearSolver: " << NonLinearSolverName( m_nlin_solv ) << std::endl;
+        std::cout << " - LineSearch: " << LineSearchName( m_lsearch ) << std::endl;
         std::cout << " - Precomputation: " << BoolName( m_precomputation ) << std::endl;
         std::cout << " - Dynamic scheme: " << DynaSchemeName( m_dyna_type ) << std::endl;
         std::cout << " - Friction ?: " << FrictionName( m_frot_type ) << std::endl;
@@ -322,6 +357,7 @@ class NonLinearParameters {
         ifs >> keyword;
         line++;
         while ( keyword != "EndParameters" ) {
+            std::cout << "Keyword: " << keyword << std::endl;
             if ( keyword == "FaceDegree" ) {
                 ifs >> m_face_degree;
                 line++;
@@ -377,16 +413,16 @@ class NonLinearParameters {
                 line++;
                 m_stab = true;
                 if ( type == "HDG" )
-                    m_stab_type = HDG;
+                    m_stab_type = StabilizationType::HDG;
                 else if ( type == "HHO" )
-                    m_stab_type = HHO;
+                    m_stab_type = StabilizationType::HHO;
                 else if ( type == "HHO_SYM" )
-                    m_stab_type = HHO_SYM;
+                    m_stab_type = StabilizationType::HHO_SYM;
                 else if ( type == "DG" )
-                    m_stab_type = DG;
+                    m_stab_type = StabilizationType::DG;
                 else if ( type == "NO" ) {
                     m_stab = false;
-                    m_stab_type = NO;
+                    m_stab_type = StabilizationType::NO;
                 }
             } else if ( keyword == "Beta" ) {
                 ifs >> m_beta;
@@ -424,11 +460,11 @@ class NonLinearParameters {
                 ifs >> type;
                 line++;
                 if ( type == "NO" )
-                    m_frot_type = NO_FRICTION;
+                    m_frot_type = FrictionType::NO_FRICTION;
                 else if ( type == "TRESCA" )
-                    m_frot_type = TRESCA;
+                    m_frot_type = FrictionType::TRESCA;
                 else if ( type == "COULOMB" )
-                    m_frot_type = COULOMB;
+                    m_frot_type = FrictionType::COULOMB;
             } else if ( keyword == "Threshold" ) {
                 ifs >> m_threshold;
             } else if ( keyword == "Dynamic" ) {
@@ -436,15 +472,49 @@ class NonLinearParameters {
                 ifs >> type;
                 line++;
                 if ( type == "STATIC" || type == "NO" )
-                    m_dyna_type = STATIC;
+                    m_dyna_type = DynamicType::STATIC;
                 else if ( type == "NEWMARK" )
-                    m_dyna_type = NEWMARK;
+                    m_dyna_type = DynamicType::NEWMARK;
                 else if ( type == "LEAP_FROG" )
-                    m_dyna_type = LEAP_FROG;
+                    m_dyna_type = DynamicType::LEAP_FROG;
                 else if ( type == "CRANK_NICOLSON" )
-                    m_dyna_type = CRANK_NICOLSON;
+                    m_dyna_type = DynamicType::CRANK_NICOLSON;
                 else if ( type == "THETA" )
-                    m_dyna_type = THETA;
+                    m_dyna_type = DynamicType::THETA;
+            } else if ( keyword == "NLSolver" ) {
+                std::string type;
+                ifs >> type;
+                line++;
+                if ( type == "NEWTON" ) {
+                    m_nlin_solv = NonLinearSolverType::NEWTON;
+                } else if ( type == "QNEWTON_BDIAG_JACO" ) {
+                    m_nlin_solv = NonLinearSolverType::QNEWTON_BDIAG_JACO;
+                } else if ( type == "QNEWTON_BDIAG_STAB" ) {
+                    m_nlin_solv = NonLinearSolverType::QNEWTON_BDIAG_STAB;
+                } else if ( type == "QNEWTON_BDIAG_ELAS" ) {
+                    m_nlin_solv = NonLinearSolverType::QNEWTON_BDIAG_ELAS;
+                } else {
+                    std::cout << "Error parsing Parameters file:" << keyword << " line: " << line
+                              << std::endl;
+                    return false;
+                }
+            } else if ( keyword == "LineSearch" ) {
+                std::string type;
+                ifs >> type;
+                line++;
+                if ( type == "NO" ) {
+                    m_lsearch = LineSearchType::NO_LS;
+                } else if ( type == "RELAXATION" ) {
+                    m_lsearch = LineSearchType::RELAXATION;
+                } else if ( type == "AITKEN" ) {
+                    m_lsearch = LineSearchType::AITKEN;
+                } else if ( type == "SECANT" ) {
+                    m_lsearch = LineSearchType::SECANT;
+                } else {
+                    std::cout << "Error parsing Parameters file:" << keyword << " line: " << line
+                              << std::endl;
+                    return false;
+                }
             } else {
                 std::cout << "Error parsing Parameters file:" << keyword << " line: " << line
                           << std::endl;
@@ -505,6 +575,8 @@ class NonLinearParameters {
 
     void setNonLinearSolver( const NonLinearSolverType &type ) { m_nlin_solv = type; }
     NonLinearSolverType getNonLinearSolver() const { return m_nlin_solv; }
+
+    LineSearchType getLineSearch() const { return m_lsearch; }
 
     void setMaximumNumberNLIteration( const int &n_iter ) { m_iter_max = n_iter; }
     int getMaximumNumberNLIteration() const { return m_iter_max; }

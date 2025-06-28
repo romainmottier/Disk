@@ -16,12 +16,16 @@ Sublevel
 TimeSave
 2
 0.5 1.0
+NLSolver
+NEWTON
+LineSearch
+MIXTE
 StabType
 HHO
 AdaptativeStabilization
 false
 Beta
-2000	
+2000
 Verbose
 true
 Precomputation

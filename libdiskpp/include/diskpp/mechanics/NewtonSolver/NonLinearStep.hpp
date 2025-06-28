@@ -183,7 +183,8 @@ class NonLinearStep {
             ni.updateSolveInfo( solve_info );
             // update unknowns
             ni.m_assembly_info.m_time_postpro +=
-                nlIter->postprocess( msh, bnd, rp, degree_infos, fields );
+                nlIter->postprocess( msh, bnd, rp, degree_infos, lf, gradient_precomputed,
+                                     stab_precomputed, behavior, stab_manager, fields );
 
             ni.m_iter++;
         }
