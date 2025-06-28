@@ -101,6 +101,8 @@ class GenericIteration {
 
     scalar_type m_F_int;
 
+    ConvergenceAcceleration< scalar_type > m_accel;
+
     bool m_verbose;
 
     std::unique_ptr< std::function< static_vector< scalar_type, mesh_type::dimension >(

@@ -157,7 +157,11 @@ class ConvergenceAcceleration {
 
         for ( int its = 0; its < MAXIT; its++ ) {
             // Compute new residual
-            f = func( rho );
+            try {
+                f = func( rho );
+            } catch ( ... ) {
+                break;
+            }
 
             rho_cur = sens * rho;
             f_cur = sens * f;
@@ -237,6 +241,8 @@ class ConvergenceAcceleration {
         // std::cout << "rho_opt: " << rho_opt << std::endl;
         f = func( rho_opt, false );
     }
+
+    void aitken2() {}
 };
 } // namespace mechanics
 } // namespace disk

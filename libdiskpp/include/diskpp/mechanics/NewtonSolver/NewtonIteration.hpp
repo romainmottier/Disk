@@ -258,63 +258,136 @@ class NewtonIteration : public GenericIteration< MeshType > {
         const auto [dudT, idx] = this->m_assembler.expand_solution_nonlinear(
             msh, bnd, this->m_system_displ, depl_faces );
 
-        // Update cell
-        for ( auto &cl : msh ) {
-            const auto cell_i = msh.lookup( cl );
+        auto update_depl_faces = [&msh, &fields, &degree_infos, &dudT, &idx, &depl_faces,
+                                  this]( const scalar_type rho = 1.0 ) -> auto {
+            auto depl_faces_new = depl_faces;
 
-            const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
-            const auto faces_infos = cell_infos.facesDegreeInfo();
-            const auto num_faces_dofs = vector_faces_dofs( msh, faces_infos );
+            const vector_type rho_dudT = rho * dudT;
 
-            vector_type xdT = vector_type( num_faces_dofs );
+            for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
+                const auto fc = *itor;
+                const size_t face_id = msh.lookup( fc );
 
-            const auto fcs_id = faces_id( msh, cl );
-            size_t face_offset = 0;
-            for ( size_t face_i = 0; face_i < fcs_id.size(); face_i++ ) {
-                const size_t face_id = fcs_id[face_i];
-                const auto n_face_dofs = idx( face_id + 1 ) - idx( face_id );
-
-                xdT.segment( face_offset, n_face_dofs ) =
-                    dudT.segment( idx( face_id ), n_face_dofs );
-
-                face_offset += n_face_dofs;
+                depl_faces_new.at( face_id ) +=
+                    rho_dudT.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
             }
 
-            // static decondensation
-            const vector_type xT = this->m_bL[cell_i] - this->m_AL[cell_i] * xdT;
+            fields.setCurrentField( FieldName::DEPL_FACES, depl_faces_new );
 
-            // Update element U^{i+1} = U^i + delta U^i
-            depl.at( cell_i ).head( xT.size() ) += xT;
-            depl.at( cell_i ).tail( xdT.size() ) += xdT;
-            depl_cells.at( cell_i ) += xT;
+            return rho_dudT;
+        };
 
-            // std::cout << "KT_F " << m_AL[cell_i].norm() << std::endl;
-            // std::cout << "sol_F" << std::endl;
-            // std::cout << xdT.transpose() << std::endl;
-            // std::cout << "ft" << std::endl;
-            // std::cout << m_bL[cell_i].transpose() << std::endl;
-            // std::cout << "sol_T" << std::endl;
-            // std::cout << xT.transpose() << std::endl;
-            // std::cout << depl.at(cell_i).transpose() << std::endl;
+        auto update_depl_cell = [&msh, &fields, &degree_infos, &idx, &depl, &depl_cells,
+                                 this]( const vector_type &ddepl_faces ) -> auto {
+            // Update cell
+            auto depl_new = depl;
+            auto depl_cells_new = depl_cells;
+
+            for ( auto &cl : msh ) {
+                const auto cell_i = msh.lookup( cl );
+
+                const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
+                const auto faces_infos = cell_infos.facesDegreeInfo();
+                const auto num_faces_dofs = vector_faces_dofs( msh, faces_infos );
+
+                vector_type xdT = vector_type( num_faces_dofs );
+
+                const auto fcs_id = faces_id( msh, cl );
+                size_t face_offset = 0;
+                for ( size_t face_i = 0; face_i < fcs_id.size(); face_i++ ) {
+                    const size_t face_id = fcs_id[face_i];
+                    const auto n_face_dofs = idx( face_id + 1 ) - idx( face_id );
+
+                    xdT.segment( face_offset, n_face_dofs ) =
+                        ddepl_faces.segment( idx( face_id ), n_face_dofs );
+                    face_offset += n_face_dofs;
+                }
+
+                // static decondensation
+                const vector_type xT = this->m_bL[cell_i] - this->m_AL[cell_i] * xdT;
+
+                // Update element U^{i+1} = U^i + delta U^i
+                depl_new.at( cell_i ).head( xT.size() ) += xT;
+                depl_new.at( cell_i ).tail( xdT.size() ) += xdT;
+                depl_cells_new.at( cell_i ) += xT;
+
+                // std::cout << "KT_F " << m_AL[cell_i].norm() << std::endl;
+                // std::cout << "sol_F" << std::endl;
+                // std::cout << xdT.transpose() << std::endl;
+                // std::cout << "ft" << std::endl;
+                // std::cout << m_bL[cell_i].transpose() << std::endl;
+                // std::cout << "sol_T" << std::endl;
+                // std::cout << xT.transpose() << std::endl;
+                // std::cout << depl.at(cell_i).transpose() << std::endl;
+            }
+            fields.setCurrentField( FieldName::DEPL, depl_new );
+            fields.setCurrentField( FieldName::DEPL_CELLS, depl_cells_new );
+
+            this->m_dyna.postprocess( msh, this->m_time_step, fields );
+        };
+
+        if ( rp.getLineSearch() == LineSearchType::NO_LS ) {
+            const auto ddepl_faces = update_depl_faces( 1.0 );
+            update_depl_cell( ddepl_faces );
+        } else if ( rp.getLineSearch() == LineSearchType::SECANT ) {
+
+            auto _func = [&msh, &bnd, &rp, &degree_infos, &lf, &gradient_precomputed,
+                          &stab_precomputed, &behavior, &stab_manager, &fields, &dudT, &idx,
+                          update_depl_faces, update_depl_cell,
+                          this]( const scalar_type &rho, const bool compute = true ) -> auto {
+                // Update  unknowns
+                const auto ddepl_faces = update_depl_faces( rho );
+                update_depl_cell( ddepl_faces );
+
+                // compute new residual
+                if ( compute && std::abs( rho ) > 1e-32 )
+                    const auto ai =
+                        this->assemble( msh, bnd, rp, degree_infos, lf, gradient_precomputed,
+                                        stab_precomputed, behavior, stab_manager, fields );
+
+                // TODO: Check sign
+                return -dudT.dot( this->m_assembler.RHS );
+            };
+
+            this->m_accel.secant( _func );
+        } else {
+
+            // Update  unknowns
+            // Update face Uf^{i+1} = Uf^i + delta Uf^i
+            const auto depl_faces_old = depl_faces;
+            int face_i = 0;
+            for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
+                const auto fc = *itor;
+                const size_t face_id = msh.lookup( fc );
+
+                depl_faces.at( face_i++ ) +=
+                    dudT.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
+            }
+
+            vector_type vuF;
+            if ( rp.getLineSearch() == LineSearchType::RELAXATION ) {
+                vuF = this->m_accel.relaxation( asVector( depl_faces ) );
+
+            } else if ( rp.getLineSearch() == LineSearchType::AITKEN ) {
+                vuF = this->m_accel.aitken( asVector( depl_faces ) );
+            } else {
+                throw std::invalid_argument( "LineSearch not supported." );
+            }
+
+            for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
+                const auto fc = *itor;
+                const size_t face_id = msh.lookup( fc );
+
+                depl_faces.at( face_id ) =
+                    vuF.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
+            }
+
+            fields.setCurrentField( FieldName::DEPL_FACES, depl_faces );
+
+            const vector_type ddepl_faces = asVector( depl_faces ) - asVector( depl_faces_old );
+
+            update_depl_cell( ddepl_faces );
         }
-        fields.setCurrentField( FieldName::DEPL, depl );
-        fields.setCurrentField( FieldName::DEPL_CELLS, depl_cells );
-
-        // Update  unknowns
-        // Update face Uf^{i+1} = Uf^i + delta Uf^i
-
-        auto depl_faces_new = fields.getCurrentField( FieldName::DEPL_FACES );
-        int face_i = 0;
-        for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
-            const auto fc = *itor;
-            const size_t face_id = msh.lookup( fc );
-
-            depl_faces_new.at( face_i++ ) +=
-                dudT.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
-        }
-        fields.setCurrentField( FieldName::DEPL_FACES, depl_faces_new );
-
-        this->m_dyna.postprocess( msh, this->m_time_step, fields );
 
         tc.toc();
         return tc.elapsed();
