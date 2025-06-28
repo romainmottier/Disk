@@ -55,7 +55,7 @@ void usage( const char *progname ) {
 
 template < template < typename, size_t, typename > class Mesh, typename T, typename Storage >
 error_type run_linear_elasticity_solver( const Mesh< T, 2, Storage > &msh,
-                                         const disk::mechanics::NonLinearParameters< T > &rp,
+                                         disk::mechanics::NonLinearParameters< T > &rp,
                                          const disk::mechanics::MaterialData< T > &material_data ) {
     typedef Mesh< T, 2, Storage > mesh_type;
     typedef disk::static_vector< T, 2 > result_type;
@@ -64,6 +64,19 @@ error_type run_linear_elasticity_solver( const Mesh< T, 2, Storage > &msh,
 
     timecounter tc;
     tc.tic();
+
+    // check CFL condition
+    T h_min = minimum_diameter( msh );
+    T vp = std::sqrt( ( material_data.getLambda() + 2.0 * material_data.getMu() ) /
+                      material_data.getRho() );
+    const auto dt_crit = h_min / vp;
+    T CFL = 0.9;
+    if ( rp.getUnsteadyScheme() == disk::mechanics::DynamicType::LEAP_FROG ) {
+        CFL /= std::max( 1.0, rp.getStabilizationParameter() );
+    }
+    const T dt = CFL * dt_crit;
+    std::cout << "dt=" << dt << std::endl;
+    rp.setTimeStep( 1.0, (int)std::round( 1.0 / dt ) );
 
     auto func_space = [material_data]( const disk::point< T, 2 > &p ) -> result_type {
         const T coeff = 1.0 / ( 1 + material_data.getLambda() );
@@ -113,47 +126,6 @@ error_type run_linear_elasticity_solver( const Mesh< T, 2, Storage > &msh,
         return ( pi2t2 / ( lambda + 1 ) ) * result_type { fx, fy } + rho * acceleration( p, time );
     };
 
-    // auto displacement = [material_data, func_space](const disk::point<T, 2> &p,
-    //                                                 const T &time) -> result_type {
-    //     return sin(M_PI / 2.0 * time) * func_space(p);
-    // };
-
-    // auto velocity = [material_data, func_space](const disk::point<T, 2> &p,
-    //                                             const T &time) -> result_type {
-    //     return M_PI / 2.0 * cos(M_PI / 2.0 * time) * func_space(p);
-    // };
-
-    // auto acceleration = [material_data, func_space](const disk::point<T, 2> &p,
-    //                                                 const T &time) -> result_type {
-    //     return -(M_PI * M_PI / 4.0) * sin(M_PI / 2.0 * time) * func_space(p);
-    // };
-
-    // auto load = [material_data, acceleration](const disk::point<T, 2> &p,
-    //                                           const T &time) -> result_type {
-    //     const T lambda = material_data.getLambda();
-    //     const T mu     = material_data.getMu();
-    //     const T rho = material_data.getRho();
-
-    //     T fx = -4.0 * lambda * cos(M_PI * (p.x() + p.y())) +
-    //            8.0 * mu *
-    //                ((4 * lambda + 4) * sin(2 * M_PI * p.y()) * cos(2 * M_PI * p.x()) +
-    //                 sin(M_PI * p.x()) * sin(M_PI * p.y())) -
-    //            4.0 * mu *
-    //                (4 * lambda * sin(2 * M_PI * p.y()) + 4 * sin(2 * M_PI * p.y()) +
-    //                 cos(M_PI * (p.x() + p.y())));
-    //     T fy = -4.0 * lambda * cos(M_PI * (p.x() + p.y())) -
-    //            8.0 * mu *
-    //                ((4 * lambda + 4) * sin(2 * M_PI * p.x()) * cos(2 * M_PI * p.y()) -
-    //                 sin(M_PI * p.x()) * sin(M_PI * p.y())) +
-    //            4.0 * mu *
-    //                (4 * lambda * sin(2 * M_PI * p.x()) + 4 * sin(2 * M_PI * p.x()) -
-    //                 cos(M_PI * (p.x() + p.y())));
-
-    //     return M_PI * M_PI * sin(M_PI / 2.0 * time) / (4.0 * (lambda + 1)) * result_type{fx, fy}
-    //     +
-    //            rho * acceleration(p, time);
-    // };
-
     Bnd_type bnd( msh );
     bnd.addDirichletEverywhere( displacement );
 
@@ -185,7 +157,7 @@ error_type run_linear_elasticity_solver( const Mesh< T, 2, Storage > &msh,
         solve_info.printInfo();
     }
 
-    nl.output_discontinuous_field( "depl_disc.msh", disk::mechanics::FieldName::DEPL_CELLS );
+    // nl.output_discontinuous_field( "depl_disc.msh", disk::mechanics::FieldName::DEPL_CELLS );
 
     error_type error;
     error.h = average_diameter( msh );
@@ -201,14 +173,14 @@ error_type run_linear_elasticity_solver( const Mesh< T, 2, Storage > &msh,
     // 2> &p)
     //                                      { return displacement(p, 1.0); });
 
-    std::cout << error.error_L2 << ", " << error.error_H1 << std::endl;
-    throw std::runtime_error( "error" );
+    // std::cout << error.error_L2 << ", " << error.error_H1 << std::endl;
+    // throw std::runtime_error( "error" );
     return error;
 }
 
 template < template < typename, size_t, typename > class Mesh, typename T, typename Storage >
 error_type run_linear_elasticity_solver( const Mesh< T, 3, Storage > &msh,
-                                         const disk::mechanics::NonLinearParameters< T > &rp,
+                                         disk::mechanics::NonLinearParameters< T > &rp,
                                          const disk::mechanics::MaterialData< T > &material_data ) {
     typedef Mesh< T, 3, Storage > mesh_type;
     typedef disk::static_vector< T, 3 > result_type;
@@ -217,6 +189,19 @@ error_type run_linear_elasticity_solver( const Mesh< T, 3, Storage > &msh,
 
     timecounter tc;
     tc.tic();
+
+    // check CFL condition
+    T h_min = minimum_diameter( msh );
+    T vp = std::sqrt( ( material_data.getLambda() + 2.0 * material_data.getMu() ) /
+                      material_data.getRho() );
+    const auto dt_crit = h_min / vp;
+    T CFL = 1.0;
+    if ( rp.getUnsteadyScheme() == disk::mechanics::DynamicType::LEAP_FROG ) {
+        CFL /= std::max( 1.0, rp.getStabilizationParameter() );
+    }
+    const T dt = CFL * dt_crit;
+    std::cout << "dt=" << dt << std::endl;
+    rp.setTimeStep( 1.0, (int)std::round( 1.0 / dt ) );
 
     auto load = [material_data]( const disk::point< T, 3 > &p, const T &time ) -> result_type {
         const T lambda = material_data.getLambda();
@@ -338,7 +323,7 @@ void printResults( const std::vector< error_type > &error ) {
 }
 
 template < typename T >
-void test_triangles_fvca5( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_triangles_fvca5( disk::mechanics::NonLinearParameters< T > &rp,
                            const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
@@ -365,7 +350,7 @@ void test_triangles_fvca5( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_triangles_netgen( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_triangles_netgen( disk::mechanics::NonLinearParameters< T > &rp,
                             const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
@@ -392,7 +377,7 @@ void test_triangles_netgen( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_hexagons( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_hexagons( disk::mechanics::NonLinearParameters< T > &rp,
                     const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 5;
 
@@ -420,7 +405,7 @@ void test_hexagons( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_kershaws( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_kershaws( disk::mechanics::NonLinearParameters< T > &rp,
                     const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 5;
 
@@ -447,7 +432,7 @@ void test_kershaws( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_quads_fvca5( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_quads_fvca5( disk::mechanics::NonLinearParameters< T > &rp,
                        const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 5;
 
@@ -474,7 +459,7 @@ void test_quads_fvca5( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_quads_diskpp( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_quads_diskpp( disk::mechanics::NonLinearParameters< T > &rp,
                         const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
@@ -501,7 +486,7 @@ void test_quads_diskpp( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_hexahedra_diskpp( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_hexahedra_diskpp( disk::mechanics::NonLinearParameters< T > &rp,
                             const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
@@ -528,7 +513,7 @@ void test_hexahedra_diskpp( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_hexahedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_hexahedra_fvca6( disk::mechanics::NonLinearParameters< T > &rp,
                            const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
@@ -555,7 +540,7 @@ void test_hexahedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_tetrahedra_netgen( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_tetrahedra_netgen( disk::mechanics::NonLinearParameters< T > &rp,
                              const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
@@ -582,7 +567,7 @@ void test_tetrahedra_netgen( const disk::mechanics::NonLinearParameters< T > &rp
 }
 
 template < typename T >
-void test_polyhedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_polyhedra_fvca6( disk::mechanics::NonLinearParameters< T > &rp,
                            const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 3;
 
@@ -608,7 +593,7 @@ void test_polyhedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
 }
 
 template < typename T >
-void test_tetrahedra_fvca6( const disk::mechanics::NonLinearParameters< T > &rp,
+void test_tetrahedra_fvca6( disk::mechanics::NonLinearParameters< T > &rp,
                             const disk::mechanics::MaterialData< T > &material_data ) {
     int runs = 4;
 
@@ -691,7 +676,7 @@ int main( int argc, char **argv ) {
     rp.setFaceDegree( degree );
     rp.setGradDegree( degree );
     rp.setCellDegree( degree + l );
-    rp.setStabilizationParameter( 200.0 * material_data.getMu() );
+    rp.setStabilizationParameter( 10.0 * material_data.getMu() );
     rp.setVerbose( verbose );
     rp.setPrecomputation( true );
 
@@ -703,15 +688,15 @@ int main( int argc, char **argv ) {
 
     rp.setUnsteadyScheme( disk::mechanics::DynamicType::LEAP_FROG );
     rp.setUnsteadyParameters( dyna_para );
-    rp.setTimeStep( 1.0, 200 );
 
 #ifdef NSM_USE_MUMPS
     rp.setLinearSolver( disk::solvers::LinearSolverType::MUMPS_LU );
 #endif
-    rp.setNonLinearSolver( disk::mechanics::NonLinearSolverType::NEWTON );
+    rp.setNonLinearSolver( disk::mechanics::NonLinearSolverType::QNEWTON_BDIAG_STAB );
     rp.setMaximumNumberNLIteration( 1000 );
 
     rp.setConvergenceCriteria( 1.e-7 );
+    rp.setLineSearch( disk::mechanics::LineSearchType::ANDERSON4 );
 
     argc -= optind;
     argv += optind;
