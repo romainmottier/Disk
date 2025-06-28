@@ -47,19 +47,20 @@ template < typename T >
 class ConvergenceAcceleration {
 
     typedef dynamic_vector< T > vector_type;
+    typedef dynamic_matrix< T > matrix_type;
 
     int n_iter;
 
     enum kiter {
-        k = 0,
-        km = 1,
+        k = 1,
+        km = 0,
     };
     std::vector< vector_type > G, Xa;
 
   public:
     ConvergenceAcceleration() : n_iter( 0 ) {
-        G.resize( km + 1 );
-        Xa.resize( km + 1 );
+        G.resize( 2 );
+        Xa.resize( 2 );
     }
 
     vector_type aitken( const vector_type &G_k ) {
@@ -265,6 +266,7 @@ class ConvergenceAcceleration {
 
     vector_type anderson( const vector_type &G_k ) {
         // also called alternate secant method - eq.45
+        // special version for M = 1
         if ( n_iter == 0 ) {
             n_iter++;
             Xa[km] = G_k;
@@ -298,42 +300,66 @@ class ConvergenceAcceleration {
         return Xa_kp;
     }
 
-    //     vector_type anderson_M( const vector_type &G_k, const int M ) {
-    //         // also called alternate decant method - eq.45
-    //         if ( n_iter <= 2 ) {
-    //             if ( n_iter == 0 ) {
-    //                 G_k.resize( std::max( M, 2 ) );
-    //                 Xa.resize( std::max( M, 2 ) );
-    //             }
-    //             return anderson( G_k );
-    //         }
+    vector_type anderson( const vector_type &G_k, const int M ) {
+        // anderson method with M values.
+        if ( M < 1 ) {
+            return G_k;
+        } else if ( M == 1 ) {
+            return anderson( G_k );
+        };
+        if ( n_iter == 0 ) {
+            Xa.resize( M + 1 );
+            G.resize( M + 1 );
+            n_iter++;
+            Xa[km] = G_k;
+            return G_k;
+        } else if ( n_iter == 1 ) {
+            n_iter++;
+            G[km] = G_k;
+            Xa[k] = G_k;
+            return G_k;
+        }
 
-    //         n_iter++;
+        const int n = G_k.size();
+        const int m_k = std::min( M, n_iter - 1 );
 
-    //         F.erase( F.begin() );
-    //         X.erase( X.begin() );
+        G[m_k] = G_k;
 
-    //         F.push_back( f_x - x );
-    //         X.push_back( res );
+        matrix_type ddX( n, m_k );
+        matrix_type dG( n, m_k );
 
-    //         int k = F.size();
-    //         MatrixXd G( n, k );
-    //         for ( int i = 0; i < k; ++i ) {
-    //             G.col( i ) = F[i] - G[i];
-    //         }
+        for ( int i = 1; i <= m_k; i++ ) {
+            const auto dX_i = G[i] - Xa[i];
+            const auto dX_im = G[i - 1] - Xa[i - 1];
+            ddX.col( i - 1 ) = dX_i - dX_im;
+            dG.col( i - 1 ) = G[i] - G[i - 1];
+        }
 
-    //         VectorXd gamma;
-    //         // Résolution du problème aux moindres carrés
-    //         gamma = G.colPivHouseholderQr().solve( res );
+        const vector_type dX_k = G[m_k] - Xa[m_k];
 
-    //         VectorXd dx = -res;
-    //         for ( int i = 0; i < k; ++i ) {
-    //             dx += gamma( i ) * ( F[i] - G[i] );
-    //         }
-    //     }
+        // Solve least-square problem
+        const FullPivHouseholderQR< matrix_type > qr( ddX );
+        const vector_type gamma = qr.solve( dX_k );
 
-    //     return Xa_kp;
-    // }
+        // std::cout << "gamma: " << gamma.rows() << ", " << gamma.cols() << std::endl;
+        // std::cout << "dG: " << dG.rows() << ", " << dG.cols() << std::endl;
+
+        const vector_type Xa_kp = G[m_k] - dG * gamma;
+
+        // Update solution
+        if ( m_k < M ) {
+            Xa[n_iter] = Xa_kp;
+        } else {
+            for ( int i = 0; i < m_k; i++ ) {
+                G[i] = G[i + 1];
+                Xa[i] = Xa[i + 1];
+            }
+            Xa[m_k] = Xa_kp;
+        }
+        n_iter++;
+
+        return Xa_kp;
+    }
 };
 } // namespace mechanics
 } // namespace disk

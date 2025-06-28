@@ -372,6 +372,16 @@ class NewtonIteration : public GenericIteration< MeshType > {
                 u_new = this->m_accel.aitken( u );
             } else if ( rp.getLineSearch() == LineSearchType::ANDERSON ) {
                 u_new = this->m_accel.anderson( u );
+            } else if ( rp.getLineSearch() == LineSearchType::ANDERSON2 ) {
+                u_new = this->m_accel.anderson( u, 2 );
+            } else if ( rp.getLineSearch() == LineSearchType::ANDERSON3 ) {
+                u_new = this->m_accel.anderson( u, 3 );
+            } else if ( rp.getLineSearch() == LineSearchType::ANDERSON4 ) {
+                u_new = this->m_accel.anderson( u, 4 );
+            } else if ( rp.getLineSearch() == LineSearchType::ANDERSON5 ) {
+                u_new = this->m_accel.anderson( u, 5 );
+            } else if ( rp.getLineSearch() == LineSearchType::ANDERSON10 ) {
+                u_new = this->m_accel.anderson( u, 10 );
             } else {
                 throw std::invalid_argument( "LineSearch algorithm not supported." );
             }

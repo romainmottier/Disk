@@ -69,6 +69,11 @@ enum LineSearchType {
     AITKEN,
     SECANT,
     ANDERSON,
+    ANDERSON2,
+    ANDERSON3,
+    ANDERSON4,
+    ANDERSON5,
+    ANDERSON10,
 };
 
 std::string StabilizationName( const StabilizationType &type ) {
@@ -240,6 +245,26 @@ std::string LineSearchName( const LineSearchType &type ) {
     }
     case LineSearchType::ANDERSON: {
         return "ANDERSON";
+        break;
+    }
+    case LineSearchType::ANDERSON2: {
+        return "ANDERSON2";
+        break;
+    }
+    case LineSearchType::ANDERSON3: {
+        return "ANDERSON3";
+        break;
+    }
+    case LineSearchType::ANDERSON4: {
+        return "ANDERSON4";
+        break;
+    }
+    case LineSearchType::ANDERSON5: {
+        return "ANDERSON5";
+        break;
+    }
+    case LineSearchType::ANDERSON10: {
+        return "ANDERSON10";
         break;
     }
     default:
@@ -524,6 +549,16 @@ class NonLinearParameters {
                     m_lsearch = LineSearchType::SECANT;
                 } else if ( type == "ANDERSON" ) {
                     m_lsearch = LineSearchType::ANDERSON;
+                } else if ( type == "ANDERSON2" ) {
+                    m_lsearch = LineSearchType::ANDERSON2;
+                } else if ( type == "ANDERSON3" ) {
+                    m_lsearch = LineSearchType::ANDERSON3;
+                } else if ( type == "ANDERSON4" ) {
+                    m_lsearch = LineSearchType::ANDERSON4;
+                } else if ( type == "ANDERSON5" ) {
+                    m_lsearch = LineSearchType::ANDERSON5;
+                } else if ( type == "ANDERSON10" ) {
+                    m_lsearch = LineSearchType::ANDERSON10;
                 } else {
                     std::cout << "Error parsing Parameters file:" << keyword << " line: " << line
                               << std::endl;

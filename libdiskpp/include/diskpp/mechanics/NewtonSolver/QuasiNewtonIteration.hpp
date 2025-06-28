@@ -483,6 +483,16 @@ class QuasiNewtonIteration : public GenericIteration< MeshType > {
                     udT_new = this->m_accel.aitken( asVector( depl_faces ) );
                 } else if ( rp.getLineSearch() == LineSearchType::ANDERSON ) {
                     udT_new = this->m_accel.anderson( asVector( depl_faces ) );
+                } else if ( rp.getLineSearch() == LineSearchType::ANDERSON2 ) {
+                    udT_new = this->m_accel.anderson( asVector( depl_faces ), 2 );
+                } else if ( rp.getLineSearch() == LineSearchType::ANDERSON3 ) {
+                    udT_new = this->m_accel.anderson( asVector( depl_faces ), 3 );
+                } else if ( rp.getLineSearch() == LineSearchType::ANDERSON4 ) {
+                    udT_new = this->m_accel.anderson( asVector( depl_faces ), 4 );
+                } else if ( rp.getLineSearch() == LineSearchType::ANDERSON5 ) {
+                    udT_new = this->m_accel.anderson( asVector( depl_faces ), 5 );
+                } else if ( rp.getLineSearch() == LineSearchType::ANDERSON10 ) {
+                    udT_new = this->m_accel.anderson( asVector( depl_faces ), 10 );
                 } else {
                     throw std::invalid_argument( "LineSearch algorithm not supported." );
                 }
