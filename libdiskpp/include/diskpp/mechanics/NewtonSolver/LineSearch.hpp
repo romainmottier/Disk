@@ -33,9 +33,16 @@ namespace disk {
 namespace mechanics {
 
 /**
- * @brief Aitken acceleration
+ * @brief LineSearch
  *
  */
+
+// Référence of Aitken and Anderson algorithm.
+// Isabelle Ramière, Thomas Helfer. Iterative residual-based vector methods to accelerate fixed
+// point iterations.
+// Computers & Mathematics with Applications, 2015, 70, pp.2210 - 2226.
+// 10.1016/j.camwa.2015.08.025. cea-01403292
+
 template < typename T >
 class ConvergenceAcceleration {
 
@@ -43,55 +50,66 @@ class ConvergenceAcceleration {
 
     int n_iter;
 
-    vector_type va_km, va_k;
-    vector_type v_k, v_km;
+    vector_type Xa_km, Xa_k;
+    vector_type X_k, X_km;
 
   public:
     ConvergenceAcceleration() : n_iter( 0 ) {}
 
-    vector_type aitken( const vector_type &v_kp ) {
+    vector_type aitken( const vector_type &X_kp ) {
+        // Also called crossed secand method - eq 44.
         if ( n_iter == 0 ) {
             n_iter++;
-            v_km = v_kp;
-            return v_km;
+            X_km = X_kp;
+            Xa_km = X_km;
+            return Xa_km;
         } else if ( n_iter == 1 ) {
             n_iter++;
-            v_k = v_kp;
-            return v_k;
+            X_k = X_kp;
+            Xa_k = X_k;
+            return Xa_k;
         } else {
             n_iter++;
-            const vector_type vt = v_kp - 2 * v_k + v_km;
-            const vector_type dv = v_kp - v_k;
+            const auto G_k = X_kp;
+            const auto G_km = X_k;
+            const auto dG_k = G_k - G_km;
 
-            // compute relaxation
-            const T wr = dv.dot( vt ) / vt.squaredNorm();
+            const auto dX_k = G_k - Xa_k;
+            const auto dX_km = G_km - Xa_km;
+            const auto ddX = dX_k - dX_km;
+
+            // compute acceleration
+            const T wr = ddX.dot( dG_k ) / ddX.squaredNorm();
 
             // compute accelerted solution
-            const vector_type va_kp = wr * v_k + ( 1 - wr ) * v_kp;
+            const vector_type Xa_kp = G_k - wr * dX_k;
 
             // update
-            v_km = v_k;
-            v_k = v_kp;
+            X_km = X_k;
+            X_k = X_kp;
 
-            return va_kp;
+            Xa_km = Xa_k;
+            Xa_k = Xa_kp;
+
+            return Xa_kp;
         }
     }
 
-    vector_type relaxation( const vector_type &v_kp, const T omega = 0.5 ) {
+    vector_type relaxation( const vector_type &X_kp, const T omega = 0.5 ) {
         if ( n_iter == 0 ) {
             n_iter++;
-            va_k = v_kp;
-            return va_k;
+            Xa_k = X_kp;
+            return Xa_k;
         } else {
             n_iter++;
 
             // compute accelerted solution
-            const vector_type va_kp = ( 1.0 - omega ) * va_k + omega * v_kp;
+            const vector_type Xa_kp = ( 1.0 - omega ) * Xa_k + omega * X_kp;
 
             // update
-            va_k = va_kp;
+            Xa_k = Xa_kp;
 
-            return va_kp;
+            return Xa_kp;
         }
     }
 
@@ -242,7 +260,43 @@ class ConvergenceAcceleration {
         f = func( rho_opt, false );
     }
 
-    void aitken2() {}
+    vector_type anderson( const vector_type &X_kp ) {
+        // also called alternate decant method - eq.45
+        if ( n_iter == 0 ) {
+            n_iter++;
+            X_km = X_kp;
+            Xa_km = X_km;
+            return Xa_km;
+        } else if ( n_iter == 1 ) {
+            n_iter++;
+            X_k = X_kp;
+            Xa_k = X_k;
+            return Xa_k;
+        } else {
+            n_iter++;
+            const auto G_k = X_kp;
+            const auto G_km = X_k;
+
+            const auto dX_k = G_k - Xa_k;
+            const auto dX_km = G_km - Xa_km;
+            const auto ddX = dX_k - dX_km;
+
+            // compute acceleration
+            const T wr = ddX.dot( dX_k ) / ddX.squaredNorm();
+
+            // compute accelerted solution
+            const vector_type Xa_kp = ( 1.0 - wr ) * G_k + wr * G_km;
+
+            // update
+            X_km = X_k;
+            X_k = X_kp;
+
+            Xa_km = Xa_k;
+            Xa_k = Xa_kp;
+
+            return Xa_kp;
+        }
+    }
 };
 } // namespace mechanics
 } // namespace disk

@@ -352,41 +352,76 @@ class NewtonIteration : public GenericIteration< MeshType > {
             this->m_accel.secant( _func );
         } else {
 
-            // Update  unknowns
-            // Update face Uf^{i+1} = Uf^i + delta Uf^i
-            const auto depl_faces_old = depl_faces;
-            int face_i = 0;
-            for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
-                const auto fc = *itor;
-                const size_t face_id = msh.lookup( fc );
-
-                depl_faces.at( face_i++ ) +=
-                    dudT.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
-            }
-
-            vector_type vuF;
-            if ( rp.getLineSearch() == LineSearchType::RELAXATION ) {
-                vuF = this->m_accel.relaxation( asVector( depl_faces ) );
-
-            } else if ( rp.getLineSearch() == LineSearchType::AITKEN ) {
-                vuF = this->m_accel.aitken( asVector( depl_faces ) );
-            } else {
-                throw std::invalid_argument( "LineSearch not supported." );
-            }
-
-            for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
-                const auto fc = *itor;
-                const size_t face_id = msh.lookup( fc );
-
-                depl_faces.at( face_id ) =
-                    vuF.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
-            }
-
-            fields.setCurrentField( FieldName::DEPL_FACES, depl_faces );
-
-            const vector_type ddepl_faces = asVector( depl_faces ) - asVector( depl_faces_old );
-
+            const auto ddepl_faces = update_depl_faces( 1.0 );
             update_depl_cell( ddepl_faces );
+
+            auto depl_cells_up = fields.getCurrentField( FieldName::DEPL_CELLS );
+            auto depl_faces_up = fields.getCurrentField( FieldName::DEPL_FACES );
+
+            const auto uT = asVector( depl_cells_up );
+            const auto udT = asVector( depl_faces_up );
+
+            vector_type u( uT.size() + udT.size() );
+            u.head( uT.size() ) = uT;
+            u.tail( udT.size() ) = udT;
+
+            vector_type u_new;
+            if ( rp.getLineSearch() == LineSearchType::RELAXATION ) {
+                u_new = this->m_accel.relaxation( u );
+            } else if ( rp.getLineSearch() == LineSearchType::AITKEN ) {
+                u_new = this->m_accel.aitken( u );
+            } else if ( rp.getLineSearch() == LineSearchType::ANDERSON ) {
+                u_new = this->m_accel.anderson( u );
+            } else {
+                throw std::invalid_argument( "LineSearch algorithm not supported." );
+            }
+
+            fromVector( vector_type( u_new.head( uT.size() ) ), depl_cells_up );
+            fromVector( vector_type( u_new.tail( udT.size() ) ), depl_faces_up );
+
+            fields.setCurrentField( FieldName::DEPL_CELLS, depl_cells_up );
+            fields.setCurrentField( FieldName::DEPL_FACES, depl_faces_up );
+
+            // update depl;
+            auto depl_up = fields.getCurrentField( FieldName::DEPL );
+            for ( auto &cl : msh ) {
+                const auto cell_i = msh.lookup( cl );
+
+                const auto cell_infos = degree_infos.cellDegreeInfo( msh, cl );
+                const auto faces_infos = cell_infos.facesDegreeInfo();
+                const auto num_faces_dofs = vector_faces_dofs( msh, faces_infos );
+
+                vector_type xdT = vector_type( num_faces_dofs );
+
+                const auto fcs_id = faces_id( msh, cl );
+                size_t face_offset = 0;
+                for ( size_t face_i = 0; face_i < fcs_id.size(); face_i++ ) {
+                    const size_t face_id = fcs_id[face_i];
+                    const auto n_face_dofs = idx( face_id + 1 ) - idx( face_id );
+
+                    xdT.segment( face_offset, n_face_dofs ) = depl_faces_up[face_id];
+                    face_offset += n_face_dofs;
+                }
+
+                // static decondensation
+                const vector_type xT = depl_cells_up[cell_i];
+
+                // Update element U^{i+1} = U^i + delta U^i
+                depl_up.at( cell_i ).head( xT.size() ) = xT;
+                depl_up.at( cell_i ).tail( xdT.size() ) = xdT;
+
+                // std::cout << "KT_F " << m_AL[cell_i].norm() << std::endl;
+                // std::cout << "sol_F" << std::endl;
+                // std::cout << xdT.transpose() << std::endl;
+                // std::cout << "ft" << std::endl;
+                // std::cout << m_bL[cell_i].transpose() << std::endl;
+                // std::cout << "sol_T" << std::endl;
+                // std::cout << xT.transpose() << std::endl;
+                // std::cout << depl.at(cell_i).transpose() << std::endl;
+            }
+
+            fields.setCurrentField( FieldName::DEPL, depl_up );
+            this->m_dyna.postprocess( msh, this->m_time_step, fields );
         }
 
         tc.toc();

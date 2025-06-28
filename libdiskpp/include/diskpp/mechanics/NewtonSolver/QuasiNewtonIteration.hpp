@@ -476,21 +476,18 @@ class QuasiNewtonIteration : public GenericIteration< MeshType > {
 
             if ( rp.getLineSearch() != LineSearchType::NO_LS ) {
 
-                vector_type vuF;
+                vector_type udT_new;
                 if ( rp.getLineSearch() == LineSearchType::RELAXATION ) {
-                    vuF = this->m_accel.relaxation( asVector( depl_faces ) );
-
+                    udT_new = this->m_accel.relaxation( asVector( depl_faces ) );
                 } else if ( rp.getLineSearch() == LineSearchType::AITKEN ) {
-                    vuF = this->m_accel.aitken( asVector( depl_faces ) );
+                    udT_new = this->m_accel.aitken( asVector( depl_faces ) );
+                } else if ( rp.getLineSearch() == LineSearchType::ANDERSON ) {
+                    udT_new = this->m_accel.anderson( asVector( depl_faces ) );
+                } else {
+                    throw std::invalid_argument( "LineSearch algorithm not supported." );
                 }
 
-                for ( auto itor = msh.faces_begin(); itor != msh.faces_end(); itor++ ) {
-                    const auto fc = *itor;
-                    const size_t face_id = msh.lookup( fc );
-
-                    depl_faces.at( face_id ) =
-                        vuF.segment( idx( face_id ), idx( face_id + 1 ) - idx( face_id ) );
-                }
+                fromVector( udT_new, depl_faces );
             }
 
             fields.setCurrentField( FieldName::DEPL_FACES, depl_faces );

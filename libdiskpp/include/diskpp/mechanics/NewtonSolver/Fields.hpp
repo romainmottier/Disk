@@ -100,6 +100,17 @@ dynamic_vector< T > asVector( const std::vector< dynamic_vector< T > > &field ) 
     return ret;
 }
 
+template < typename T >
+void fromVector( const dynamic_vector< T > &vfield, std::vector< dynamic_vector< T > > &field ) {
+    int size = 0;
+    for ( auto &vect : field ) {
+        vect = vfield.segment( size, vect.size() );
+        size += vect.size();
+    }
+
+    assert( size == vfield.size() );
+}
+
 /**
  * @brief Field at one time.
  *

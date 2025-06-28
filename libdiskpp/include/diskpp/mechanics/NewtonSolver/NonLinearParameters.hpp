@@ -68,6 +68,7 @@ enum LineSearchType {
     RELAXATION,
     AITKEN,
     SECANT,
+    ANDERSON,
 };
 
 std::string StabilizationName( const StabilizationType &type ) {
@@ -237,6 +238,10 @@ std::string LineSearchName( const LineSearchType &type ) {
         return "SECANT";
         break;
     }
+    case LineSearchType::ANDERSON: {
+        return "ANDERSON";
+        break;
+    }
     default:
         break;
     }
@@ -362,7 +367,7 @@ class NonLinearParameters {
         ifs >> keyword;
         line++;
         while ( keyword != "EndParameters" ) {
-            std::cout << "Keyword: " << keyword << std::endl;
+            // std::cout << "Keyword: " << keyword << std::endl;
             if ( keyword == "FaceDegree" ) {
                 ifs >> m_face_degree;
                 line++;
@@ -509,7 +514,7 @@ class NonLinearParameters {
                 std::string type;
                 ifs >> type;
                 line++;
-                if ( type == "NO" ) {
+                if ( type == "NO" || type == "NO_LS" ) {
                     m_lsearch = LineSearchType::NO_LS;
                 } else if ( type == "RELAXATION" ) {
                     m_lsearch = LineSearchType::RELAXATION;
@@ -517,6 +522,8 @@ class NonLinearParameters {
                     m_lsearch = LineSearchType::AITKEN;
                 } else if ( type == "SECANT" ) {
                     m_lsearch = LineSearchType::SECANT;
+                } else if ( type == "ANDERSON" ) {
+                    m_lsearch = LineSearchType::ANDERSON;
                 } else {
                     std::cout << "Error parsing Parameters file:" << keyword << " line: " << line
                               << std::endl;
