@@ -591,6 +591,7 @@ class NonLinearParameters {
     NonLinearSolverType getNonLinearSolver() const { return m_nlin_solv; }
 
     LineSearchType getLineSearch() const { return m_lsearch; }
+    void setLineSearch( const LineSearchType &type ) { m_lsearch = type; }
 
     void setMaximumNumberNLIteration( const int &n_iter ) { m_iter_max = n_iter; }
     int getMaximumNumberNLIteration() const { return m_iter_max; }

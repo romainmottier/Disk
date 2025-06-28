@@ -99,7 +99,7 @@ class GenericIteration {
 
     dyna_type m_dyna;
 
-    scalar_type m_F_int;
+    scalar_type m_F_int, m_resi_init;
 
     ConvergenceAcceleration< scalar_type > m_accel;
 
@@ -255,7 +255,19 @@ class GenericIteration {
         if ( !std::isfinite( error ) || std::isnan( error ) || !std::isfinite( max_error ) ||
              std::isnan( max_error ) || !std::isfinite( residual ) || std::isnan( residual ) ||
              !std::isfinite( -residual ) || std::isnan( -residual ) || residual > 1e100 ) {
-            throw std::runtime_error( "Norm of residual is not finite" );
+            throw std::runtime_error( "Norm of residual is not finite." );
+        }
+
+        if ( residual > 1e20 || relative_displ > 1e20 || relative_error > 1e20 ) {
+            throw std::runtime_error( "Norm of residual is too large." );
+        }
+
+        if ( iter == 0 ) {
+            this->m_resi_init = residual;
+        }
+
+        if ( residual > 1e10 * this->m_resi_init ) {
+            throw std::runtime_error( "Norm of residual diverges." );
         }
 
         if ( error <= rp.getConvergenceCriteria() ) {
