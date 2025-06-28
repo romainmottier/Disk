@@ -233,7 +233,7 @@ class QuasiNewtonIteration : public GenericIteration< MeshType > {
                           const TimeStep< scalar_type > &current_step )
         : GenericIteration< MeshType >( msh, bnd, rp, degree_infos, lin_solv, current_step ) {
         if ( rp.getUnsteadyScheme() != DynamicType::LEAP_FROG ) {
-            std::invalid_argument( "Sheme not supported by QuasiNewton" );
+            throw std::invalid_argument( "Sheme not supported by QuasiNewton" );
         }
     }
 
