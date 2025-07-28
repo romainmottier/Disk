@@ -1,5 +1,6 @@
 #include <iostream>
 #include <libgen.h>
+#include <libgen.h>
 #include <fstream>
 #include <vector>
 #include <array>
@@ -57,6 +58,7 @@ using namespace Eigen;
 #include "prototypes/elastic/EElastic_stability.hpp"               // Linear Elasticity
 #include "prototypes/coupling/EHHOFirstOrder_stability.hpp"        // Elasto-Acoustic Coupling                   
 // Convergence test on sinusoidal analytical solution 
+#include "prototypes/acoustic/EAcoustic_conv_test.hpp"             // Explicit Acoustic               
 #include "prototypes/acoustic/IAcoustic_conv_test.hpp"             // Implicit Acoustic               
 #include "prototypes/elastic/IElastic_conv_test.hpp"               // Implicit Elastic 
 #include "prototypes/coupling/Conv_Tests/IHHOFirstOrder.hpp"                // Implicit Coupling                         
@@ -67,15 +69,22 @@ using namespace Eigen;
 #include "prototypes/coupling/Pulse/HeterogeneousIHHOFirstOrder.hpp"        // Implicit Pulse (adimensional)
 #include "prototypes/coupling/Pulse/HeterogeneousEHHOFirstOrder.hpp"        // Explicit Pulse (adimensional)
 #include "prototypes/coupling/Pulse/ConicWavesIHHOFirstOrder.hpp"           // Implicit Pulse (geophysic) 
+#include "prototypes/coupling/Pulse/review_CMAME.hpp"           // Implicit Pulse (geophysic) 
 #include "prototypes/coupling/Pulse/ConicWavesEHHOFirstOrder.hpp"           // Implicit Pulse (geophysic) 
 // Sedimentary Basin
 #include "prototypes/coupling/Basin/BassinIHHOFirstOrder.hpp"               // Implicit Sedimentary Basin
-// #include "prototypes/coupling/Basin/BassinEHHOFirstOrder.hpp"            // Explicit Sedimentary Basin - not working
+// LTS
+#include "prototypes/LTS/ELTSAcoustic_conv_test.hpp"
+#include "prototypes/LTS/ERK4_LTS_conv_test.hpp"
+// #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp"
+// #include "prototypes/LTS/HeterogeneousEULER_LTS_HHO_FirstOrder.hpp"
+#include "prototypes/LTS/AcousticLTSEulerHeterogeneousPulse.hpp"
+#include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"
 
 int main(int argc, char **argv){
 
     DBSetDeprecateWarnings(0);
-
+    
     // REGRESSION TESTS
     if (basename(argv[0]) == std::string("name1") ) {
         std::cout << "called with name1" << std::endl;
@@ -87,17 +96,18 @@ int main(int argc, char **argv){
         return 0;
     }
     
-// CFL tables:
+// CFL TABLE:
    // EAcoustic_CFL(argc, argv); 
    // EElasticity_CFL(argc, argv);
    // EHHOFirstOrderCFL(argc, argv); 
-
-// Stability study & Spectral radius computation:
+ 
+// STABILITY STUDY & SPECTRAL RADIUS COMPUTATION:
    // EAcoustic_stability(argc, argv);
    // EElastic_stability(argc, argv);
    // EHHOFirstOrder_stability(argc, argv); 
 
-// Convergence test:
+// CV TESTS:
+   // EAcousticFirstOrder(argc, argv);
    // IAcoustic_conv_test(argc, argv);
    // IElastic_conv_test(argc, argv);
    // IHHOFirstOrder(argc, argv);
@@ -105,17 +115,28 @@ int main(int argc, char **argv){
    // EHHOFirstOrder(argc, argv);
    // EHHOFirstOrder_conv_tests(argc, argv);
 
-// Pulse:
+// PULSE: 
    // HeterogeneousIHHOFirstOrder(argc, argv); 
    // HeterogeneousEHHOFirstOrder(argc, argv); 
-   ConicWavesIHHOFirstOrder(argc, argv);
+   // ConicWavesIHHOFirstOrder(argc, argv);
+   // ConicWavesIHHOFirstOrder_review(argc, argv);
    // ConicWavesEHHOFirstOrder(argc, argv);
+   // ConicWavesEHHOFirstOrder_review(argc, argv);
 
-// Sedimentary basin:
+// SEDIMENTARY BASIN:
    // BassinIHHOFirstOrder(argc, argv);
    // Test(argc, argv);
    // BassinEHHOFirstOrder(argc, argv); Not working 
   
+// LOCAL TIME STEPPING 
+   // ELTSAcousticFirstOrder(argc, argv); // tentative pour RK general
+   // ERK4_LTS_conv_test(argc, argv);
+   // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
+
+   // TEST LTS PULSE:
+   // AcousticHeterogeneousPulse(argc, argv);
+   AcousticLTSEulerHeterogeneousPulse(argc, argv);
 }
 
 

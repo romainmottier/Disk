@@ -318,7 +318,7 @@ public:
         auto storage = msh.backend_storage();
         storage->points = std::move(points);
         storage->nodes = std::move(vertices);
-
+        
         std::vector<edge_type> edges;
         edges.reserve(facets.size());
         for (size_t i = 0; i < facets.size(); i++)
@@ -326,42 +326,42 @@ public:
             assert(facets[i][0] < facets[i][1]);
             auto node1 = typename node_type::id_type(facets[i][0]);
             auto node2 = typename node_type::id_type(facets[i][1]);
-
+            
             auto e = edge_type(node1, node2);
-
+            
             // e.set_point_ids(facets[i].begin(), facets[i].end());
             edges.push_back(e);
             
         }
         std::sort(edges.begin(), edges.end());
-            
+        
         storage->boundary_info.resize(edges.size());
         for (size_t i = 0; i < boundary_edges.size(); i++)
         {
             assert(boundary_edges[i][0] < boundary_edges[i][1]);
             auto node1 = typename node_type::id_type(boundary_edges[i][0]);
             auto node2 = typename node_type::id_type(boundary_edges[i][1]);
-
+            
             auto e = edge_type(node1, node2);
-
+            
             auto position = find_element_id(edges.begin(), edges.end(), e);
-
+            
             if (position.first == false)
             {
                 std::cout << "Bad bug at " << __FILE__ << "("
-                          << __LINE__ << ")" << std::endl;
+                << __LINE__ << ")" << std::endl;
                 return;
             }
-
-                disk::boundary_descriptor bi{0, true};
-                storage->boundary_info.at(position.second) = bi;
+            
+            disk::boundary_descriptor bi{0, true};
+            storage->boundary_info.at(position.second) = bi;
         }
-            
+        
         storage->edges = std::move(edges);
-            
+        
         std::vector<surface_type> surfaces;
         surfaces.reserve( polygons.size() );
-
+        
         for (auto& p : polygons)
         {
             std::vector<typename edge_type::id_type> surface_edges;
@@ -370,24 +370,24 @@ public:
                 assert(e[0] < e[1]);
                 auto n1 = typename node_type::id_type(e[0]);
                 auto n2 = typename node_type::id_type(e[1]);
-
+                
                 edge_type edge(n1, n2);
                 auto edge_id = find_element_id(storage->edges.begin(),
-                                               storage->edges.end(), edge);
+                storage->edges.end(), edge);
                 if (!edge_id.first)
                 {
                     std::cout << "Bad bug at " << __FILE__ << "("
-                              << __LINE__ << ")" << std::endl;
+                    << __LINE__ << ")" << std::endl;
                     return;
                 }
-
+                
                 surface_edges.push_back(edge_id.second);
             }
             auto surface = surface_type(surface_edges);
             surface.set_point_ids(p.m_member_nodes.begin(), p.m_member_nodes.end());
             surfaces.push_back( surface );
         }
-
+        
         std::sort(surfaces.begin(), surfaces.end());
         storage->surfaces = std::move(surfaces);
         
@@ -742,9 +742,42 @@ public:
             
         }
           
-        // Duplicated facets are eliminated
-        std::sort( facets.begin(), facets.end() );
-        facets.erase( std::unique( facets.begin(), facets.end() ), facets.end() );
+        // // Duplicated facets are eliminated
+        // std::sort( facets.begin(), facets.end() );
+        // facets.erase( std::unique( facets.begin(), facets.end() ), facets.end() );
+        
+        // // ---------------------- DEBUG ----------------------
+        // std::cout << "Debug Facets & Cells Attachments\n";
+        // std::cout << "Total facets: " << facets.size() << "\n";
+        
+        // // Construire un map des arêtes → cellules qui les contiennent
+        // std::map<std::array<size_t,2>, std::vector<size_t>> edge_to_cells;
+        // for(size_t c=0; c<polygons.size(); ++c){
+        //     for(const auto& e : polygons[c].m_member_edges){
+        //         edge_to_cells[e].push_back(c);
+        //     }
+        // }
+        
+        // for(const auto& e : facets){
+        //     std::cout << "Facet [" << e[0] << ", " << e[1] << "]\n";
+        //     // Coordonnées des points de la face
+        //     std::cout << "  Nodes:\n";
+        //     std::cout << "    " << e[0] << " : (" << points[e[0]].x() << ", " << points[e[0]].y() << ")\n";
+        //     std::cout << "    " << e[1] << " : (" << points[e[1]].x() << ", " << points[e[1]].y() << ")\n";
+            
+        //     // Cellules qui contiennent cette face
+        //     auto it = edge_to_cells.find(e);
+        //     if(it != edge_to_cells.end()){
+        //         std::cout << "  Attached cells: ";
+        //         for(auto cidx : it->second){
+        //             std::cout << cidx << " ";
+        //         }
+        //         std::cout << "\n";
+        //     }
+        // }
+        
+        // std::cout << "Debug terminé.\n";
+        // // --------------------------------------------------
 
         // std::cout << bold << red << std::endl << std::endl;
         // std::cout << "Debug mesh" << std::endl;

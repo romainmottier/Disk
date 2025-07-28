@@ -12,11 +12,13 @@
 #include <iomanip>
 #include "../common/acoustic_one_field_assembler.hpp"
 #include "../common/acoustic_two_fields_assembler.hpp"
+#include "../common/acoustic_two_fields_assembler_LTS.hpp"
 #include "../common/elastodynamic_one_field_assembler.hpp"
 #include "../common/elastodynamic_two_fields_assembler.hpp"
 #include "../common/elastodynamic_three_fields_assembler.hpp"
 #include "../common/elastoacoustic_two_fields_assembler.hpp"
 #include "../common/elastoacoustic_four_fields_assembler.hpp"
+// #include "../common/elastoacoustic_four_fields_assembler_LTS.hpp"
 #include "diskpp/bases/bases.hpp"
 
 #ifdef HAVE_INTEL_TBB
@@ -867,6 +869,55 @@ public:
         
         return energy_h;
     }
+   
+     /// Compute the discrete acoustic energy for one field approximation
+    static double compute_acoustic_energy_two_fields_LTS(Mesh & msh, disk::hho_degree_info & hho_di, acoustic_two_fields_assembler_LTS<Mesh> & assembler, double & time, Matrix<double, Dynamic, 1> & x_dof, std::ostream & energy_file = std::cout){
+
+        timecounter tc;
+        tc.tic();
+
+        using RealType = double;
+        size_t n_scal_cbs = disk::scalar_basis_size(hho_di.cell_degree(), Mesh::dimension);
+        size_t n_vec_cbs = disk::scalar_basis_size(hho_di.reconstruction_degree(), Mesh::dimension)-1;
+        size_t n_cbs = n_scal_cbs + n_vec_cbs;
+        
+        std::vector<RealType> energy_vec(msh.cells_size());
+        #ifdef HAVE_INTEL_TBB
+                size_t n_cells = msh.cells_size();
+                tbb::parallel_for(size_t(0), size_t(n_cells), size_t(1),
+                    [&msh,&assembler,&energy_vec,&x_dof,&n_cbs] (size_t & cell_ind){
+                            auto& cell = msh.backend_storage()->surfaces[cell_ind];
+                            Matrix<RealType, Dynamic, Dynamic> mass_matrix = assembler.mass_operator(cell_ind, msh, cell);
+                            Matrix<RealType, Dynamic, 1> cell_dof = x_dof.block(cell_ind*n_cbs, 0, n_cbs, 1);
+                            Matrix<RealType, Dynamic, 1> cell_mass_tested = mass_matrix * cell_dof;
+                            Matrix<RealType, 1, 1> term = cell_dof.transpose() * cell_mass_tested;
+                            energy_vec[cell_ind] = term(0,0);
+                }
+            );
+        #else
+            for (size_t cell_ind = 0; cell_ind < msh.cells_size(); cell_ind++)
+            {
+                auto& cell = msh.backend_storage()->surfaces[cell_ind];
+                
+                Matrix<RealType, Dynamic, Dynamic> mass_matrix = assembler.mass_operator(cell_ind, msh, cell);
+                Matrix<RealType, Dynamic, 1> cell_dof = x_dof.block(cell_ind*n_cbs, 0, n_cbs, 1);
+                Matrix<RealType, Dynamic, 1> cell_mass_tested = mass_matrix * cell_dof;
+                Matrix<RealType, 1, 1> term = cell_dof.transpose() * cell_mass_tested;
+            
+                energy_vec[cell_ind] = term(0,0);
+        
+            }
+        #endif
+    
+        RealType energy_h = std::accumulate(energy_vec.begin(), energy_vec.end(),0.0);
+        energy_h *= 0.5;
+        
+        tc.toc();
+        std::cout << bold << cyan << "Energy completed: " << tc << " seconds" << reset << std::endl;
+        energy_file << time << "   " << std::setprecision(16) << energy_h << std::endl;
+        
+        return energy_h;
+    }
     
     /// Compute the discrete elastic energy for one field approximation
     static double compute_elastic_energy_one_field(Mesh & msh, disk::hho_degree_info & hho_di, elastodynamic_one_field_assembler<Mesh> & assembler, double & time, Matrix<double, Dynamic, 1> & u_dof, Matrix<double, Dynamic, 1> & v_dof, std::ostream & energy_file = std::cout){
@@ -1582,8 +1633,7 @@ public:
     
             silo.close();
             tc.toc();
-            std::cout << std::endl;
-            std::cout << bold << cyan << "Silo file rendered in : " << tc << " seconds" << reset << std::endl;
+            // std::cout << bold << cyan << "Silo file rendered in : " << tc << " seconds" << reset << std::endl << std::endl;
         }
         
     // Write a silo file for one field vectorial approximation

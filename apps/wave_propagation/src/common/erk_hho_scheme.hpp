@@ -114,7 +114,7 @@ class erk_hho_scheme
         m_Fc = Fg.block(0, 0, m_n_c_dof, 1);
     }
     
-    void Kcc_inverse(std::pair<size_t,size_t> cell_basis_data){
+    void Mcc_inverse(std::pair<size_t,size_t> cell_basis_data){
                 
         size_t n_cells = cell_basis_data.first;
         size_t n_cbs   = cell_basis_data.second;
@@ -185,6 +185,7 @@ class erk_hho_scheme
         std::vector< Triplet<T> > triplets_ff;
         triplets_ff.resize(nnz_ff);
         m_Sff_inv = SparseMatrix<T>( m_n_f_dof, m_n_f_dof );
+
         #ifdef HAVE_INTEL_TBB
                 tbb::parallel_for(size_t(0), size_t(n_faces), size_t(1),
                     [this,&triplets_ff,&n_fbs] (size_t & face_ind){
@@ -211,8 +212,8 @@ class erk_hho_scheme
             );
         #else
 
-            for (size_t face_ind = 0; face_ind < n_faces; face_ind++)
-            {
+            for (size_t face_ind = 0; face_ind < n_faces; face_ind++) {
+
                 size_t stride_eq = face_ind * n_fbs;
                 size_t stride_l = face_ind * n_fbs * n_fbs;
 
@@ -222,10 +223,8 @@ class erk_hho_scheme
                 analysis_ff.factorize(S_ff_loc);
                 Matrix<T, Dynamic, Dynamic> S_ff_inv_loc = analysis_ff.solve(Matrix<T, Dynamic, Dynamic>::Identity(n_fbs, n_fbs));
                 size_t l = 0;
-                for (size_t i = 0; i < S_ff_inv_loc.rows(); i++)
-                {
-                    for (size_t j = 0; j < S_ff_inv_loc.cols(); j++)
-                    {
+                for (size_t i = 0; i < S_ff_inv_loc.rows(); i++) {
+                    for (size_t j = 0; j < S_ff_inv_loc.cols(); j++) {
                         triplets_ff[stride_l+l] = Triplet<T>(stride_eq+i, stride_eq+j, S_ff_inv_loc(i,j));
                         l++;
                     }
@@ -248,10 +247,12 @@ class erk_hho_scheme
         Matrix<T, Dynamic, 1> RHSf = Kfc()*x_c_dof;
         if (m_sff_is_block_diagonal_Q) {
             x.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
-        }else{
+        }
+        else {
             if (m_iterative_solver_Q) {
                 x.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); // new state
-            }else{
+            }
+            else{
                 x.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); // new state
             }
         }
@@ -273,18 +274,146 @@ class erk_hho_scheme
         Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
         if (m_sff_is_block_diagonal_Q) {
             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
-        }else{
+        }
+        else {
             if (m_iterative_solver_Q) {
                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); // new state
                 std::cout << "Number of iterations (CG): " << m_analysis_cg.iterations() << std::endl;
                 std::cout << "Estimated error: " << m_analysis_cg.error() << std::endl;
-            }else{
+            }
+            else{
                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); // new state
             }
         }
     
     }
+
+    void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dtau, size_t p, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
+        
+        k=y;
+
+        // COARSE EVALUATION
+        Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+        Matrix<T, Dynamic, 1> w_coarse = m_Mc_inv * (Fc() - Kcc()*IminusP*y_c_dof - Kcf()*Pfacecoarse*y_f_dof);
+
+        // FINE EVALUATION
+        for (int m = 0; m < p; m++) { 
+            k=y;
+            // CELL UPDATE
+            Matrix<T, Dynamic, 1> y_c_dof = k.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> y_f_dof = k.block(m_n_c_dof, 0, m_n_f_dof, 1);
+            Matrix<T, Dynamic, 1> w_fine   = m_Mc_inv * (Fc() - Kcc()*P_cell*y_c_dof - Kcf()*Pfacefine*y_f_dof);
+            Matrix<T, Dynamic, 1> k_c_dof = w_coarse + w_fine;
+            k.block(0, 0, m_n_c_dof, 1) = k_c_dof;    
+            // FACE UPDATE
+            Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
+            if (m_sff_is_block_diagonal_Q) {
+                k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
+            }
+            else {
+                if (m_iterative_solver_Q) {
+                    k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); 
+                    std::cout << "Number of iterations (CG): " << m_analysis_cg.iterations() << std::endl;
+                    std::cout << "Estimated error: " << m_analysis_cg.error() << std::endl;
+                }
+                else {
+                    k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); 
+                }
+            }
+            // GLOBAL UPDATE
+            y += dtau * k;
+        }        
+    }
+
+    // void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dt, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
+        
+    //     k=y;
+    //     size_t p = 1;
+    //     T dtau = dt / p;
+    //     for (int m = 0; m < p; m++) {  
+            
+    //         // CELL UPDATE 
+    //         Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
+    //         Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+    //         Matrix<T, Dynamic, 1> w = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
+    //         Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * w;
+    //         k.block(0, 0, m_n_c_dof, 1) = k_c_dof;    
+
+    //         // FACE UPDATE
+    //         Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
+    //         if (m_sff_is_block_diagonal_Q) {
+    //             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
+    //         }
+    //         else {
+    //             if (m_iterative_solver_Q) {
+    //                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); 
+    //                 std::cout << "Number of iterations (CG): " << m_analysis_cg.iterations() << std::endl;
+    //                 std::cout << "Estimated error: " << m_analysis_cg.error() << std::endl;
+    //             }
+    //             else {
+    //                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); 
+    //             }
+    //         }
+
+    //         // GLOBAL UPDATE
+    //         y += dtau * k;
+
+    //     }        
+    // }
+
+    void compute_wn(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<T> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, Matrix<T, Dynamic, 1> &w) {
     
+        w.resize(m_n_c_dof);
+        
+        Matrix<T, Dynamic, 1> y_c = y.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> y_f = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+
+        w = Fc() - Kcc()*IminusP*y_c - Kcf()*Pfacecoarse*y_f;
+
+    }
+
+    void print_nonzero_entries_vector(Matrix<T, Dynamic, 1>  &w) {
+        std::cout << "Non-zero entries of w:" << std::endl;
+        bool any_nonzero = false;
+        for (int i = 0; i < w.rows(); i++) {
+            if (std::abs(w(i)) > 1e-12) {  // tolérance pour zéro
+                std::cout << "w[" << i << "] = " << w(i) << std::endl;
+                any_nonzero = true;
+            }
+        }
+        if (!any_nonzero) {
+            std::cout << "All entries are zero." << std::endl;
+        }
+    }
+    
+    size_t count_nonzero_entries(const Eigen::SparseMatrix<T> &M) {
+        if (M.rows() == 0 || M.cols() == 0) return 0; // matrice vide
+        size_t count = 0;
+        for (int k = 0; k < M.outerSize(); ++k) {
+            for (typename Eigen::SparseMatrix<T>::InnerIterator it(M,k); it; ++it) {
+                if (std::abs(it.value()) > 1e-12) count++;
+            }
+        }
+        return count;
+    }
+
+    
+    
+    void print_nonzero_entries(const Eigen::SparseMatrix<T> &mat) {
+        size_t count = 0;
+        for (int k = 0; k < mat.outerSize(); ++k) {
+            for (typename Eigen::SparseMatrix<T>::InnerIterator it(mat, k); it; ++it) {
+                if (std::abs(it.value()) > 1e-12) {
+                    // std::cout << "mat(" << it.row() << ", " << it.col() << ") = " << it.value() << std::endl;
+                    ++count;
+                }
+            }
+        }
+        std::cout << "Total non-zero entries: " << count << std::endl;
+    }
+    
+
 };
 
 #endif /* erk_hho_scheme_hpp */

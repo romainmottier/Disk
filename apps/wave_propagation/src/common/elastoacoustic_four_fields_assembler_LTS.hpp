@@ -7,8 +7,8 @@
 
 
 #pragma once
-#ifndef elastoacoustic_four_fields_assembler_hpp
-#define elastoacoustic_four_fields_assembler_hpp
+#ifndef elastoacoustic_four_fields_assembler_LTS_hpp
+#define elastoacoustic_four_fields_assembler_LTS_hpp
 
 #include "diskpp/bases/bases.hpp"
 #include "diskpp/methods/hho"
@@ -22,15 +22,14 @@
 #endif
 
 template<typename Mesh>
-class elastoacoustic_four_fields_assembler {
+class elastoacoustic_four_fields_assembler_LTS {
     
+    using T = typename Mesh::coordinate_type;
     typedef disk::BoundaryConditions<Mesh, false>    e_boundary_type;
     typedef disk::BoundaryConditions<Mesh, true>     a_boundary_type;
-    using T = typename Mesh::coordinate_type;
 
     std::vector<size_t>                 m_e_compress_indexes;
     std::vector<size_t>                 m_e_expand_indexes;
-    
     std::vector<size_t>                 m_a_compress_indexes;
     std::vector<size_t>                 m_a_expand_indexes;
 
@@ -64,11 +63,6 @@ class elastoacoustic_four_fields_assembler {
     bool        m_hho_stabilization_Q;
     bool        m_scaled_stabilization_Q;
 
-    // LTS 
-    std::vector< Triplet<T> > m_triplets_coarse;
-    std::vector< Triplet<T> > m_triplets_fine;
-
-
 public:
 
     SparseMatrix<T>         LHS;
@@ -79,108 +73,145 @@ public:
     SparseMatrix<T>         IminusP;
     SparseMatrix<T>         COUPLING;
 
-    std::vector<size_t> m_coarse_cell_dofs;
-    std::vector<size_t> m_coarse_face_dofs;
-    std::vector<size_t> m_fine_cell_dofs;
-    std::vector<size_t> m_fine_face_dofs;
-
-    size_t nnz_Mcc_coarse;
-    size_t nnz_Mcc_fine;
-    size_t nnz_Kcc_coarse;
-    size_t nnz_Kcc_fine;
-    size_t nnz_Kcf_coarse;
-    size_t nnz_Kcf_fine;
-    size_t nnz_Kfc_coarse;
-    size_t nnz_Kfc_fine;
-    size_t nnz_Sff_fine;
-
     // Identification of Dirichlet faces; Construction of compressed face index maps; Computation of dofs counts; 
     // Initialization of global matrices and RHS; Setup of cell classification and local-to-global mapping structures.
-    elastoacoustic_four_fields_assembler(const Mesh& msh, const disk::hho_degree_info& hho_di, const e_boundary_type& e_bnd, const a_boundary_type& a_bnd, std::map<size_t,elastic_material_data<T>> & e_material, std::map<size_t,acoustic_material_data<T>> & a_material) : m_hho_di(hho_di), m_e_bnd(e_bnd), m_a_bnd(a_bnd), m_e_material(e_material), m_a_material(a_material), m_hho_stabilization_Q(true), m_scaled_stabilization_Q(false) {
-            
+    elastoacoustic_four_fields_assembler_LTS(const Mesh& msh, const disk::hho_degree_info& hho_di, const e_boundary_type& e_bnd, const a_boundary_type& a_bnd, std::map<size_t,elastic_material_data<T>> & e_material, std::map<size_t,acoustic_material_data<T>> & a_material) : m_hho_di(hho_di), m_e_bnd(e_bnd), m_a_bnd(a_bnd), m_e_material(e_material), m_a_material(a_material), m_hho_stabilization_Q(true), m_scaled_stabilization_Q(false) {
+        
+        // --- Détermination des faces actives et création des maps coarse/fine ---
         auto storage = msh.backend_storage();
+        
+        // Lambdas pour détecter les faces Dirichlet
         auto is_e_dirichlet = [&](const typename Mesh::face& fc) -> bool {
-            auto fc_id = msh.lookup(fc);
-            return e_bnd.is_dirichlet_face(fc_id);
+            return m_e_bnd.is_dirichlet_face(msh.lookup(fc));
         };
         
         auto is_a_dirichlet = [&](const typename Mesh::face& fc) -> bool {
-            auto fc_id = msh.lookup(fc);
-            return a_bnd.is_dirichlet_face(fc_id);
+            return m_a_bnd.is_dirichlet_face(msh.lookup(fc));
         };
-
+        
+        // Comptage des faces essentielles (Dirichlet)
         size_t n_e_essential_edges = std::count_if(msh.faces_begin(), msh.faces_end(), is_e_dirichlet);
         size_t n_a_essential_edges = std::count_if(msh.faces_begin(), msh.faces_end(), is_a_dirichlet);
         
-        std::set<size_t> e_egdes;
-        for (auto &chunk : m_e_material) {
-            size_t cell_i = chunk.first;
-            auto& cell = storage->surfaces[cell_i];
-            auto cell_faces = faces(msh,cell);
-            for (auto &face : cell_faces) {
-                if (!is_e_dirichlet(face)) {
-                    auto fc_id = msh.lookup(face);
-                    e_egdes.insert(fc_id);
+        // Sets pour stocker les faces actives
+        std::set<size_t> e_coarse_faces, e_fine_faces;
+        std::set<size_t> a_coarse_faces, a_fine_faces;
+        
+        // Définition des cellules coarse/fine
+        auto is_fine_cell = [&](size_t cell_id) {
+            auto& cell = storage->surfaces[cell_id];
+            double h_l = diameter(msh, cell);
+            return h_l < h_threshold;
+        };
+        
+        // Parcours des cellules élastiques
+        for (auto& chunk : m_e_material) {
+            size_t cell_id = chunk.first;
+            bool fine = is_fine_cell(cell_id);
+            auto& cell = storage->surfaces[cell_id];
+            auto cell_faces = faces(msh, cell);
+            
+            for (auto& fc : cell_faces) {
+                size_t fc_id = msh.lookup(fc);
+                if (!is_e_dirichlet(fc)) {
+                    if (fine) e_fine_faces.insert(fc_id);
+                    else      e_coarse_faces.insert(fc_id);
                 }
             }
         }
-        n_e_edges = e_egdes.size();
-        std::set<size_t> a_egdes;
-        for (auto &chunk : m_a_material) {
-            size_t cell_i = chunk.first;
-            auto& cell = storage->surfaces[cell_i];
-            auto cell_faces = faces(msh,cell);
-            for (auto &face : cell_faces) {
-                if (!is_a_dirichlet(face)) {
-                    auto fc_id = msh.lookup(face);
-                    a_egdes.insert(fc_id);
+        
+        // Parcours des cellules acoustiques
+        for (auto& chunk : m_a_material) {
+            size_t cell_id = chunk.first;
+            bool fine = is_fine_cell(cell_id);
+            auto& cell = storage->surfaces[cell_id];
+            auto cell_faces = faces(msh, cell);
+            
+            for (auto& fc : cell_faces) {
+                size_t fc_id = msh.lookup(fc);
+                if (!is_a_dirichlet(fc)) {
+                    if (fine) a_fine_faces.insert(fc_id);
+                    else      a_coarse_faces.insert(fc_id);
                 }
             }
         }
-        n_a_edges = a_egdes.size();
         
-        m_n_edges = msh.faces_size();
-        m_n_essential_edges = n_e_essential_edges + n_a_essential_edges;
-
-        m_e_compress_indexes.resize( m_n_edges );
-        m_e_expand_indexes.resize( m_n_edges - m_n_essential_edges );
+        // Remplissage des maps compress/expand pour chaque bloc
+        m_e_coarse_compress_indexes.resize(msh.faces_size());
+        m_e_coarse_expand_indexes.resize(e_coarse_faces.size());
+        m_e_fine_compress_indexes.resize(msh.faces_size());
+        m_e_fine_expand_indexes.resize(e_fine_faces.size());
         
-        m_a_compress_indexes.resize( m_n_edges );
-        m_a_expand_indexes.resize( m_n_edges - m_n_essential_edges );
-
-        size_t e_compressed_offset = 0;
-        for (auto face_id : e_egdes) {
-            m_e_compress_indexes.at(face_id) = e_compressed_offset;
-            m_e_expand_indexes.at(e_compressed_offset) = face_id;
-            e_compressed_offset++;
+        m_a_coarse_compress_indexes.resize(msh.faces_size());
+        m_a_coarse_expand_indexes.resize(a_coarse_faces.size());
+        m_a_fine_compress_indexes.resize(msh.faces_size());
+        m_a_fine_expand_indexes.resize(a_fine_faces.size());
+        
+        // Elastic
+        size_t offset = 0;
+        for (auto fc_id : e_coarse_faces) {
+            m_e_coarse_compress_indexes[fc_id] = offset;
+            m_e_coarse_expand_indexes[offset] = fc_id;
+            offset++;
         }
-        size_t a_compressed_offset = 0;
-        for (auto face_id : a_egdes) {
-            m_a_compress_indexes.at(face_id) = a_compressed_offset;
-            m_a_expand_indexes.at(a_compressed_offset) = face_id;
-            a_compressed_offset++;
+        offset = 0;
+        for (auto fc_id : e_fine_faces) {
+            m_e_fine_compress_indexes[fc_id] = offset;
+            m_e_fine_expand_indexes[offset] = fc_id;
+            offset++;
         }
-    
+        
+        // Acoustic
+        offset = 0;
+        for (auto fc_id : a_coarse_faces) {
+            m_a_coarse_compress_indexes[fc_id] = offset;
+            m_a_coarse_expand_indexes[offset] = fc_id;
+            offset++;
+        }
+        offset = 0;
+        for (auto fc_id : a_fine_faces) {
+            m_a_fine_compress_indexes[fc_id] = offset;
+            m_a_fine_expand_indexes[offset] = fc_id;
+            offset++;
+        }
+        
+        // --- Comptage des DOFs par bloc ---
+        // Elastic
         size_t n_cbs = get_e_cell_basis_data();
         size_t n_fbs = disk::vector_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1, Mesh::dimension);
         
+        // Acoustic
         size_t n_s_cbs = get_a_cell_basis_data();
         size_t n_s_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
-
-        m_n_elastic_cell_dof = (n_cbs * m_e_material.size());
-        m_n_acoustic_cell_dof = (n_s_cbs * m_a_material.size());
         
-        m_n_elastic_face_dof = (n_fbs * n_e_edges);
-        m_n_acoustic_face_dof = (n_s_fbs * n_a_edges);
-        size_t system_size = m_n_elastic_cell_dof + m_n_acoustic_cell_dof + m_n_elastic_face_dof + m_n_acoustic_face_dof;
-
-        LHS = SparseMatrix<T>( system_size, system_size );
-        LHS_STAB = SparseMatrix<T>( system_size, system_size ); //OPTIONAL
-        RHS = Matrix<T, Dynamic, 1>::Zero( system_size );
-        MASS = SparseMatrix<T>( system_size, system_size );
-        COUPLING = SparseMatrix<T>( system_size, system_size );
-        P = SparseMatrix<T>( system_size, system_size );
-        IminusP = SparseMatrix<T>( m_n_elastic_cell_dof + m_n_acoustic_cell_dof, m_n_elastic_cell_dof + m_n_acoustic_cell_dof );
+        // Cells DOFs
+        m_n_coarse_cell_dof = n_cbs * m_e_material.size(); // élastique coarse
+        m_n_coarse_cell_dof += n_s_cbs * m_a_material.size(); // + acoustique coarse
+        
+        m_n_fine_cell_dof = n_cbs * m_e_material.size(); // élastique fine
+        m_n_fine_cell_dof += n_s_cbs * m_a_material.size(); // + acoustique fine
+        
+        // Faces DOFs
+        m_n_coarse_face_dof = n_fbs * e_coarse_faces.size() + n_s_fbs * a_coarse_faces.size();
+        m_n_fine_face_dof   = n_fbs * e_fine_faces.size() + n_s_fbs * a_fine_faces.size();
+        
+        // Total DOFs
+        m_n_coarse_dof = m_n_coarse_cell_dof + m_n_coarse_face_dof;
+        m_n_fine_dof   = m_n_fine_cell_dof + m_n_fine_face_dof;
+        
+        // --- Allocation des matrices globales coarse/fine ---
+        LHS_coarse  = SparseMatrix<T>(m_n_coarse_dof, m_n_coarse_dof);
+        LHS_fine    = SparseMatrix<T>(m_n_fine_dof, m_n_fine_dof);
+        
+        MASS_coarse = SparseMatrix<T>(m_n_coarse_dof, m_n_coarse_dof);
+        MASS_fine   = SparseMatrix<T>(m_n_fine_dof, m_n_fine_dof);
+        
+        COUPLING_coarse = SparseMatrix<T>(m_n_coarse_dof, m_n_coarse_dof);
+        COUPLING_fine   = SparseMatrix<T>(m_n_fine_dof, m_n_fine_dof);
+        
+        // RHS
+        RHS_coarse = Matrix<T, Dynamic, 1>::Zero(m_n_coarse_dof);
+        RHS_fine   = Matrix<T, Dynamic, 1>::Zero(m_n_fine_dof);
 
         classify_cells(msh);
         build_cells_maps();
