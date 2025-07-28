@@ -74,10 +74,12 @@ struct cut_cell_info<T, 2> {
     std::set<size_t>            d_neighbors; // diagonal neighbors
     size_t local_dofs;
 
+    bool highlight; 
     cut_cell_info() :
         loc(location::UNDEF),
         cut(cut_type::UNDEF),
-        distorted(false)
+        distorted(false),
+        highlight(false)
     {}
 };
 

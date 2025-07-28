@@ -44,6 +44,7 @@ void Elliptic_Poly_Ext(int argc, char **argv) {
 
 
 int main(int argc, char **argv) {
+    DBSetDeprecateWarnings(0);
     Elliptic_Poly_Ext(argc, argv);
     return 0;
 }

@@ -19,17 +19,20 @@ MeshGeneration(level_set<RealType> & level_set_function){
     detect_cut_type(msh, level_set_function);
     make_neighbors_info_cartesian(msh);
     refine_interface(msh, level_set_function, 4);
-    // make_polynomial_extension(msh, level_set_function);
+    make_polynomial_extension(msh, level_set_function);
+    // make_agglomeration(msh, level_set_function);
+
     
     bool dump_debug = true;
     if (dump_debug) {
+        // print_polynomial_extension(msh);
         output_mesh_info(msh, level_set_function);
-        // std::string mesh_info = "cuthho_meshinfo_l" + std::to_string(l) + ".silo";
-        // std::string command = "mv cuthho_meshinfo.silo " + mesh_info;
-        // std::string interface = "interface_l" + std::to_string(l) + ".3D";
-        // std::string command2 = "mv interface.3D " + interface;
-        // std::system(command.c_str());
-        // std::system(command2.c_str());
+        std::string mesh_info = "cuthho_meshinfo_l" + std::to_string(l) + ".silo";
+        std::string command = "mv cuthho_meshinfo.silo " + mesh_info;
+        std::string interface = "interface_l" + std::to_string(l) + ".3D";
+        std::string command2 = "mv interface.3D " + interface;
+        std::system(command.c_str());
+        std::system(command2.c_str());
     }
     
     return msh;

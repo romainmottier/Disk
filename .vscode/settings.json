@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        ".inc": ".f90",
+        "ostream": "cpp",
+        "unordered_set": "cpp",
+        "initializer_list": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp"
+    }
+}
