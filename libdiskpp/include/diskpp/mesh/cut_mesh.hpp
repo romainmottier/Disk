@@ -8,6 +8,121 @@
 
 namespace disk {
 
+enum class connectivity_via {
+    node,
+    edge,
+    face,
+    undef
+};
+
+std::ostream&
+operator<<(std::ostream& os, connectivity_via cv) {
+    switch (cv) {
+        case connectivity_via::node:
+            os << "node";
+            break;
+        case connectivity_via::edge:
+            os << "edge";
+            break;
+        case connectivity_via::face:
+            os << "face";
+            break;
+        case connectivity_via::undef:
+            os << "undef";
+            break;
+    }
+    return os;
+}
+
+template<typename Mesh>
+class mesh_connectivity
+{
+    using mesh_type = Mesh;
+    using cell_type = typename mesh_type::cell_type;
+    using conn_info_t = std::pair<size_t, connectivity_via>;
+
+    std::vector<std::vector<size_t>>        n2cs_;
+    std::vector<std::vector<size_t>>        neighbours_;
+    std::vector<std::vector<conn_info_t>>   neighbours_via_;
+
+public:
+    mesh_connectivity();
+    mesh_connectivity(const mesh_type& msh) {
+        n2cs_.resize( msh.points_size() );
+        for (auto& cl : msh) {
+            auto myofs = offset(msh, cl);
+            auto ptids = cl.point_ids();
+            for (int i = 0; i < ptids.size(); i++) {
+                n2cs_[ ptids[i] ].push_back(myofs);
+            }
+        }
+    
+        neighbours_.resize( msh.cells_size() );
+        for (auto& cl : msh) {
+            auto myofs = offset(msh, cl);
+            auto ptids = cl.point_ids();
+            for (int i = 0; i < ptids.size(); i++) {
+                const auto& neighs = n2cs_[ptids[i]];
+                neighbours_[myofs].insert(neighbours_[myofs].end(),
+                    neighs.begin(), neighs.end());
+            }
+
+            std::sort(neighbours_[myofs].begin(),
+                neighbours_[myofs].end());
+        }
+
+        neighbours_via_.resize(msh.cells_size());
+        for (size_t ofs = 0; ofs < neighbours_.size(); ofs++) {
+            const auto& neighs = neighbours_[ofs];
+            size_t curr_num;
+            size_t curr_count;
+            size_t i = 0;
+            while ( i < neighs.size() ) {
+                if (ofs == neighs[i]) {
+                    i++;
+                    continue;
+                }
+                curr_num = neighs[i];
+                curr_count = 1;
+                while (neighs[++i] == curr_num) {
+                    curr_count++;
+                }
+                conn_info_t ci;
+                ci.first = curr_num;
+                if (curr_count == 1) {
+                    ci.second = connectivity_via::node;
+                } else if (curr_count == 2) {
+                    ci.second = (Mesh::dimension == 2) ? connectivity_via::face : connectivity_via::edge;
+                } else {
+                    ci.second = connectivity_via::face;
+                }
+
+                neighbours_via_[ofs].push_back(ci);
+            }
+        }
+    }
+
+    std::vector<conn_info_t>
+    neighbours_offsets(const mesh_type& msh, const cell_type& cl)
+    {
+        auto ofs = offset(msh, cl);
+        return {neighbours_via_[ofs].begin(), neighbours_via_[ofs].end()};
+    }
+
+    std::vector<std::pair<cell_type, connectivity_via>>
+    neighbours(const mesh_type& msh, const cell_type& cl)
+    {
+        auto ofs = offset(msh, cl);
+        std::vector<cell_type> ret;
+        for (auto& ns : neighbours_via_[ofs]) {
+            for (auto& c : ns) {
+                ret.push_back( msh[c.first], c.second );
+            }
+        }
+        return ret;
+    }
+};
+
 template<typename Mesh, typename Element>
 std::vector<typename Mesh::node_type>
 nodes(const Mesh& msh, const Element& elem)
@@ -607,12 +722,6 @@ detect_cut_type(MeshType& msh, const Function& level_set_function) {
     }
 }
 
-template<typename Mesh>
-bool
-is_cut(const Mesh& msh, const typename Mesh::cell_type& cl) {
-    return false;
-}
-
 template<mesh_2D Mesh>
 bool
 is_cut(const Mesh& msh, const typename Mesh::cell_type& cl) {
@@ -628,12 +737,6 @@ is_cut(const Mesh& msh, const typename Mesh::cell_type& cl) {
 
 }
 
-template<typename Mesh>
-bool
-is_cut(const Mesh& msh, const typename Mesh::face_type& fc) {
-    return false;
-
-}
 
 template<mesh_2D Mesh>
 bool
@@ -660,23 +763,23 @@ make_neighbors_info_cartesian(const Mesh& msh) {
     using T = typename Mesh::coordinate_type;
     auto storage = msh.backend_storage();
 
-    // Face neighbors
-    auto conn = connectivity_via_faces(msh);
+    mesh_connectivity conn(msh);
+
     for (auto& cl : msh) {
         auto cl_id = offset(msh, cl);
         auto& cl_f_neighbors = storage -> cut_cell_data[cl_id].f_neighbors;
-        auto fcs = faces(msh, cl);
-        for (auto& fc : fcs) {
-            auto cl_neighbour = conn.neighbour_via(msh, cl, fc);
-            if (cl_neighbour.second) {
-                auto cl_neighbour_id = offset(msh, cl_neighbour.first);
-                cl_f_neighbors.insert(cl_neighbour_id);
+        auto& cl_d_neighbors = storage -> cut_cell_data[cl_id].d_neighbors;
+        auto neighs = conn.neighbours_offsets(msh, cl);
+        for (auto& n : neighs) {
+            if (n.second == connectivity_via::face) {
+                cl_f_neighbors.insert(n.first);
+            }
+            else {
+                cl_d_neighbors.insert(n.first);
             }
         }
     }
 
-    // Diagonal neighbors 
-    // TO ADD !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 }
 
 template<mesh_2D MeshType, typename Function>
@@ -761,7 +864,7 @@ class loc_agglo {
 public:
 
     MeshType::cell_type main_cell;
-    std::vector<MeshType::cell_type> cells;
+    std::vector<typename MeshType::cell_type> cells;
 
     MeshType::cell_type new_cell;
 
