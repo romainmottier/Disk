@@ -403,7 +403,7 @@ class erk_coupling_hho_scheme
                 Matrix<T, Dynamic, 1> y_c = Biy.block(0, 0, m_n_c_dof, 1);
                 Matrix<T, Dynamic, 1> y_f = Biy.block(m_n_c_dof, 0, m_n_f_dof, 1);
 
-                Matrix<T, Dynamic, 1> kc = - m_Mc_inv * (Kcc()*y_c + Kcf()*y_f );
+                Matrix<T, Dynamic, 1> kc = - m_Mc_inv * (Kcc()*y_c - Kcf()*y_f );
                 Matrix<T, Dynamic, 1> kf = - m_Sff_inv * (Kfc()*kc);
                 
                 Biy.block(0,0,m_n_c_dof,1) = kc;
