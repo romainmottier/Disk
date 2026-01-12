@@ -3,9 +3,9 @@
 //  Created by Romain Mottier
 // ../wave_propagation -k 2 -s 0 -r 0 -c 0 -p 0 -l 6 -n 2500 -f 1 -e 0
 
-void HeterogeneousEHHOFirstOrder(int argc, char **argv);
+void HeterogeneousEULER_LTS_HHO_FirstOrder(int argc, char **argv);
 
-void HeterogeneousEHHOFirstOrder(int argc, char **argv){
+void HeterogeneousEULER_LTS_HHO_FirstOrder(int argc, char **argv){
     
     // ######################################################################
     // ###################################################################### Simulation paramaters 
@@ -45,13 +45,11 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
         
-        mesh_files.push_back("../meshes/square_mesh_refined.txt");    // l = 0
-
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l2_0.4.txt");    // l = 0
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l3_0.21.txt");   // l = 1 
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l4_0.096.txt");  // l = 2
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l5_0.0485.txt"); // l = 3
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l6_0.024.txt");  // l = 4
+        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l2_0.4.txt");    // l = 0
+        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l3_0.21.txt");   // l = 1 
+        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l4_0.096.txt");  // l = 2
+        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l5_0.0485.txt"); // l = 3
+        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l6_0.024.txt");  // l = 4
         
         // mesh_files.push_back("../../meshes/pulse/poly/poly_l2.txt");   // -l 0
         // mesh_files.push_back("../../meshes/pulse/poly/poly_l3.txt");   // -l 1 
@@ -315,7 +313,7 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
     // ######################################################################
     
     auto v_fun_adi_acoustic = [](const disk::mesh<double, 2, disk::generic_mesh_storage<double, 2>>::point_type& pt) -> disk::static_vector<double, 2> {
-        double x,y,xc,yc,r,wave,vx,vy,c,lp, fc, vp;
+        double x, y, xc, yc, r, wave, vx, vy, c, lp, fc, vp;
         x    = pt.x();
         y    = pt.y();
         xc   = 0.0;
@@ -328,15 +326,40 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
         wave = (c)/(std::exp((1.0/(lp*lp))*r*r*M_PI*M_PI));
         vx   = wave*(x-xc);
         vy   = wave*(y-yc);
-        disk::static_vector<double, 2> v{vx,vy};
+        disk::static_vector<double, 2> v{vx,vy}; 
         return v;
     };
+
+    auto p_fun_ricker = [](const disk::mesh<double, 2, disk::generic_mesh_storage<double, 2>>::point_type& pt) -> double {
+        double x, y, xc, yc, r, fc, c, vp, lp, p0, pi2;
+        x  = pt.x();
+        y  = pt.y();
+        xc = 0.0;
+        yc = 0.15;
+        fc = 10.0;
+        c  = 10.0;
+        vp = std::sqrt(1.0);
+        lp  = vp / fc;           // longueur caractéristique
+        p0  = 1.0;
+        pi2 = M_PI * M_PI;
+        
+        r = std::sqrt((x-xc)*(x-xc)+(y-yc)*(y-yc));
+        
+        double arg = pi2 * r*r / (lp*lp);
+        
+        double p = p0 * (1.0 - 2.0 * arg) * std::exp(-arg);
+        return p;
+    };
+
     
     Matrix<RealType, Dynamic, 1> x_dof;
     // Acoustic pulse intialized in pressure 
-    assembler.project_over_cells(msh, x_dof, null_fun, null_flux_fun, null_s_fun, v_fun_adi_acoustic);
-    assembler.project_over_faces(msh, x_dof, null_fun, null_s_fun);
-    // Elastic pulse intialized in pressure 
+    assembler.project_over_cells(msh, x_dof, null_fun, null_flux_fun, p_fun_ricker, null_fun);
+    assembler.project_over_faces(msh, x_dof, null_fun, p_fun_ricker);
+    // // Acoustic pulse intialized in velocity 
+    // assembler.project_over_cells(msh, x_dof, null_fun, null_flux_fun, null_s_fun, v_fun_adi_acoustic);
+    // assembler.project_over_faces(msh, x_dof, null_fun, null_s_fun);
+    // Elastic pulse intialized in velocity 
     // assembler.project_over_cells(msh, x_dof, v_fun, null_flux_fun, null_s_fun, null_fun);
     // assembler.project_over_faces(msh, x_dof, v_fun, null_s_fun);
   
@@ -358,7 +381,8 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
     tc.toc();
     std::cout << bold << cyan << tc << " seconds" << reset << std::endl;
     assembler.LHS += assembler.COUPLING; 
-    
+    assembler.assemble_P(msh, 1);
+
     size_t elastic_cell_dofs  = assembler.get_e_n_cells_dof();
     size_t acoustic_cell_dofs = assembler.get_a_n_cells_dof();
     size_t e_face_dofs = assembler.get_e_face_dof();
@@ -439,36 +463,21 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
     // ################################################## Time marching
     // ##################################################
     
+    size_t p = 1;
+    size_t dtau = dt / p;
+    auto l0 = x_dof;
     Matrix<RealType, Dynamic, 1> x_dof_n;
     for(size_t it = 1; it <= nt; it++) {
         
         tcit.tic();
         std::cout << bold << red << "   Time step number " << it << ": t = " << t << reset << std::endl;
-        RealType tn = dt*(it-1)+ti;
+        x_dof_n = x_dof;
+        size_t n_dof = x_dof.rows();
+
+
         
-        // ERK step
-        tc.tic();
-        {
-            size_t n_dof = x_dof.rows();
-            Matrix<RealType, Dynamic, Dynamic> k = Matrix<RealType, Dynamic, Dynamic>::Zero(n_dof, s);
-            Matrix<RealType, Dynamic, 1> Fg, Fg_c;            
-            Matrix<RealType, Dynamic, 1> yn, ki;
-            x_dof_n = x_dof;
-            for (int i = 0; i < s; i++) {
-                yn = x_dof;
-                for (int j = 0; j < s - 1; j++) {
-                    yn += a(i,j) * dt * k.block(0, j, n_dof, 1);
-                }
-                erk_an.erk_weight(yn, ki);
-                // Accumulated solution
-                x_dof_n += dt*b(i,0)*ki;
-                k.block(0, i, n_dof, 1) = ki;      
-            }
-        }
-        tc.toc();
-        std::cout << bold << cyan << "      ERK step completed: " << tc << " seconds" << reset << std::endl;
         x_dof = x_dof_n;
-        
+
         // ##################################################
         // ################################################## Last postprocess
         // ##################################################

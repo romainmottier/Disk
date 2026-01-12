@@ -77,6 +77,7 @@ using namespace Eigen;
 #include "prototypes/LTS/ELTSAcoustic_conv_test.hpp"
 #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"
 #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp"
+#include "prototypes/LTS/HeterogeneousEULER_LTS_HHO_FirstOrder.hpp"
 
 int main(int argc, char **argv){
 
@@ -114,7 +115,7 @@ int main(int argc, char **argv){
 
 // PULSE: 
    // HeterogeneousIHHOFirstOrder(argc, argv); 
-   // HeterogeneousEHHOFirstOrder(argc, argv); 
+   HeterogeneousEHHOFirstOrder(argc, argv); 
    // ConicWavesIHHOFirstOrder(argc, argv);
    // ConicWavesIHHOFirstOrder_review(argc, argv);
    // ConicWavesEHHOFirstOrder(argc, argv);
@@ -128,7 +129,8 @@ int main(int argc, char **argv){
 // LOCAL TIME STEPPING 
    // ELTSAcousticFirstOrder(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
-   HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
 }
 
 
