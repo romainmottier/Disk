@@ -382,7 +382,7 @@ class erk_coupling_hho_scheme
         }
 
     }
-    
+ 
     void compute_wi(const Matrix<T, Dynamic, 1> &y, const int n_w, const Eigen::SparseMatrix<double> &IminusP, std::vector<Eigen::VectorXd> &w, std::vector<Eigen::VectorXd> &k) {
     
         w.resize(n_w);
@@ -415,6 +415,18 @@ class erk_coupling_hho_scheme
             By_c = - m_Mc_inv  * ( Kcc() * tmp_c + Kcf() * tmp_f );            
             w[i] = By_c;
         }
+    }
+
+    Matrix<T, Dynamic, 1> 
+    apply_B(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> & Proj) {
+        
+        Matrix<T, Dynamic, 1> y_c = y.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> y_f = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+        
+        Matrix<T, Dynamic, 1> w = - m_Mc_inv * (Kcc()*Proj*y_c - Kcf()*Proj*y_f);
+
+        return w;
+        
     }
     
     void erk_LTS_weight(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k) {

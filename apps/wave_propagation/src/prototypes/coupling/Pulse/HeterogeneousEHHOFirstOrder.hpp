@@ -45,20 +45,7 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
         
-        mesh_files.push_back("../meshes/square_mesh_refined.txt");    // l = 0
-
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l2_0.4.txt");    // l = 0
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l3_0.21.txt");   // l = 1 
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l4_0.096.txt");  // l = 2
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l5_0.0485.txt"); // l = 3
-        // mesh_files.push_back("../../meshes/pulse/simplices/simplex_l6_0.024.txt");  // l = 4
-        
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l2.txt");   // -l 0
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l3.txt");   // -l 1 
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l4.txt");   // -l 2
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l5.txt");   // -l 3
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l6.txt");   // -l 4
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l7.txt");   // -l 5
+        mesh_files.push_back("nonconforme_diskpp.txt");    
         
         // Reading the polygonal mesh
         mesh_builder.set_poly_mesh_file(mesh_files[l]);
@@ -348,6 +335,14 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
     Matrix<RealType, Dynamic, 1> b;
     Matrix<RealType, Dynamic, 1> c;
     
+    if (sim_data.m_render_silo_files_Q) {
+        size_t it = 0;
+        std::ostringstream filename;
+        filename << "mesh";
+        std::string silo_file_name = filename.str();
+        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
+    }
+
     // ERK(s) schemes
     int s = 4;
     erk_butcher_tableau::erk_tables(s, a, b, c);

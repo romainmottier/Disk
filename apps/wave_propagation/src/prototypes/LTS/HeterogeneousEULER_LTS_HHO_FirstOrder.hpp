@@ -466,17 +466,30 @@ void HeterogeneousEULER_LTS_HHO_FirstOrder(int argc, char **argv){
     size_t p = 1;
     size_t dtau = dt / p;
     auto l0 = x_dof;
-    Matrix<RealType, Dynamic, 1> x_dof_n;
     for(size_t it = 1; it <= nt; it++) {
         
         tcit.tic();
         std::cout << bold << red << "   Time step number " << it << ": t = " << t << reset << std::endl;
-        x_dof_n = x_dof;
-        size_t n_dof = x_dof.rows();
-
-
         
-        x_dof = x_dof_n;
+        Matrix<RealType, Dynamic, 1> yn, w; 
+        yn = x_dof;
+
+        w = erk_an.apply_B(yn, assembler.IminusP);
+
+        for (int m = 0; m < p; ++m) {   
+            
+            auto ym = erk_an.apply_B(yn, assembler.P);
+            yn = yn + dtau*w + dtau*ym;
+            
+            auto tmp = yn;
+            if (m != p-1) {
+                tmp = assembler.P*tmp;
+            }
+            erk_an.refresh_faces_unknowns(tmp);
+
+        }
+    
+        x_dof = yn;
 
         // ##################################################
         // ################################################## Last postprocess
