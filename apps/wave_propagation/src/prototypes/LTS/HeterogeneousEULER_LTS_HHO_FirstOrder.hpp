@@ -85,7 +85,7 @@ void HeterogeneousEULER_LTS_HHO_FirstOrder(int argc, char **argv){
             h = h_l;
         }
     }
-    
+
     tc.toc();
     std::cout << bold << red << "   MESH GENERATION : ";
     std::cout << tc << " seconds" << reset << std::endl << std::endl;
@@ -460,6 +460,17 @@ void HeterogeneousEULER_LTS_HHO_FirstOrder(int argc, char **argv){
     std::cout << std::endl;
 
     // ##################################################
+    // ################################################## Building LTS data structure
+    // ##################################################
+
+    size_t nnz_Mcc_coarse, nnz_Mcc_fine, nnz_Kcf_coarse, nnz_Kcf_fine, nnz_Kfc_fine, nnz_Sff_fine;
+    assembler.build_coarse_fine_blocks(msh, 0.01*h);
+    assembler.compute_nnz_coarse_fine(msh, 0.01*h, nnz_Mcc_coarse, nnz_Mcc_fine, nnz_Kcf_coarse, nnz_Kcf_fine, nnz_Kfc_fine, nnz_Sff_fine);
+    // metttre des flag;
+    erk_an.extract_coarse_fine_blocks(assembler.m_coarse_cell_dofs, assembler.m_fine_cell_dofs, assembler.m_coarse_face_dofs, assembler.m_fine_face_dofs, nnz_Mcc_coarse, nnz_Mcc_fine, nnz_Kcf_coarse, nnz_Kcf_fine, nnz_Kfc_fine, nnz_Sff_fine);
+    
+
+    // ##################################################
     // ################################################## Time marching
     // ##################################################
     
@@ -474,18 +485,18 @@ void HeterogeneousEULER_LTS_HHO_FirstOrder(int argc, char **argv){
         Matrix<RealType, Dynamic, 1> yn, w; 
         yn = x_dof;
 
-        w = erk_an.apply_B(yn, assembler.IminusP);
+        // w = erk_an.apply_B(yn, assembler.IminusP);
 
         for (int m = 0; m < p; ++m) {   
             
-            auto ym = erk_an.apply_B(yn, assembler.P);
-            yn = yn + dtau*w + dtau*ym;
+            // auto ym = erk_an.apply_B(yn, assembler.P);
+            // yn = yn + dtau*w + dtau*ym;
             
-            auto tmp = yn;
-            if (m != p-1) {
-                tmp = assembler.P*tmp;
-            }
-            erk_an.refresh_faces_unknowns(tmp);
+            // auto tmp = yn;
+            // if (m != p-1) {
+            //     tmp = assembler.P*tmp;
+            // }
+            // erk_an.refresh_faces_unknowns(tmp);
 
         }
     

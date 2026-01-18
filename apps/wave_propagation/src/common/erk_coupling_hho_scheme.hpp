@@ -25,6 +25,15 @@ class erk_coupling_hho_scheme
     SparseMatrix<T> m_inv_Sff;
     SparseMatrix<T> m_Cg;
 
+    SparseMatrix<T> m_Mcc_coarse;
+    SparseMatrix<T> m_Kcc_coarse;
+    SparseMatrix<T> m_Kcf_coarse;
+    SparseMatrix<T> m_Mcc_fine;
+    SparseMatrix<T> m_Kcc_fine;
+    SparseMatrix<T> m_Kcf_fine;
+    SparseMatrix<T> m_Kfc_fine;
+    SparseMatrix<T> m_Sff_fine;
+
     Matrix<T, Dynamic, 1> m_Fc;
 
     #ifdef HAVE_INTEL_MKL
@@ -636,6 +645,57 @@ class erk_coupling_hho_scheme
         std::cout << bold << red << "   Eigenvalue found: " << reset << eigs.eigenvalues();
         simulation_log << "Eigenvalue found: " << eigs.eigenvalues() << std::endl;
         
+    }
+
+    SparseMatrix<T> 
+    extract_submatrix(const SparseMatrix<T> &A, const std::vector<size_t> &row_indices, const std::vector<size_t> &col_indices, int nnz) {
+        std::vector<Triplet<T>> triplets;
+        triplets.reserve(nnz); // estimation grossière
+        
+        for (size_t i_local = 0; i_local < row_indices.size(); i_local++) {
+            size_t i_global = row_indices[i_local];
+            for (typename SparseMatrix<T>::InnerIterator it(A, i_global); it; ++it) {
+                size_t j_global = it.col();
+                auto it_col = std::find(col_indices.begin(), col_indices.end(), j_global);
+                if (it_col != col_indices.end()) {
+                    size_t j_local = std::distance(col_indices.begin(), it_col);
+                    triplets.emplace_back(i_local, j_local, it.value());
+                }
+            }
+        }
+        
+        SparseMatrix<T> submatrix(row_indices.size(), col_indices.size());
+        submatrix.setFromTriplets(triplets.begin(), triplets.end());
+        return submatrix;
+    }
+
+    void extract_coarse_fine_blocks(const std::vector<size_t>& coarse_cell_dofs, const std::vector<size_t>& fine_cell_dofs, const std::vector<size_t>& coarse_face_dofs, const std::vector<size_t>& fine_face_dofs, size_t nnz_Mcc_coarse, size_t nnz_Mcc_fine, size_t nnz_Kcf_coarse, size_t nnz_Kcf_fine, size_t nnz_Kfc_fine, size_t nnz_Sff_fine) {
+        
+        // Coarse
+        m_Mcc_coarse = extract_submatrix(m_Mc,  coarse_cell_dofs, coarse_cell_dofs, nnz_Mcc_coarse);
+        m_Kcc_coarse = extract_submatrix(m_Kcc, coarse_cell_dofs, coarse_cell_dofs, nnz_Kcf_coarse);
+        m_Kcf_coarse = extract_submatrix(m_Kcf, coarse_cell_dofs, coarse_face_dofs, nnz_Kcf_coarse);
+        
+        // Fine
+        m_Mcc_fine  = extract_submatrix(m_Mc,  fine_cell_dofs, fine_cell_dofs, nnz_Mcc_fine);
+        m_Kcc_fine  = extract_submatrix(m_Kcc, fine_cell_dofs, fine_cell_dofs, nnz_Kcf_fine);
+        m_Kcf_fine  = extract_submatrix(m_Kcf, fine_cell_dofs, fine_face_dofs, nnz_Kcf_fine);
+        m_Kfc_fine  = extract_submatrix(m_Kfc, fine_face_dofs, fine_cell_dofs, nnz_Kfc_fine);
+        m_Sff_fine  = extract_submatrix(m_Sff, fine_face_dofs, fine_face_dofs, nnz_Sff_fine);
+    }
+
+    VectorXd extract_subvector(const VectorXd& U_global, const std::vector<size_t>& indices) {
+        VectorXd U_sub(indices.size());
+        for (size_t i = 0; i < indices.size(); i++) {
+            U_sub[i] = U_global[indices[i]];
+        }
+        return U_sub;
+    }
+
+    void inject_subvector(VectorXd& U_global, const std::vector<size_t>& indices, const VectorXd& U_sub) {
+        for (size_t i = 0; i < indices.size(); i++) {
+            U_global[indices[i]] = U_sub[i];
+        }
     }
 
 };

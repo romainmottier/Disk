@@ -74,6 +74,20 @@ public:
     SparseMatrix<T>         IminusP;
     SparseMatrix<T>         COUPLING;
 
+    std::vector<size_t> m_coarse_cell_dofs;
+    std::vector<size_t> m_coarse_face_dofs;
+    std::vector<size_t> m_fine_cell_dofs;
+    std::vector<size_t> m_fine_face_dofs;
+
+    size_t nnz_Mcc_coarse;
+    size_t nnz_Mcc_fine;
+    size_t nnz_Kcc_coarse;
+    size_t nnz_Kcc_fine;
+    size_t nnz_Kcf_coarse;
+    size_t nnz_Kcf_fine;
+    size_t nnz_Kfc_coarse;
+    size_t nnz_Kfc_fine;
+    size_t nnz_Sff_fine;
 
     // Identification of Dirichlet faces; Construction of compressed face index maps; Computation of dofs counts; 
     // Initialization of global matrices and RHS; Setup of cell classification and local-to-global mapping structures.
@@ -772,7 +786,8 @@ public:
     }
             
     // Computation of local elastic mass operator;
-    Matrix<T, Dynamic, Dynamic> e_mass_operator(elastic_material_data<T> & material, const Mesh& msh, const typename Mesh::cell_type& cell, bool add_vector_mass_Q = true) {
+    Matrix<T, Dynamic, Dynamic> 
+    e_mass_operator(elastic_material_data<T> & material, const Mesh& msh, const typename Mesh::cell_type& cell, bool add_vector_mass_Q = true) {
             
         size_t n_ten_cbs = disk::sym_matrix_basis_size(m_hho_di.grad_degree(), Mesh::dimension, Mesh::dimension);
         size_t n_vec_cbs = disk::vector_basis_size(m_hho_di.cell_degree(),Mesh::dimension, Mesh::dimension);
@@ -810,7 +825,8 @@ public:
     }
     
     // Computation of local acoustic mass operator;
-    Matrix<T, Dynamic, Dynamic> a_mass_operator(acoustic_material_data<T> & material, const Mesh& msh, const typename Mesh::cell_type& cell, bool add_scalar_mass_Q = true){
+    Matrix<T, Dynamic, Dynamic> 
+    a_mass_operator(acoustic_material_data<T> & material, const Mesh& msh, const typename Mesh::cell_type& cell, bool add_scalar_mass_Q = true){
             
         size_t n_scal_cbs = disk::scalar_basis_size(m_hho_di.cell_degree(), Mesh::dimension);
         size_t n_vec_cbs = disk::scalar_basis_size(m_hho_di.reconstruction_degree(), Mesh::dimension)-1;
@@ -929,7 +945,8 @@ public:
     }
     
     // Computation of local acoustic mixed operator; Gradient reconstruction & Stabilization operator; 
-    Matrix<T, Dynamic, Dynamic> a_mixed_operator(acoustic_material_data<T> & material, const Mesh& msh, const typename Mesh::cell_type& cell, bool explicit_scheme){
+    Matrix<T, Dynamic, Dynamic> 
+    a_mixed_operator(acoustic_material_data<T> & material, const Mesh& msh, const typename Mesh::cell_type& cell, bool explicit_scheme){
         
         auto reconstruction_operator = mixed_scalar_reconstruction(msh, cell);
         Matrix<T, Dynamic, Dynamic> R_operator = reconstruction_operator.second;
@@ -1058,7 +1075,8 @@ public:
     }
     
     // Computation of local elasto–acoustic interface operator; Quadrature over the face to integrate normal component of elastic basis with acoustic basis; 
-    Matrix<T, Dynamic, Dynamic> e_interface_operator(const Mesh& msh, const typename Mesh::face_type& face, const typename Mesh::cell_type& e_cell, const typename Mesh::cell_type& a_cell) {
+    Matrix<T, Dynamic, Dynamic> 
+    e_interface_operator(const Mesh& msh, const typename Mesh::face_type& face, const typename Mesh::cell_type& e_cell, const typename Mesh::cell_type& a_cell) {
 
         Matrix<T, Dynamic, Dynamic> interface_operator;
         auto facdeg = m_hho_di.face_degree();
@@ -1085,7 +1103,8 @@ public:
     }
     
     // Computation of local Neumann boundary operator for elastic cell; 
-    Matrix<T, Dynamic, 1> e_neumman_bc_operator(const Mesh& msh, const typename Mesh::face_type& face, const typename Mesh::cell_type& e_cell, const typename Mesh::cell_type& a_cell, std::function<T(const typename Mesh::point_type& )> a_vel_fun) {
+    Matrix<T, Dynamic, 1> 
+    e_neumman_bc_operator(const Mesh& msh, const typename Mesh::face_type& face, const typename Mesh::cell_type& e_cell, const typename Mesh::cell_type& a_cell, std::function<T(const typename Mesh::point_type& )> a_vel_fun) {
 
         Matrix<T, Dynamic, Dynamic> neumann_operator;
         auto facdeg = m_hho_di.face_degree();
@@ -1111,7 +1130,8 @@ public:
     }
     
     // Computation of local Neumann boundary operator for acoustic cell; 
-    Matrix<T, Dynamic, Dynamic> a_neumman_bc_operator(const Mesh& msh, const typename Mesh::face_type& face, const typename Mesh::cell_type& e_cell, const typename Mesh::cell_type& a_cell, std::function<disk::static_vector<T, 2>(const typename Mesh::point_type& )> e_vel_fun) {
+    Matrix<T, Dynamic, Dynamic> 
+    a_neumman_bc_operator(const Mesh& msh, const typename Mesh::face_type& face, const typename Mesh::cell_type& e_cell, const typename Mesh::cell_type& a_cell, std::function<disk::static_vector<T, 2>(const typename Mesh::point_type& )> e_vel_fun) {
 
         Matrix<T, Dynamic, Dynamic> neumann_operator;
         auto facdeg = m_hho_di.face_degree();
@@ -1676,6 +1696,152 @@ public:
 
     std::vector<size_t> get_a_expand() {
         return m_a_expand_indexes;
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////// LTS data structure
+    
+    void build_coarse_fine_blocks(const Mesh& msh, double h_threshold) {
+
+        auto storage = msh.backend_storage();
+        
+        // Clear vectors existants
+        m_coarse_cell_dofs.clear();
+        m_fine_cell_dofs.clear();
+        m_coarse_face_dofs.clear();
+        m_fine_face_dofs.clear();
+        
+        auto is_fine_cell = [&](size_t cell_id) -> bool {
+            auto &cell = storage->surfaces[cell_id];
+            return diameter(msh, cell) < h_threshold;
+        };
+        
+        // Elastic cells
+        for (auto& chunk : m_e_material) {
+            size_t cell_id = chunk.first;
+            size_t first_dof = m_e_cell_index[cell_id];
+            size_t n_dof = get_e_cell_basis_data();
+            auto &target = is_fine_cell(cell_id) ? m_fine_cell_dofs : m_coarse_cell_dofs;
+            for (size_t i=0;i<n_dof;i++) target.push_back(first_dof + i);
+        }
+
+        // Acoustic cells
+        for (auto& chunk : m_a_material) {
+            size_t cell_id = chunk.first;
+            size_t first_dof = m_a_cell_index[cell_id];
+            size_t n_dof = get_a_cell_basis_data();
+            auto &target = is_fine_cell(cell_id) ? m_fine_cell_dofs : m_coarse_cell_dofs;
+            for (size_t i=0;i<n_dof;i++) target.push_back(first_dof + i);
+        }
+        
+        // Faces
+        for (auto &cl : msh) {
+            
+            size_t cell_id = msh.lookup(cl);
+            bool cell_is_fine = is_fine_cell(cell_id);
+            
+            auto &target_faces = cell_is_fine ? m_fine_face_dofs : m_coarse_face_dofs;
+            
+            auto fcs = faces(msh, cl);
+            
+            for (size_t i = 0; i < fcs.size(); i++) {
+                
+                auto fc = fcs[i];
+                
+                // récupération robuste de l'id global de la face
+                auto eid = find_element_id(msh.faces_begin(), msh.faces_end(), fc);
+                if (!eid.first)
+                throw std::invalid_argument("Face not found");
+                
+                size_t fc_id = eid.second;
+                
+                // ========= Elastic face DOFs =========
+                size_t n_e_fbs = disk::vector_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1, Mesh::dimension);
+                if (!m_e_bnd.is_dirichlet_face(fc_id)) {
+                    size_t e_face_ind = m_e_compress_indexes.at(fc_id);
+                    size_t base = m_n_elastic_cell_dof + m_n_acoustic_cell_dof + e_face_ind * n_e_fbs;
+                    for (size_t k = 0; k < n_e_fbs; ++k) target_faces.push_back(base + k);
+                }
+                
+                
+                // ========= Acoustic face DOFs =========
+                size_t n_a_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
+                if (!m_a_bnd.is_dirichlet_face(fc_id)) {
+                    size_t a_face_ind = m_a_compress_indexes.at(fc_id);
+                    size_t base = m_n_elastic_cell_dof + m_n_acoustic_cell_dof + m_n_elastic_face_dof + a_face_ind * n_a_fbs;
+                    for (size_t k = 0; k < n_a_fbs; ++k) target_faces.push_back(base + k);
+                }
+            }
+        }      
+    }
+    
+    void compute_nnz_coarse_fine(const Mesh& msh, double h_threshold, size_t &nnz_Mcc_coarse, size_t &nnz_Mcc_fine, size_t &nnz_Kcf_coarse, size_t &nnz_Kcf_fine, size_t &nnz_Kfc_fine, size_t &nnz_Sff_fine) const {
+
+        nnz_Mcc_coarse = 0;
+        nnz_Mcc_fine   = 0;
+        nnz_Kcf_coarse = 0;
+        nnz_Kcf_fine   = 0;
+        nnz_Kfc_fine   = 0;
+        nnz_Sff_fine   = 0;
+        
+        auto storage = msh.backend_storage();
+        
+        size_t n_e_cbs = get_e_cell_basis_data();
+        size_t n_a_cbs = get_a_cell_basis_data();
+        size_t n_e_fbs = disk::vector_basis_size(m_hho_di.face_degree(), Mesh::dimension-1, Mesh::dimension);
+        size_t n_a_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension-1);
+        
+        auto is_fine_cell = [&](size_t cell_id) {
+            auto &cell = storage->surfaces[cell_id];
+            return diameter(msh, cell) < h_threshold;
+        };
+        
+        // ----------- Cells -----------
+        for (auto &chunk : m_e_material) {
+            size_t cell_id = chunk.first;
+            if (is_fine_cell(cell_id)) nnz_Mcc_fine += n_e_cbs * n_e_cbs;
+            else nnz_Mcc_coarse += n_e_cbs * n_e_cbs;
+        }
+        
+        for (auto &chunk : m_a_material) {
+            size_t cell_id = chunk.first;
+            if (is_fine_cell(cell_id)) nnz_Mcc_fine += n_a_cbs * n_a_cbs;
+            else nnz_Mcc_coarse += n_a_cbs * n_a_cbs;
+        }
+        
+        // ----------- Faces -----------
+        for (auto &cl : msh) {
+            size_t cell_id = msh.lookup(cl);
+            bool cell_is_fine = is_fine_cell(cell_id);
+            auto fcs = faces(msh, cl);
+            
+            for (auto &fc : fcs) {
+                size_t fc_id = msh.lookup(fc);
+                
+                // Elastic face DOFs
+                if (!m_e_bnd.is_dirichlet_face(fc_id)) {
+                    if (cell_is_fine) {
+                        nnz_Kcf_fine += n_e_cbs * n_e_fbs;
+                        nnz_Kfc_fine += n_e_fbs * n_e_cbs;
+                        nnz_Sff_fine += n_e_fbs * n_e_fbs;
+                    } 
+                    else {
+                        nnz_Kcf_coarse += n_e_cbs * n_e_fbs;
+                    }
+                }
+                
+                // Acoustic face DOFs
+                if (!m_a_bnd.is_dirichlet_face(fc_id)) {
+                    if (cell_is_fine) {
+                        nnz_Kcf_fine += n_a_cbs * n_a_fbs;
+                        nnz_Kfc_fine += n_a_fbs * n_a_cbs;
+                        nnz_Sff_fine += n_a_fbs * n_a_fbs;
+                    } 
+                    else {
+                        nnz_Kcf_coarse += n_a_cbs * n_a_fbs;
+                    }
+                }
+            }
+        }
     }
 
 };

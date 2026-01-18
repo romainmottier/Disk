@@ -115,7 +115,7 @@ int main(int argc, char **argv){
 
 // PULSE: 
    // HeterogeneousIHHOFirstOrder(argc, argv); 
-   HeterogeneousEHHOFirstOrder(argc, argv); 
+   // HeterogeneousEHHOFirstOrder(argc, argv); 
    // ConicWavesIHHOFirstOrder(argc, argv);
    // ConicWavesIHHOFirstOrder_review(argc, argv);
    // ConicWavesEHHOFirstOrder(argc, argv);
@@ -130,7 +130,7 @@ int main(int argc, char **argv){
    // ELTSAcousticFirstOrder(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
    // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
-   // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
+   HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
 }
 
 
