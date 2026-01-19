@@ -284,7 +284,7 @@ void HeterogeneousEULER_LTS_HHO_FirstOrder(int argc, char **argv){
     // ##################################################
   
     tc.tic();
-    auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
+    auto assembler = elastoacoustic_four_fields_assembler_LTS<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
     assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
     assembler.set_hdg_stabilization();
     if (sim_data.m_scaled_stabilization_Q) {

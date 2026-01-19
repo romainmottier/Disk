@@ -6,8 +6,8 @@
 //
 
 #pragma once
-#ifndef acoustic_two_fields_assembler_hpp
-#define acoustic_two_fields_assembler_hpp
+#ifndef acoustic_two_fields_assemblerLTS_hpp
+#define acoustic_two_fields_assemblerLTS_hpp
 
 #include "diskpp/bases/bases.hpp"
 #include "diskpp/methods/hho"
@@ -18,9 +18,9 @@
 #include <tbb/parallel_for.h>
 #endif
 
+
 template<typename Mesh>
-class acoustic_two_fields_assembler
-{
+class acoustic_two_fields_assembler_LTS {
 
     typedef disk::BoundaryConditions<Mesh, true>    boundary_type;
     using T = typename Mesh::coordinate_type;
@@ -39,6 +39,23 @@ class acoustic_two_fields_assembler
     size_t      m_n_essential_edges;
     bool        m_hho_stabilization_Q;
     bool        m_scaled_stabilization_Q;
+    
+    template<typename T>
+    struct LTS_reorg {
+        std::vector<size_t> global_dof_order; // DOFs réordonnés : [cell_coarse, cell_fine, face]
+        SparseMatrix<T> LHS_reordered;
+        
+        std::vector<size_t> fine_dofs;       // DOFs fins : cell_fine + faces fines
+        SparseMatrix<T> LHS_fine;
+    };
+
+    size_t n_cell_coarse = 0;
+    size_t n_cell_fine   = 0;
+    size_t n_face        = 0;
+    std::unordered_map<size_t, size_t> cell_coarse_index; 
+    std::unordered_map<size_t, size_t> cell_fine_index;  
+    std::unordered_map<size_t, size_t> face_index;       
+
 
 public:
 
@@ -46,9 +63,7 @@ public:
     Matrix<T, Dynamic, 1>   RHS;
     SparseMatrix<T>         MASS;
             
-    acoustic_two_fields_assembler(const Mesh& msh, const disk::hho_degree_info& hho_di, const boundary_type& bnd)
-        : m_hho_di(hho_di), m_bnd(bnd), m_hho_stabilization_Q(true), m_scaled_stabilization_Q(false)
-    {
+    acoustic_two_fields_assembler_LTS(const Mesh& msh, const disk::hho_degree_info& hho_di, const boundary_type& bnd) : m_hho_di(hho_di), m_bnd(bnd), m_hho_stabilization_Q(true), m_scaled_stabilization_Q(false) {
             
         auto is_dirichlet = [&](const typename Mesh::face& fc) -> bool {
 
@@ -63,11 +78,9 @@ public:
         m_expand_indexes.resize( m_n_edges - m_n_essential_edges );
 
         size_t compressed_offset = 0;
-        for (size_t i = 0; i < m_n_edges; i++)
-        {
+        for (size_t i = 0; i < m_n_edges; i++) {
             auto fc = *std::next(msh.faces_begin(), i);
-            if ( !is_dirichlet(fc) )
-            {
+            if ( !is_dirichlet(fc) ) {
                 m_compress_indexes.at(i) = compressed_offset;
                 m_expand_indexes.at(compressed_offset) = i;
                 compressed_offset++;
@@ -559,7 +572,7 @@ public:
         size_t n_cbs = n_scal_cbs + n_vec_cbs;
         size_t n_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
         size_t n_cells = msh.cells_size();
-        auto face_offset = disk::offset(msh, face);
+        auto face_offset = offset(msh, face);
         auto glob_offset = n_cbs * n_cells + m_compress_indexes.at(face_offset)*n_fbs;
         x_glob.block(glob_offset, 0, n_fbs, 1) = x_proj_dof;
     }
@@ -737,6 +750,141 @@ public:
         size_t n_cbs = n_scal_cbs + n_vec_cbs;
         return n_cbs;
     }
+
+    void build_cells_maps(const Mesh& msh, double fine_cell_threshold) {
+
+        size_t n_scal_cbs = disk::scalar_basis_size(this->m_hho_di.cell_degree(), Mesh::dimension);
+        size_t n_vec_cbs  = disk::scalar_basis_size(this->m_hho_di.reconstruction_degree(), Mesh::dimension)-1;
+        size_t n_cbs      = n_scal_cbs + n_vec_cbs;
+        size_t n_fbs      = disk::scalar_basis_size(this->m_hho_di.face_degree(), Mesh::dimension-1);
+
+        size_t coarse_offset = 0;
+        size_t fine_offset   = 0;
+        size_t face_offset   = 0;
+
+        for(auto& cell : msh) {
+            size_t cell_id  = disk::offset(msh, cell);
+            size_t base_dof = cell_id * n_cbs;
+            if (diameter(msh, cell) < fine_cell_threshold) {
+                cell_fine_index[cell_id] = fine_offset;
+                fine_offset += n_cbs;
+            }
+            else{
+                cell_coarse_index[cell_id] = coarse_offset;
+                coarse_offset += n_cbs;
+            }
+        }
+        n_cell_coarse = coarse_offset;
+        n_cell_fine   = fine_offset;
+
+        for(auto& cell : msh) {
+            auto face_list = faces(msh, cell);
+            for(size_t face_i = 0; face_i < face_list.size(); face_i++) {
+                auto fc = face_list[face_i];
+                size_t fc_id = disk::offset(msh, fc);
+                if (face_index.find(fc_id) == face_index.end()) {
+                    face_index[fc_id] = face_offset;
+                }
+            }
+        }
+    }
+    
+    LTS_reorg<typename Mesh::coordinate_type>
+    reorganize_LHS(const acoustic_two_fields_assembler_LTS<Mesh>& assembler, const Mesh& msh, double fine_cell_threshold) {
+        
+        using T = typename Mesh::coordinate_type;
+        LTS_reorg out;
+        
+        this->build_cells_maps(msh, fine_cell_threshold);
+        
+        size_t n_scal_cbs = disk::scalar_basis_size(this->m_hho_di.cell_degree(), Mesh::dimension);
+        size_t n_vec_cbs  = disk::scalar_basis_size(this->m_hho_di.reconstruction_degree(), Mesh::dimension)-1;
+        size_t n_cbs      = n_scal_cbs + n_vec_cbs;
+        size_t n_fbs      = disk::scalar_basis_size(this->m_hho_di.face_degree(), Mesh::dimension-1);
+        size_t n_cells    = msh.cells_size();
+        
+        // --- COARSE CELLS ---
+        for(auto& [cell_id, offset] : this->cell_coarse_index) {
+            size_t base = cell_id * n_cbs;
+            for(size_t i=0; i<n_cbs; i++) {
+                out.global_dof_order.push_back(base + i);
+            }
+        }
+        
+        // --- FINE CELLS ---
+        for(auto& [cell_id, offset] : this->cell_fine_index) {
+            size_t base = cell_id * n_cbs;
+            for(size_t i=0; i<n_cbs; i++) {
+                out.global_dof_order.push_back(base + i);
+                out.fine_dofs.push_back(base + i);
+            }
+        }
+        
+        // --- FACES ---
+        for(auto& [face_id, offset] : this->face_index) {
+            size_t base = n_cbs * n_cells + this->m_compress_indexes.at(face_id) * n_fbs;
+            auto face = msh[face_id];
+            auto adjacent_cells = msh.face_cells(face);
+            
+            bool face_is_fine = false;
+            for(auto& cl : adjacent_cells) {
+                size_t cl_id = msh.lookup(cl);
+                if(this->cell_fine_index.find(cl_id) != this->cell_fine_index.end()) {
+                    face_is_fine = true;
+                    break;
+                }
+            }
+            
+            for(size_t i=0; i<n_fbs; i++) {
+                out.global_dof_order.push_back(base + i);
+                if(face_is_fine) out.fine_dofs.push_back(base + i);
+            }
+        }
+        
+        // --- LHS REORDERED ---
+        size_t system_size = this->LHS.rows();
+        out.LHS_reordered = SparseMatrix<T>(system_size, system_size);
+        std::vector<Eigen::Triplet<T>> triplets;
+        triplets.reserve(this->LHS.nonZeros());
+        
+        std::unordered_map<size_t,size_t> dof_new_index;
+        for(size_t i=0; i<out.global_dof_order.size(); i++) {
+            dof_new_index[out.global_dof_order[i]] = i;
+        }
+        
+        for(int k=0; k<this->LHS.outerSize(); ++k) {
+            for(typename SparseMatrix<T>::InnerIterator it(this->LHS, k); it; ++it) {
+                size_t i_new = dof_new_index.at(it.row());
+                size_t j_new = dof_new_index.at(it.col());
+                triplets.push_back(Eigen::Triplet<T>(i_new, j_new, it.value()));
+            }
+        }
+        out.LHS_reordered.setFromTriplets(triplets.begin(), triplets.end());
+        
+        // --- LHS FINE ---
+        size_t n_fine_dofs = out.fine_dofs.size();
+        out.LHS_fine = SparseMatrix<T>(n_fine_dofs, n_fine_dofs);
+        triplets.clear();
+        
+        std::unordered_map<size_t,size_t> fine_dof_index;
+        for(size_t i=0; i<n_fine_dofs; i++) {
+            fine_dof_index[out.fine_dofs[i]] = i;
+        }
+        
+        for(size_t k=0; k<n_fine_dofs; ++k) {
+            size_t i_global = out.fine_dofs[k];
+            for(typename SparseMatrix<T>::InnerIterator it(this->LHS, i_global); it; ++it) {
+                auto it_col = fine_dof_index.find(it.col());
+                if(it_col != fine_dof_index.end()) {
+                    triplets.push_back(Eigen::Triplet<T>(k, it_col->second, it.value()));
+                }
+            }
+        }
+        out.LHS_fine.setFromTriplets(triplets.begin(), triplets.end());
+        
+        return out;
+    }
+    
     
 };
 

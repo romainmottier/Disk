@@ -76,8 +76,9 @@ using namespace Eigen;
 // LTS
 #include "prototypes/LTS/ELTSAcoustic_conv_test.hpp"
 #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"
-#include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp"
-#include "prototypes/LTS/HeterogeneousEULER_LTS_HHO_FirstOrder.hpp"
+// #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp"
+// #include "prototypes/LTS/HeterogeneousEULER_LTS_HHO_FirstOrder.hpp"
+#include "prototypes/LTS/AcousticLTSEulerHeterogeneousPulse.hpp"
 
 int main(int argc, char **argv){
 
@@ -130,7 +131,8 @@ int main(int argc, char **argv){
    // ELTSAcousticFirstOrder(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
    // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
-   HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
+   // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
+   AcousticLTSEulerHeterogeneousPulse(argc, argv);
 }
 
 
