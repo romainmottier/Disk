@@ -211,7 +211,10 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
     assembler.project_over_cells(msh, x_dof, vel_fun, null_flux_fun);
     assembler.project_over_faces(msh, x_dof, vel_fun);
     erk_an.refresh_faces_unknowns(x_dof);
-    Matrix<RealType, Dynamic, 1> x_dof_n;
+    if (sim_data.m_render_silo_files_Q) {
+        std::string silo_file_name = "e_inhomogeneous_scalar_mixed_";
+        postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, it, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
+    }
 
     // ##################################################
     // ################################################## Time marching: EULER - HHO
@@ -242,12 +245,11 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
     // }
 
     // ##################################################
-    // ################################################## Time marching: EULER - HHO
+    // ################################################## Time marching: LTS - EULER - HHO
     // ##################################################
     
+
     assembler.assemble_P(msh, 0.00000001);
-    size_t p = 1;
-    size_t dtau = dt / p;
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << std::endl;
@@ -259,9 +261,9 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
             std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
         }
 
-        Matrix<RealType, Dynamic, 1> w, k;      
+        Matrix<RealType, Dynamic, 1> k;      
         auto yn = x_dof;     
-        erk_an.erk_weight(yn, k);
+        erk_an.erk_euler_LTS(yn, k, dt, assembler.IminusP_cell, assembler.Pfacecoarse, assembler.P_cell, assembler.Pfacefine);
         yn += dt * k;
         //     erk_an.compute_wn(yn, assembler.IminusP_cell, assembler.Pfacecoarse, w);
         //     // erk_an.print_nonzero_entries_vector(w);
