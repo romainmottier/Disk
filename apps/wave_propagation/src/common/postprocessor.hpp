@@ -1633,8 +1633,7 @@ public:
     
             silo.close();
             tc.toc();
-            std::cout << std::endl;
-            std::cout << bold << cyan << "Silo file rendered in : " << tc << " seconds" << reset << std::endl;
+            // std::cout << bold << cyan << "Silo file rendered in : " << tc << " seconds" << reset << std::endl << std::endl;
         }
         
     // Write a silo file for one field vectorial approximation

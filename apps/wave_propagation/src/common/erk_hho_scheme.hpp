@@ -114,7 +114,7 @@ class erk_hho_scheme
         m_Fc = Fg.block(0, 0, m_n_c_dof, 1);
     }
     
-    void Kcc_inverse(std::pair<size_t,size_t> cell_basis_data){
+    void Mcc_inverse(std::pair<size_t,size_t> cell_basis_data){
                 
         size_t n_cells = cell_basis_data.first;
         size_t n_cbs   = cell_basis_data.second;
@@ -248,10 +248,12 @@ class erk_hho_scheme
         Matrix<T, Dynamic, 1> RHSf = Kfc()*x_c_dof;
         if (m_sff_is_block_diagonal_Q) {
             x.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
-        }else{
+        }
+        else {
             if (m_iterative_solver_Q) {
                 x.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); // new state
-            }else{
+            }
+            else{
                 x.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); // new state
             }
         }
@@ -273,20 +275,89 @@ class erk_hho_scheme
         Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
         if (m_sff_is_block_diagonal_Q) {
             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
-        }else{
+        }
+        else {
             if (m_iterative_solver_Q) {
                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); // new state
                 std::cout << "Number of iterations (CG): " << m_analysis_cg.iterations() << std::endl;
                 std::cout << "Estimated error: " << m_analysis_cg.error() << std::endl;
-            }else{
+            }
+            else{
                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); // new state
             }
         }
     
     }
 
+    void compute_wn(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<T> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, Matrix<T, Dynamic, 1> &w) {
+    
+        w.resize(m_n_c_dof);
+        
+        Matrix<T, Dynamic, 1> y_c = y.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> y_f = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+
+        w = Fc() - Kcc()*IminusP*y_c - Kcf()*Pfacecoarse*y_f;
+
+    }
+
+    void erk_weight_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & w, const Eigen::SparseMatrix<T> &P_cell, const Eigen::SparseMatrix<T> &Pfacefine, Matrix<T, Dynamic, 1> & k) {
+        
+        k=y;
+        Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+        
+        // Cells update
+        Matrix<T, Dynamic, 1> RHSc = w + Fc() - Kcc()*P_cell*y_c_dof - Kcf()*Pfacefine*y_f_dof;
+        Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * RHSc;
+        k.block(0, 0, m_n_c_dof, 1) = k_c_dof;
+    
+        // Faces update
+        Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
+        k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
+        
+    }
+
+    void print_nonzero_entries_vector(Matrix<T, Dynamic, 1>  &w) {
+        std::cout << "Non-zero entries of w:" << std::endl;
+        bool any_nonzero = false;
+        for (int i = 0; i < w.rows(); i++) {
+            if (std::abs(w(i)) > 1e-12) {  // tolérance pour zéro
+                std::cout << "w[" << i << "] = " << w(i) << std::endl;
+                any_nonzero = true;
+            }
+        }
+        if (!any_nonzero) {
+            std::cout << "All entries are zero." << std::endl;
+        }
+    }
+    
+    size_t count_nonzero_entries(const Eigen::SparseMatrix<T> &M) {
+        if (M.rows() == 0 || M.cols() == 0) return 0; // matrice vide
+        size_t count = 0;
+        for (int k = 0; k < M.outerSize(); ++k) {
+            for (typename Eigen::SparseMatrix<T>::InnerIterator it(M,k); it; ++it) {
+                if (std::abs(it.value()) > 1e-12) count++;
+            }
+        }
+        return count;
+    }
+
     
     
+    void print_nonzero_entries(const Eigen::SparseMatrix<T> &mat) {
+        size_t count = 0;
+        for (int k = 0; k < mat.outerSize(); ++k) {
+            for (typename Eigen::SparseMatrix<T>::InnerIterator it(mat, k); it; ++it) {
+                if (std::abs(it.value()) > 1e-12) {
+                    // std::cout << "mat(" << it.row() << ", " << it.col() << ") = " << it.value() << std::endl;
+                    ++count;
+                }
+            }
+        }
+        std::cout << "Total non-zero entries: " << count << std::endl;
+    }
+    
+
 };
 
 #endif /* erk_hho_scheme_hpp */

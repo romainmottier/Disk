@@ -439,7 +439,6 @@ void HeterogeneousEHHOFirstOrder(int argc, char **argv){
         
         tcit.tic();
         std::cout << bold << red << "   Time step number " << it << ": t = " << t << reset << std::endl;
-        RealType tn = dt*(it-1)+ti;
         
         // ERK step
         tc.tic();

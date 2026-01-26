@@ -2,7 +2,7 @@
 
 //  Created by Romain Mottier
 
-// ../wave_propagation -s0 -k3 -r0 -c0 -p0 -l4 -n300 -i0 -f0 -e0
+// ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 6 -n 1350 -f 1 -e 0
 
 void ELTSAcousticFirstOrder(int argc, char **argv);
 
