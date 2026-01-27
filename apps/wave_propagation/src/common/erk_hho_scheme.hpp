@@ -288,42 +288,79 @@ class erk_hho_scheme
     
     }
 
-    void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dt, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
+    void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dtau, size_t p, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
         
         k=y;
+
+        // COARSE EVALUATION
         Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
         Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
-        Matrix<T, Dynamic, 1> w = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
-        // Matrix<T, Dynamic, 1> w_coarse = IminusP*w;
-        // Matrix<T, Dynamic, 1> w_fine   = P_cell*w;
+        Matrix<T, Dynamic, 1> w_coarse = m_Mc_inv * (Fc() - Kcc()*IminusP*y_c_dof - Kcf()*Pfacecoarse*y_f_dof);
 
-        size_t p = 1;
-        size_t dtau = dt / p;
-        for (int m = 0; m < p; m++) {  
-            // Cells update 
-            // w_fine = w_fine;
-            // Matrix<T, Dynamic, 1> RHSc = dtau * (w_coarse + w_fine);
-            Matrix<T, Dynamic, 1> RHSc = dtau * w;
-            Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * RHSc;
+        // FINE EVALUATION
+        for (int m = 0; m < p; m++) { 
+            k=y;
+            // CELL UPDATE
+            Matrix<T, Dynamic, 1> y_c_dof = k.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> y_f_dof = k.block(m_n_c_dof, 0, m_n_f_dof, 1);
+            Matrix<T, Dynamic, 1> w_fine   = m_Mc_inv * (Fc() - Kcc()*P_cell*y_c_dof - Kcf()*Pfacefine*y_f_dof);
+            Matrix<T, Dynamic, 1> k_c_dof = w_coarse + w_fine;
             k.block(0, 0, m_n_c_dof, 1) = k_c_dof;    
-
-            // Faces update
+            // FACE UPDATE
             Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
             if (m_sff_is_block_diagonal_Q) {
                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
             }
             else {
                 if (m_iterative_solver_Q) {
-                    k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); // new state
+                    k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); 
                     std::cout << "Number of iterations (CG): " << m_analysis_cg.iterations() << std::endl;
                     std::cout << "Estimated error: " << m_analysis_cg.error() << std::endl;
                 }
-                else{
-                    k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); // new state
+                else {
+                    k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); 
                 }
             }
+            // GLOBAL UPDATE
+            y += dtau * k;
         }        
     }
+
+    // void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dt, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
+        
+    //     k=y;
+    //     size_t p = 1;
+    //     T dtau = dt / p;
+    //     for (int m = 0; m < p; m++) {  
+            
+    //         // CELL UPDATE 
+    //         Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
+    //         Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+    //         Matrix<T, Dynamic, 1> w = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
+    //         Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * w;
+    //         k.block(0, 0, m_n_c_dof, 1) = k_c_dof;    
+
+    //         // FACE UPDATE
+    //         Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
+    //         if (m_sff_is_block_diagonal_Q) {
+    //             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
+    //         }
+    //         else {
+    //             if (m_iterative_solver_Q) {
+    //                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); 
+    //                 std::cout << "Number of iterations (CG): " << m_analysis_cg.iterations() << std::endl;
+    //                 std::cout << "Estimated error: " << m_analysis_cg.error() << std::endl;
+    //             }
+    //             else {
+    //                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); 
+    //             }
+    //         }
+
+    //         // GLOBAL UPDATE
+    //         y += dtau * k;
+
+    //     }        
+    // }
 
     void compute_wn(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<T> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, Matrix<T, Dynamic, 1> &w) {
     

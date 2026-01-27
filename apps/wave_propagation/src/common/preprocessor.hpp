@@ -28,8 +28,9 @@ public:
     bool m_report_energy_Q;
     bool m_iterative_solver_Q;
     bool m_polygonal_mesh_Q;
+    size_t m_substeps_Q;
   
-    simulation_data() : m_k_degree(2), m_n_divs(2), m_hdg_stabilization_Q(false), m_scaled_stabilization_Q(false), m_sc_Q(false), m_nt_divs(0), m_render_silo_files_Q(true), m_report_energy_Q(false), m_iterative_solver_Q(false),  m_polygonal_mesh_Q(false) {}
+    simulation_data() : m_k_degree(2), m_n_divs(2), m_hdg_stabilization_Q(false), m_scaled_stabilization_Q(false), m_sc_Q(false), m_nt_divs(0), m_render_silo_files_Q(true), m_report_energy_Q(false), m_iterative_solver_Q(false),  m_polygonal_mesh_Q(false), m_substeps_Q(1) {}
   
     simulation_data(const simulation_data & other) {
         m_k_degree               = other.m_k_degree;
@@ -42,6 +43,7 @@ public:
         m_report_energy_Q        = other.m_report_energy_Q;
         m_iterative_solver_Q     = other.m_iterative_solver_Q;
         m_polygonal_mesh_Q       = other.m_polygonal_mesh_Q;
+        m_substeps_Q             = other.m_substeps_Q;
     }
   
     const simulation_data & operator=(const simulation_data & other) {
@@ -60,6 +62,7 @@ public:
         m_report_energy_Q        = other.m_report_energy_Q;
         m_iterative_solver_Q     = other.m_iterative_solver_Q;
         m_polygonal_mesh_Q       = other.m_polygonal_mesh_Q;
+        m_substeps_Q             = other.m_substeps_Q;
         
         return *this;
     
@@ -85,13 +88,13 @@ public:
                   << "\n      " << bold << "Discretization: ";
                   if (m_hdg_stabilization_Q) {
                       std::cout << bold << yellow << "Mixed-order" << "     -s"
-                                << "\n                      Cell degree = " << m_k_degree+1 << " -k"
-                                << "\n                      Face degree = " << m_k_degree << std::endl;
+                                << "\n                      Face degree = " << m_k_degree << " -k"
+                                << "\n                      Cell degree = " << m_k_degree+1 << std::endl;
                   }
                   else {
                       std::cout << bold << yellow << "Equal-order" << "     -s"
-                                << "\n                      Cell degree = " << m_k_degree << " -k"
-                                << "\n                      Face degree = " << m_k_degree << std::endl;
+                                << "\n                      Face degree = " << m_k_degree << " -k"
+                                << "\n                      Cell degree = " << m_k_degree << std::endl;
                   }
                   std::cout << bold << cyan << "      Stabilization scaling: ";
                   if (m_scaled_stabilization_Q) {
@@ -111,14 +114,15 @@ public:
                   std::cout << "\n   " << bold << red << "SIMULATION PARAMETERS: "                   
                   << "\n      " << bold << cyan << "Mesh:" << yellow << bold << " Cartesian mesh: ";
                   if (m_polygonal_mesh_Q) {
-                      std::cout << "NO" << "        -p";
+                      std::cout << "NO" << "        -m";
                   }
                   else {
-                      std::cout << "YES" << "       -p";
+                      std::cout << "YES" << "       -m";
                   }
                   std::cout << "\n            " << "Mesh refinement level: " << m_n_divs << "  -l";
                   if (m_nt_divs > 12) {
                       std::cout << "\n      " << bold << cyan << "Number of time steps: " << m_nt_divs << "      -n";
+                      std::cout << "\n      " << bold << cyan << "Number of substeps: " << m_substeps_Q << "         -p";
                   }
                   else {
                       std::cout << "\n      " << bold << cyan << "Time refinement level: " << m_nt_divs << "        -n";
@@ -158,7 +162,7 @@ public:
     static void PrintHelp() {
 
         std::cout <<
-                "-k <int>:  blabla Face polynomial degree: default 0\n"
+                "-k <int>:  Face polynomial degree: default 0\n"
                 "-l <int>:  Number of uniform space refinements: default 0\n"
                 "-s <0-1>:  Stabilization type 0 -> HHO, 1 -> HDG-like: default 0 \n"
                 "-r <0-1>:  Scaled stabilization 0 -> without, 1 -> with: default 0 \n"
@@ -172,7 +176,7 @@ public:
 
     static simulation_data process_args(int argc, char** argv) {
 
-        const char* const short_opts = "k:s:r:c:p:l:n:i:f:e:?";
+        const char* const short_opts = "k:s:r:c:m:l:n:p:i:f:e:?";
         
         const option long_opts[] = {
             // HHO SETTING
@@ -181,9 +185,10 @@ public:
             {"scal",      required_argument, nullptr, 'r'},
             {"c",         optional_argument, nullptr, 'c'},
             // SIMULATION PARAMETERS
-            {"poly_mesh", required_argument, nullptr, 'p'},
+            {"poly_mesh", required_argument, nullptr, 'm'},
             {"xref",      required_argument, nullptr, 'l'},
             {"tref",      required_argument, nullptr, 'n'},
+            {"substeps",  required_argument, nullptr, 'p'},
             {"solv",      required_argument, nullptr, 'i'},
             // POST PROCESSOR
             {"file",      optional_argument, nullptr, 'f'},
@@ -197,6 +202,7 @@ public:
         size_t n_divs        = 0;
         size_t nt_divs       = 0;
         size_t poly_mesh     = 0;
+        size_t substeps      = 1;
         bool hdg_Q           = false;
         bool scaled_Q        = false;
         bool sc_Q            = false;
@@ -223,7 +229,7 @@ public:
                     sc_Q = std::stoi(optarg);
                     break;
                 // SIMULATION PARAMETERS
-                case 'p':
+                case 'm':
                     poly_mesh = std::stoi(optarg);
                     break;
                 case 'l':
@@ -234,6 +240,9 @@ public:
                     break;
                 case 'i':
                     it_sol = std::stoi(optarg);
+                    break;
+                case 'p':
+                    substeps = std::stoi(optarg);
                     break;
                 // POSTPROCESSOR
                 case 'f':
@@ -261,6 +270,7 @@ public:
             sim_data.m_n_divs                 = n_divs;
             sim_data.m_nt_divs                = nt_divs;
             sim_data.m_iterative_solver_Q     = it_sol;
+            sim_data.m_substeps_Q             = substeps;
             // POSTPROCESSOR
             sim_data.m_render_silo_files_Q    = silo_files_Q;
             sim_data.m_report_energy_Q        = report_energy_Q;

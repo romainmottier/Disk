@@ -4,12 +4,8 @@
 // ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 5 -n 750 -f 1 -e 0
 // ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 6 -n 1350 -f 1 -e 0
 
-#ifndef AcousticLTSEulerHeterogeneousPulse_hpp
-#define AcousticLTSEulerHeterogeneousPulse_hpp
-
-void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv);
-
-void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
+void AcousticHeterogeneousPulse(int argc, char **argv);
+void AcousticHeterogeneousPulse(int argc, char **argv) {
     
     std::cout << std::endl << bold << red << "   LTS EXPLICIT PULSE - Acoustic" << std::endl << std::endl;
     using RealType = double;
@@ -226,7 +222,7 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
     size_t n_face_dof = assembler.get_n_face_dof();
     tc.tic();
     erk_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS,n_face_dof);
-    erk_an.Kcc_inverse(std::make_pair(msh.cells_size(), assembler.get_cell_basis_data()));
+    erk_an.Mcc_inverse(std::make_pair(msh.cells_size(), assembler.get_cell_basis_data()));
     if(sim_data.m_hdg_stabilization_Q){
         erk_an.Sff_inverse(std::make_pair(assembler.get_n_faces(), assembler.get_face_basis_data()));
     }
@@ -296,4 +292,3 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
     simulation_log.flush();
 }
 
-#endif 

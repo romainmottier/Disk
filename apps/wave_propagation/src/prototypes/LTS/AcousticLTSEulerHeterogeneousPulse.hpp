@@ -1,8 +1,7 @@
 
 //  Contributions by Omar Durán and Romain Mottier
 
-// ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 5 -n 750 -f 1 -e 0
-// ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 6 -n 1350 -f 1 -e 0
+// ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 6 -n 9500 -f 1 -e 0
 
 void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv);
 
@@ -213,79 +212,69 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
     erk_an.refresh_faces_unknowns(x_dof);
     if (sim_data.m_render_silo_files_Q) {
         std::string silo_file_name = "e_inhomogeneous_scalar_mixed_";
-        postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, it, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
+        postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, 0, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
     }
 
     // ##################################################
     // ################################################## Time marching: EULER - HHO
     // ##################################################
 
-    // size_t nb_silo_files = 50;
+    // // ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 4 -n 2500 -f 1 -e 0
+    // // ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 6 -n 11000 -f 1 -e 0
+    // size_t nb_silo_files = 25;
     // size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
+    // std::cout << std::endl;
+    // std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
     // for(size_t it = 1; it <= nt; it++){
-
+    //     //////////////////////////////////////////////////////////////////////////
     //     RealType tn = dt*(it-1)+ti;
     //     if (it % step_interval == 0 || it == nt) {
-    //         std::cout << bold << red << "   Time step number " << it << ": t = " << t << reset << std::endl;
+    //         std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
     //     }
-
+    //     //////////////////////////////////////////////////////////////////////////
     //     Matrix<RealType, Dynamic, 1> k;      
     //     auto yn = x_dof;     
     //     erk_an.erk_weight(yn, k);
     //     yn += dt * k;
     //     x_dof = yn;
-                
+    //     //////////////////////////////////////////////////////////////////////////       
     //     if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
-    //         std::string silo_file_name = "e_inhomogeneous_scalar_mixed_";
+    //         std::string silo_file_name = "ricker_euler_";
     //         postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, it, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
     //     }
-
+    //     //////////////////////////////////////////////////////////////////////////
     //     t += dt;
-        
     // }
 
     // ##################################################
     // ################################################## Time marching: LTS - EULER - HHO
     // ##################################################
     
-
-    assembler.assemble_P(msh, 0.00000001);
+    assembler.assemble_P(msh, 100000);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << std::endl;
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
+    auto p = sim_data.m_substeps_Q;
+    auto dtau = dt / p;
     for(size_t it = 1; it <= nt; it++){
-
+        //////////////////////////////////////////////////////////////////////////
         RealType tn = dt*(it-1)+ti;
         if (it % step_interval == 0 || it == nt) {
             std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
         }
-
+        //////////////////////////////////////////////////////////////////////////
         Matrix<RealType, Dynamic, 1> k;      
         auto yn = x_dof;     
-        erk_an.erk_euler_LTS(yn, k, dt, assembler.IminusP_cell, assembler.Pfacecoarse, assembler.P_cell, assembler.Pfacefine);
-        yn += dt * k;
-        //     erk_an.compute_wn(yn, assembler.IminusP_cell, assembler.Pfacecoarse, w);
-        //     // erk_an.print_nonzero_entries_vector(w);
-        //     // size_t nnz = erk_an.count_nonzero_entries(assembler.Pfacefine);
-        //     // std::cout << "Non-zero entries: " << nnz << std::endl;
-        //     // erk_an.print_nonzero_entries(assembler.Pfacefine);
-        //     for (int m = 0; m < p; ++m) {   
-            //         erk_an.erk_weight_LTS(yn, w, assembler.P_cell, assembler.Pfacefine, k);
-            //         yn += dtau * k;
-        //     }
-        //     x_dof_n = yn;
-        //     erk_an.refresh_faces_unknowns(x_dof_n);
-        //     x_dof = x_dof_n;
+        erk_an.erk_euler_LTS(yn, k, dtau, p, assembler.IminusP_cell, assembler.Pfacecoarse, assembler.P_cell, assembler.Pfacefine);
         x_dof = yn;
-                
+        //////////////////////////////////////////////////////////////////////////
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
-            std::string silo_file_name = "e_inhomogeneous_scalar_mixed_";
+            std::string silo_file_name = "ricker_LTS_euler_";
             postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, it, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
         }
-
+        //////////////////////////////////////////////////////////////////////////
         t += dt;
-        
     }
 
     simulation_tc.toc();
