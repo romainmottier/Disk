@@ -45,8 +45,9 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
         
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square.txt");    // l = 0
-        
+        // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square.txt");    // l = 0
+        mesh_files.push_back("/home/romain/GitHub/MESHES_DISK/nonconform_square.txt");    // l = 0
+
         // mesh_files.push_back("../../meshes/pulse/poly/poly_l2.txt");   // -l 0
         // mesh_files.push_back("../../meshes/pulse/poly/poly_l3.txt");   // -l 1 
         // mesh_files.push_back("../../meshes/pulse/poly/poly_l4.txt");   // -l 2
