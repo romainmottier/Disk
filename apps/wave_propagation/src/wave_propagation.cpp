@@ -48,39 +48,47 @@ using namespace Eigen;
 #include "common/erk_hho_scheme.hpp"
 #include "common/erk_coupling_hho_scheme.hpp"
 
-// Prototypes:
-// Computation of an empirical CFL criteria                    
-#include "prototypes/acoustic/EAcoustic_CFL.hpp"                   // CFl - Acoustic                      
-#include "prototypes/elastic/EElasticity_CFL.hpp"                  // CFl - Linear Elasticity  
-#include "prototypes/coupling/CFL/EHHOFirstOrderCFL.hpp"           // CFl - Elasto-Acoustic Coupling 
-// Stability study & Spectral radius computation:
-#include "prototypes/acoustic/EAcoustic_stability.hpp"             // Acoustic
-#include "prototypes/elastic/EElastic_stability.hpp"               // Linear Elasticity
-#include "prototypes/coupling/EHHOFirstOrder_stability.hpp"        // Elasto-Acoustic Coupling                   
-// Convergence test on sinusoidal analytical solution 
-#include "prototypes/acoustic/EAcoustic_conv_test.hpp"             // Explicit Acoustic               
-#include "prototypes/acoustic/IAcoustic_conv_test.hpp"             // Implicit Acoustic               
-#include "prototypes/elastic/IElastic_conv_test.hpp"               // Implicit Elastic 
-#include "prototypes/coupling/Conv_Tests/IHHOFirstOrder.hpp"                // Implicit Coupling                         
-#include "prototypes/coupling/Conv_Tests/IHHOFirstOrder_conv_tests.hpp"     // Explicit Coupling    
-#include "prototypes/coupling/Conv_Tests/EHHOFirstOrder.hpp"                // Explicit Coupling    
-#include "prototypes/coupling/Conv_Tests/EHHOFirstOrder_conv_tests.hpp"     // Explicit Coupling    
-// Pulses for comparison with Gar6more  
-#include "prototypes/coupling/Pulse/HeterogeneousIHHOFirstOrder.hpp"        // Implicit Pulse (adimensional)
-#include "prototypes/coupling/Pulse/HeterogeneousEHHOFirstOrder.hpp"        // Explicit Pulse (adimensional)
-#include "prototypes/coupling/Pulse/ConicWavesIHHOFirstOrder.hpp"           // Implicit Pulse (geophysic) 
-#include "prototypes/coupling/Pulse/review_CMAME.hpp"           // Implicit Pulse (geophysic) 
-#include "prototypes/coupling/Pulse/ConicWavesEHHOFirstOrder.hpp"           // Implicit Pulse (geophysic) 
-// Sedimentary Basin
-#include "prototypes/coupling/Basin/BassinIHHOFirstOrder.hpp"               // Implicit Sedimentary Basin
-// LTS
-#include "prototypes/LTS/ELTSAcoustic_conv_test.hpp"
-#include "prototypes/LTS/ERK4_LTS_conv_test.hpp"
-// #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp"
-// #include "prototypes/LTS/HeterogeneousEULER_LTS_HHO_FirstOrder.hpp"
-#include "prototypes/LTS/AcousticLTSEulerHeterogeneousPulse.hpp"
-#include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"
+// PROTOTYPES:
 
+   // Computation of an empirical CFL criteria                    
+   #include "prototypes/acoustic/EAcoustic_CFL.hpp"                   // CFl - Acoustic                      
+   #include "prototypes/elastic/EElasticity_CFL.hpp"                  // CFl - Linear Elasticity  
+   #include "prototypes/coupling/CFL/EHHOFirstOrderCFL.hpp"           // CFl - Elasto-Acoustic Coupling 
+
+   // Stability study & Spectral radius computation:
+   #include "prototypes/acoustic/EAcoustic_stability.hpp"             // Acoustic
+   #include "prototypes/elastic/EElastic_stability.hpp"               // Linear Elasticity
+   #include "prototypes/coupling/EHHOFirstOrder_stability.hpp"        // Elasto-Acoustic Coupling                   
+   
+   // Convergence test on sinusoidal analytical solution 
+   #include "prototypes/acoustic/EAcoustic_conv_test.hpp"             // Explicit Acoustic               
+   #include "prototypes/acoustic/IAcoustic_conv_test.hpp"             // Implicit Acoustic               
+   #include "prototypes/elastic/IElastic_conv_test.hpp"               // Implicit Elastic 
+   #include "prototypes/coupling/Conv_Tests/IHHOFirstOrder.hpp"                // Implicit Coupling                         
+   #include "prototypes/coupling/Conv_Tests/IHHOFirstOrder_conv_tests.hpp"     // Explicit Coupling    
+   #include "prototypes/coupling/Conv_Tests/EHHOFirstOrder.hpp"                // Explicit Coupling    
+   #include "prototypes/coupling/Conv_Tests/EHHOFirstOrder_conv_tests.hpp"     // Explicit Coupling    
+
+   // Pulses for comparison with Gar6more  
+   #include "prototypes/coupling/Pulse/HeterogeneousIHHOFirstOrder.hpp"        // Implicit Pulse (adimensional)
+   #include "prototypes/coupling/Pulse/HeterogeneousEHHOFirstOrder.hpp"        // Explicit Pulse (adimensional)
+   #include "prototypes/coupling/Pulse/ConicWavesIHHOFirstOrder.hpp"           // Implicit Pulse (geophysic) 
+   #include "prototypes/coupling/Pulse/review_CMAME.hpp"           // Implicit Pulse (geophysic) 
+   #include "prototypes/coupling/Pulse/ConicWavesEHHOFirstOrder.hpp"           // Implicit Pulse (geophysic) 
+
+   // Sedimentary Basin
+   #include "prototypes/coupling/Basin/BassinIHHOFirstOrder.hpp"               // Implicit Sedimentary Basin
+   
+   // LTS
+      // CONV TEST 
+      #include "prototypes/LTS/ELTSAcoustic_conv_test.hpp" // ACOUSTIC 
+      #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"     // COUPLING 
+      // PULSE
+      #include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"            // ACOUSTIC ERK
+      #include "prototypes/LTS/AcousticLTSEulerHeterogeneousPulse.hpp"    // ACOUSTIC EULER-LTS
+      #include "prototypes/LTS/AcousticHeterogeneousPulse_LTS_RK4.hpp"    // ACOUSTIC ERK4-LTS
+      #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp"  // COUPLING ERK4-LTS
+      
 int main(int argc, char **argv){
 
     DBSetDeprecateWarnings(0);
@@ -129,14 +137,15 @@ int main(int argc, char **argv){
    // BassinEHHOFirstOrder(argc, argv); Not working 
   
 // LOCAL TIME STEPPING 
-   // ELTSAcousticFirstOrder(argc, argv); // tentative pour RK general
    // ERK4_LTS_conv_test(argc, argv);
-   // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
    // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
 
    // TEST LTS PULSE:
    // AcousticHeterogeneousPulse(argc, argv);
-   AcousticLTSEulerHeterogeneousPulse(argc, argv);
+   // AcousticLTSEulerHeterogeneousPulse(argc, argv);
+   // AcousticHeterogeneousPulse_LTS_RK4(argc, argv); 
+   HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+
 }
 
 

@@ -1,17 +1,18 @@
 
 //  Contributions by Omar Durán and Romain Mottier
 
-// ../wave_propagation -k 3 -s 0 -r 0 -c 0 -p 0 -l 6 -n 9500 -f 1 -e 0
+// ../wave_propagation -k3 -s0 -r0 -c0 -m1 -l0 -n750 -p1 -f1 -e0
+// ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n650 -p1 -f1 -e0
+// ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l6 -n1350 -p1 -f1 -e0
 
-void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv);
-
-void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
+void AcousticHeterogeneousPulse_LTS_RK4(int argc, char **argv);
+void AcousticHeterogeneousPulse_LTS_RK4(int argc, char **argv) {
     
     // ######################################################################
     // ###################################################################### Simulation paramaters 
     // ######################################################################
 
-    std::cout << std::endl << bold << red << "   LTS EULER PULSE - Acoustic" << std::endl << std::endl;
+    std::cout << std::endl << bold << red << "   LTS RK4 PULSE - Acoustic" << std::endl << std::endl;
     using RealType = double;
     simulation_data sim_data = preprocessor::process_args(argc, argv);
     sim_data.print_simulation_data();
@@ -206,73 +207,66 @@ void AcousticLTSEulerHeterogeneousPulse(int argc, char **argv) {
     }
 
     // ##################################################
-    // ################################################## Time marching: EULER - HHO
-    // ##################################################
-
-    // // // ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l4 -n2500  -p1 -f1 -e0
-    // // // ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n4500  -p1 -f1 -e0 CPU TIME: 18
-    // // // ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l6 -n11000 -p1 -f1 -e0 CPU TIME: 190.429 ~ 3.30min
-    // size_t nb_silo_files = 25;
-    // size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
-    // std::cout << std::endl;
-    // std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
-    // for(size_t it = 1; it <= nt; it++){
-    //     //////////////////////////////////////////////////////////////////////////
-    //     RealType tn = dt*(it-1)+ti;
-    //     if (it % step_interval == 0 || it == nt) {
-    //         std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
-    //     }
-    //     //////////////////////////////////////////////////////////////////////////
-    //     Matrix<RealType, Dynamic, 1> k;      
-    //     auto yn = x_dof;     
-    //     erk_an.erk_weight(yn, k);
-    //     yn += dt * k;
-    //     x_dof = yn;
-    //     //////////////////////////////////////////////////////////////////////////       
-    //     if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
-    //         std::string silo_file_name = "ricker_euler_";
-    //         postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, it, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
-    //     }
-    //     //////////////////////////////////////////////////////////////////////////
-    //     t += dt;
-    // }
-
-    // ##################################################
     // ################################################## Time marching: LTS - EULER - HHO
     // ##################################################
     
     // ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n4500 -p1 -f1 -e0 CPU TIME: 19.4503
     // ../wave_propagation -k3 -s0 -r0 -c0 -m1 -l0 -n4500 -p2 -f1 -e0 CPU TIME: 2303.61 ~ 38.39min
     assembler.assemble_P(msh, 0.015625);
+    assembler.assemble_P_bis(msh, 0.015625);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << std::endl;
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
     auto p = sim_data.m_substeps_Q;
     auto dtau = dt / p;
-    for(size_t it = 1; it <= nt; it++){
+    for(size_t it = 1; it <= nt; it++) {
         //////////////////////////////////////////////////////////////////////////
         RealType tn = dt*(it-1)+ti;
         if (it % step_interval == 0 || it == nt) {
             std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
         }
         //////////////////////////////////////////////////////////////////////////
-        Matrix<RealType, Dynamic, 1> k;      
-        auto yn = x_dof;     
-        erk_an.erk_euler_LTS(yn, k, dtau, p, assembler.IminusP_cell, assembler.Pfacecoarse, assembler.P_cell, assembler.Pfacefine);
-        x_dof = yn;
+        std::vector<Matrix<RealType, Dynamic, 1>> w(4);
+        size_t n_dof = x_dof.rows();
+        for (int i = 0; i < 4; ++i) {
+            w[i].resize(n_dof);
+            w[i].setZero();
+        }
+        Matrix<RealType, Dynamic, 1> yn1(n_dof), yn2(n_dof), yn3(n_dof), yn4(n_dof);
+        Matrix<RealType, Dynamic, 1> k1(n_dof),  k2(n_dof),  k3(n_dof),  k4(n_dof);
+        auto x_dof_n = x_dof;
+        erk_an.compute_wi(x_dof_n, assembler.IminusP_cell, assembler.Pfacecoarse, w);
         //////////////////////////////////////////////////////////////////////////
+        for (int m = 0; m < p; m++) { 
+            // k1
+            yn1 = assembler.Pfine * x_dof_n;
+            erk_an.erk_weight(yn1, k1);
+            k1 += w[0] + m*dtau*w[1] + m*m*dtau*dtau*w[2]/2.0 + m*m*m*dtau*dtau*dtau*w[3]/6.0;
+            // k2
+            yn2 = assembler.Pfine * (x_dof_n+dtau*k1/2.0);
+            erk_an.erk_weight(yn2, k2);
+            k2 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // k3
+            yn3 = assembler.Pfine * (x_dof_n+dtau*k2/2.0);
+            erk_an.erk_weight(yn3, k3);
+            k3 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // k4
+            yn4 = assembler.Pfine * (x_dof_n+dtau*k3);
+            erk_an.erk_weight(yn4, k4);
+            k4 += w[0] + (m+1.0)*dtau*w[1] + (m+1.0)*(m+1.0)*dtau*dtau*w[2]/2.0 + (m+1.0)*(m+1.0)*(m+1.0)*dtau*dtau*dtau*w[3]/6.0;
+            // FINAL UPDATE
+            x_dof_n += dtau*(k1 + 2.0*k2 + 2.0*k3 + k4)/6.0;
+        }
+        x_dof = x_dof_n;
+        t += dt;
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
             std::string silo_file_name = "ricker_LTS_euler_";
             postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, it, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
         }
-        //////////////////////////////////////////////////////////////////////////
-        t += dt;
     }
-
     simulation_tc.toc();
     std::cout << std::endl << bold << red << "   CPU TIME: " << simulation_tc << std::endl << std::endl;
-
 
 }
 

@@ -15,8 +15,9 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     using RealType = double;
     simulation_data sim_data = preprocessor::process_args(argc, argv);
     sim_data.print_simulation_data();
-    timecounter tc, tcit, cpu;
+    timecounter tc, tcit, cpu, simulation_tc;
     cpu.tic();
+    simulation_tc.tic();
     
     // ##################################################
     // ################################################## Mesh generation 
@@ -45,18 +46,9 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
         
-        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l2_0.4.txt");    // l = 0
-        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l3_0.21.txt");   // l = 1 
-        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l4_0.096.txt");  // l = 2
-        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l5_0.0485.txt"); // l = 3
-        mesh_files.push_back("../../meshes/pulse/simplices/simplex_l6_0.024.txt");  // l = 4
-        
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l2.txt");   // -l 0
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l3.txt");   // -l 1 
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l4.txt");   // -l 2
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l5.txt");   // -l 3
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l6.txt");   // -l 4
-        // mesh_files.push_back("../../meshes/pulse/poly/poly_l7.txt");   // -l 5
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square.txt");    // l = 0
+
+        // mesh_files.push_back("/home/romain/GitHub/MESHES_DISK/nonconform_square.txt");       // l = 0
         
         // Reading the polygonal mesh
         mesh_builder.set_poly_mesh_file(mesh_files[l]);
@@ -87,7 +79,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     }
     
     tc.toc();
-    std::cout << bold << red << "   MESH GENERATION : ";
+    std::cout << std::endl << std::endl << bold << red << "   MESH GENERATION : ";
     std::cout << tc << " seconds" << reset << std::endl << std::endl;
 
     // ######################################################################
@@ -372,8 +364,6 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     Matrix<RealType, Dynamic, 1> c;
     
     // ERK(s) schemes
-    int s = 4;
-    erk_butcher_tableau::erk_tables(s, a, b, c);
     std::cout << bold << red << "   ASSEMBLY 2 : " << std::endl;
     std::cout << bold << cyan << "      First stiffness assembly completed: ";
     tc.tic();
@@ -404,11 +394,11 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     // ##################################################
     
     std::ostringstream filename;
-    filename << "Explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << ".txt";
+    filename << "Explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << ".txt";
     std::string filename_str = filename.str();
     std::ofstream simulation_log(filename_str);
     sim_data.write_simulation_data(simulation_log);
-    simulation_log << "Number of ERK steps =  " << s << std::endl;
+    simulation_log << "Number of ERK steps =  " << 4 << std::endl;
     simulation_log << "Number of time steps =  " << nt << std::endl;
     simulation_log << "Step size =  " << dt << std::endl;
     simulation_log << "Number of equations : " << assembler.RHS.rows() << std::endl;
@@ -417,7 +407,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     if (sim_data.m_render_silo_files_Q) {
         size_t it = 0;
         std::ostringstream filename;
-        filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << "_";
+        filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
         std::string silo_file_name = filename.str();
         postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
     }
@@ -430,21 +420,21 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     bool a_side_Q = false;
 
     std::ostringstream filename_acou;
-    filename_acou << "A_explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << ".csv";
+    filename_acou << "A_explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << ".csv";
     std::string filename_acou_str = filename_acou.str();
     std::ofstream Acoustic_sensor_1_log(filename_acou_str);
     typename mesh_type::point_type Acoustic_s1_pt(-0.15,  0.1);
     std::pair<typename mesh_type::point_type,size_t> Acoustic_s1_pt_cell  = std::make_pair(Acoustic_s1_pt, -1);
 
     std::ostringstream filename_int;
-    filename_int <<  "I_explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << ".csv";
+    filename_int <<  "I_explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << ".csv";
     std::string filename_int_str = filename_int.str();
     std::ofstream Interface_sensor_1_log(filename_int_str);    
     typename mesh_type::point_type Interface_s1_pt(-0.15, 0.0);
     std::pair<typename mesh_type::point_type,size_t> Interface_s1_pt_cell = std::make_pair(Interface_s1_pt, -1);
 
     std::ostringstream filename_ela;
-    filename_ela <<  "E_explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << ".csv";
+    filename_ela <<  "E_explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << ".csv";
     std::string filename_ela_str = filename_ela.str();
     std::ofstream Elastic_sensor_1_log(filename_ela_str);
     typename mesh_type::point_type Elastic_s1_pt(-0.15,  -0.1);
@@ -463,76 +453,64 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     // ################################################## Time marching
     // ##################################################
     
-    size_t p = 1;
-    size_t dtau = dt / p;
-    auto l0 = x_dof;
-    Matrix<RealType, Dynamic, 1> x_dof_n;
+    assembler.assemble_P(msh, 0.015625);
+    assembler.assemble_P_bis(msh, 0.015625);
+    size_t nb_silo_files = 25;
+    size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
+    std::cout << std::endl;
+    std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
+    auto p = sim_data.m_substeps_Q;
+    auto dtau = dt / p;
     for(size_t it = 1; it <= nt; it++) {
-        
-        tcit.tic();
-        std::cout << bold << red << "   Time step number " << it << ": t = " << t << reset << std::endl;
-        x_dof_n = x_dof;
+        //////////////////////////////////////////////////////////////////////////
+        RealType tn = dt*(it-1)+ti;
+        if (it % step_interval == 0 || it == nt) {
+            std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
+        }
+        //////////////////////////////////////////////////////////////////////////
+        std::vector<Matrix<RealType, Dynamic, 1>> w(4);
         size_t n_dof = x_dof.rows();
-
-        ////////////////////////////////////////////////////////////// COARSE PREDICTOR
-        std::vector<Matrix<RealType, Dynamic, 1>>  w, k;           
-        erk_an.compute_wi(x_dof_n, s, assembler.IminusP, w, k);
-
-        for (int m = 0; m < p; ++m) {   
-
-            auto w_stage_1 =   w[0] + (m*dtau)*w[1] + (0.5*m*m*dtau*dtau)*w[2] + (m*m*m*dtau*dtau*dtau)*w[3]/6.0;
-            auto w_stage_2_3 = w[0] + ((m+0.5)*dtau)*w[1] + (0.5*(m+0.5)*(m+0.5)*dtau*dtau)*w[2] + ((m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau)*w[3]/6.0;
-            auto w_stage_4 =   w[0] + ((m+1.0)*dtau)*w[1] + (0.5*(m+1.0)*(m+1.0)*dtau*dtau)*w[2] + ((m+1.0)*(m+1.0)*(m+1.0)*dtau*dtau*dtau)*w[3]/6.0;
-
-            auto y_stage_1 = assembler.P*x_dof;
-            erk_an.erk_lts_weight(y_stage_1, k[0], w_stage_1);
-            
-            auto y_stage_2 = assembler.P*(x_dof + dtau/2.0 * k[0]);
-            erk_an.erk_lts_weight(y_stage_2, k[1], w_stage_2_3);
-            
-            auto y_stage_3 = assembler.P*(x_dof + dtau/2.0 * k[1]);
-            erk_an.erk_lts_weight(y_stage_3, k[2], w_stage_2_3);
-            
-            auto y_stage_4 = assembler.P*(x_dof + dtau * k[2]);
-            erk_an.erk_lts_weight(y_stage_4, k[3], w_stage_4);
-            
-            x_dof_n = x_dof + dtau/6 * (k[0] + 2*k[1] + 2*k[2] + k[3]);
-
+        for (int i = 0; i < 4; ++i) {
+            w[i].resize(n_dof);
+            w[i].setZero();
+        }
+        Matrix<RealType, Dynamic, 1> yn1(n_dof), yn2(n_dof), yn3(n_dof), yn4(n_dof);
+        Matrix<RealType, Dynamic, 1> k1(n_dof),  k2(n_dof),  k3(n_dof),  k4(n_dof);
+        auto x_dof_n = x_dof;
+        erk_an.compute_wi(x_dof_n, assembler.IminusP_cell, assembler.Pfacecoarse, w);
+        //////////////////////////////////////////////////////////////////////////
+        for (int m = 0; m < p; m++) { 
+            // k1
+            yn1 = assembler.Pfine * x_dof_n;
+            erk_an.erk_weight(yn1, k1);
+            k1 += w[0] + m*dtau*w[1] + m*m*dtau*dtau*w[2]/2.0 + m*m*m*dtau*dtau*dtau*w[3]/6.0;
+            // k2
+            yn2 = assembler.Pfine * (x_dof_n+dtau*k1/2.0);
+            erk_an.erk_weight(yn2, k2);
+            k2 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // k3
+            yn3 = assembler.Pfine * (x_dof_n+dtau*k2/2.0);
+            erk_an.erk_weight(yn3, k3);
+            k3 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // k4
+            yn4 = assembler.Pfine * (x_dof_n+dtau*k3);
+            erk_an.erk_weight(yn4, k4);
+            k4 += w[0] + (m+1.0)*dtau*w[1] + (m+1.0)*(m+1.0)*dtau*dtau*w[2]/2.0 + (m+1.0)*(m+1.0)*(m+1.0)*dtau*dtau*dtau*w[3]/6.0;
+            // FINAL UPDATE
+            x_dof_n += dtau*(k1 + 2.0*k2 + 2.0*k3 + k4)/6.0;
         }
         x_dof = x_dof_n;
-
-        // ##################################################
-        // ################################################## Last postprocess
-        // ##################################################
-        
+        t += dt;
         if (sim_data.m_render_silo_files_Q) {
-            std::string silo_file_name = "elasto_acoustic_inhomogeneous_four_fields_";
+            std::ostringstream filename;
+            filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
+            std::string silo_file_name = filename.str();
             postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
         }
-        
-        postprocessor<mesh_type>::record_acoustic_data_elasto_acoustic_four_fields(it, Acoustic_s1_pt_cell, msh, hho_di, assembler, x_dof, a_side_Q, Acoustic_sensor_1_log);
-        postprocessor<mesh_type>::record_velocity_data_elasto_acoustic_four_fields(it, Interface_s1_pt_cell, msh, hho_di, assembler, x_dof, e_side_Q, Interface_sensor_1_log);
-        postprocessor<mesh_type>::record_velocity_data_elasto_acoustic_four_fields(it, Elastic_s1_pt_cell, msh, hho_di, assembler, x_dof, e_side_Q, Elastic_sensor_1_log);
-        
-        t += dt;
-        
-        tcit.toc();
-        std::cout << bold << cyan << "      Iteration completed in " << tcit << " seconds" << reset << std::endl << std::endl;
-        
-        if (it == nt) {
-            std::ostringstream silo;
-            silo << "Silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << "_";
-            std::string silo_str = silo.str();
-            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_str, it, msh, hho_di, x_dof, e_material, a_material, false);      
-        }
-        
-        
     }
-    
-    cpu.toc();
-    simulation_log << "TOTAL CPU TIME: " << cpu << std::endl;
-    std::cout << bold << red << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
-    
+    simulation_tc.toc();
+    std::cout << std::endl << bold << red << "   CPU TIME: " << simulation_tc << std::endl << std::endl;
+
 }
 
 

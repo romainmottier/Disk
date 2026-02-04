@@ -13,8 +13,7 @@
 #include <Eigen/SparseLU>
 
 template<typename T>
-class erk_hho_scheme
-{
+class erk_hho_scheme {
     private:
 
     SparseMatrix<T> m_Mc;
@@ -43,7 +42,6 @@ class erk_hho_scheme
     
     erk_hho_scheme(SparseMatrix<T> & Kg, Matrix<T, Dynamic, 1> & Fg, SparseMatrix<T> & Mg, size_t n_f_dof){
         
-        
         m_n_c_dof = Kg.rows() - n_f_dof;
         m_n_f_dof = n_f_dof;
         
@@ -58,12 +56,14 @@ class erk_hho_scheme
         m_iterative_solver_Q        = false;
     }
     
-    void setIterativeSolver(T tolerance = 1.0e-11){
+    void 
+    setIterativeSolver(T tolerance = 1.0e-11){
         m_iterative_solver_Q = true;
         m_analysis_cg.setTolerance(tolerance);
     }
         
-    void DecomposeFaceTerm(){
+    void 
+    DecomposeFaceTerm(){
         
         if (m_iterative_solver_Q) {
             m_analysis_cg.compute(m_Sff);
@@ -110,11 +110,13 @@ class erk_hho_scheme
         return m_Fc;
     }
     
-    void SetFg(Matrix<T, Dynamic, 1> & Fg){
+    void 
+    SetFg(Matrix<T, Dynamic, 1> & Fg){
         m_Fc = Fg.block(0, 0, m_n_c_dof, 1);
     }
     
-    void Mcc_inverse(std::pair<size_t,size_t> cell_basis_data){
+    void 
+    Mcc_inverse(std::pair<size_t,size_t> cell_basis_data){
                 
         size_t n_cells = cell_basis_data.first;
         size_t n_cbs   = cell_basis_data.second;
@@ -177,7 +179,8 @@ class erk_hho_scheme
 
     }
     
-    void Sff_inverse(std::pair<size_t,size_t> face_basis_data){
+    void 
+    Sff_inverse(std::pair<size_t,size_t> face_basis_data){
                 
         size_t n_faces = face_basis_data.first;
         size_t n_fbs   = face_basis_data.second;
@@ -239,7 +242,8 @@ class erk_hho_scheme
 
     }
     
-    void refresh_faces_unknowns(Matrix<T, Dynamic, 1> & x){
+    void 
+    refresh_faces_unknowns(Matrix<T, Dynamic, 1> & x){
         
         Matrix<T, Dynamic, 1> x_c_dof = x.block(0, 0, m_n_c_dof, 1);
     
@@ -259,7 +263,8 @@ class erk_hho_scheme
     
     }
     
-    void erk_weight(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k){
+    void 
+    erk_weight(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k){
         
         k=y;
         Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
@@ -288,7 +293,8 @@ class erk_hho_scheme
     
     }
 
-    void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dtau, size_t p, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
+    void 
+    erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dtau, size_t p, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
         
         k=y;
 
@@ -303,7 +309,7 @@ class erk_hho_scheme
             // CELL UPDATE
             Matrix<T, Dynamic, 1> y_c_dof = k.block(0, 0, m_n_c_dof, 1);
             Matrix<T, Dynamic, 1> y_f_dof = k.block(m_n_c_dof, 0, m_n_f_dof, 1);
-            Matrix<T, Dynamic, 1> w_fine   = m_Mc_inv * (Fc() - Kcc()*P_cell*y_c_dof - Kcf()*Pfacefine*y_f_dof);
+            Matrix<T, Dynamic, 1> w_fine  = m_Mc_inv * (Fc() - Kcc()*P_cell*y_c_dof - Kcf()*Pfacefine*y_f_dof);
             Matrix<T, Dynamic, 1> k_c_dof = w_coarse + w_fine;
             k.block(0, 0, m_n_c_dof, 1) = k_c_dof;    
             // FACE UPDATE
@@ -326,51 +332,22 @@ class erk_hho_scheme
         }        
     }
 
-    // void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dt, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
-        
-    //     k=y;
-    //     size_t p = 1;
-    //     T dtau = dt / p;
-    //     for (int m = 0; m < p; m++) {  
-            
-    //         // CELL UPDATE 
-    //         Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
-    //         Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
-    //         Matrix<T, Dynamic, 1> w = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
-    //         Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * w;
-    //         k.block(0, 0, m_n_c_dof, 1) = k_c_dof;    
-
-    //         // FACE UPDATE
-    //         Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
-    //         if (m_sff_is_block_diagonal_Q) {
-    //             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
-    //         }
-    //         else {
-    //             if (m_iterative_solver_Q) {
-    //                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_analysis_cg.solve(RHSf); 
-    //                 std::cout << "Number of iterations (CG): " << m_analysis_cg.iterations() << std::endl;
-    //                 std::cout << "Estimated error: " << m_analysis_cg.error() << std::endl;
-    //             }
-    //             else {
-    //                 k.block(m_n_c_dof, 0, m_n_f_dof, 1) = -FacesAnalysis().solve(RHSf); 
-    //             }
-    //         }
-
-    //         // GLOBAL UPDATE
-    //         y += dtau * k;
-
-    //     }        
-    // }
-
-    void compute_wn(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<T> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, Matrix<T, Dynamic, 1> &w) {
+    void 
+    compute_wi(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
     
-        w.resize(m_n_c_dof);
-        
-        Matrix<T, Dynamic, 1> y_c = y.block(0, 0, m_n_c_dof, 1);
-        Matrix<T, Dynamic, 1> y_f = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
-
-        w = Fc() - Kcc()*IminusP*y_c - Kcf()*Pfacecoarse*y_f;
-
+        Matrix<T, Dynamic, 1> k = y;                 
+        Matrix<T, Dynamic, 1> Biy = y; // i= 0   
+        for(int i=0; i<4; i++) {
+            // COMPUTATION OF B^iy
+            if (i != 0) {
+                erk_weight(Biy, k);
+                Biy = k;
+            }
+            // COMPUTATION OF w_i
+            k.block(0, 0, m_n_c_dof, 1) = IminusP * Biy.block(0, 0, m_n_c_dof, 1);
+            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = Pfacecoarse * Biy.block(m_n_c_dof, 0, m_n_f_dof, 1);
+            erk_weight(k, w[i]);
+        }
     }
 
     void print_nonzero_entries_vector(Matrix<T, Dynamic, 1>  &w) {
@@ -397,9 +374,7 @@ class erk_hho_scheme
         }
         return count;
     }
-
-    
-    
+   
     void print_nonzero_entries(const Eigen::SparseMatrix<T> &mat) {
         size_t count = 0;
         for (int k = 0; k < mat.outerSize(); ++k) {

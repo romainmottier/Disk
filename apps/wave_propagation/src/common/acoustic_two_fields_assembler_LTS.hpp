@@ -50,6 +50,8 @@ public:
     SparseMatrix<T>         IminusP_cell;
     SparseMatrix<T>         Pfacefine;
     SparseMatrix<T>         Pfacecoarse;
+    SparseMatrix<T>         Pfine;
+    SparseMatrix<T>         Pcoarse;
             
     acoustic_two_fields_assembler_LTS(const Mesh& msh, const disk::hho_degree_info& hho_di, const boundary_type& bnd) : m_hho_di(hho_di), m_bnd(bnd), m_hho_stabilization_Q(true), m_scaled_stabilization_Q(false) {
             
@@ -89,6 +91,8 @@ public:
         IminusP_cell = SparseMatrix<T>(n_cbs * msh.cells_size(), n_cbs * msh.cells_size());
         Pfacefine   = SparseMatrix<T>(n_fbs*(m_n_edges-m_n_essential_edges), n_fbs*(m_n_edges-m_n_essential_edges));
         Pfacecoarse = SparseMatrix<T>(n_fbs*(m_n_edges-m_n_essential_edges), n_fbs*(m_n_edges-m_n_essential_edges));
+        Pfine   = SparseMatrix<T>(system_size, system_size);
+        Pcoarse = SparseMatrix<T>(system_size, system_size);
 
         classify_cells(msh);
 
@@ -735,8 +739,7 @@ public:
         size_t n_cbs = n_scal_cbs + n_vec_cbs;
         return n_cbs;
     }
-    
-    
+     
     // INTERFACE SEULEMENT DANS FINE
     void assemble_P(const Mesh& msh, T h_c) {
         
@@ -837,106 +840,97 @@ public:
         Pfacefine.makeCompressed();
         Pfacecoarse.makeCompressed();
     }
-
-
-    // // INTERFACE DANS FINE ET COARSE
-    // void assemble_P(const Mesh& msh, T h_c) {
-
-    //     P_cell.setZero();
-    //     IminusP_cell.setZero();
-    //     Pfacefine.setZero();
-    //     Pfacecoarse.setZero();
-
-    //     const T hc = std::round(h_c * T(1000)) / T(1000);
-        
-    //     // ---------- CELL DOFs sizes ----------
-    //     const size_t n_scal_cbs = disk::scalar_basis_size(m_hho_di.cell_degree(), Mesh::dimension);
-    //     const size_t n_vec_cbs  = disk::scalar_basis_size(m_hho_di.reconstruction_degree(), Mesh::dimension) - 1;
-    //     const size_t n_cbs      = n_scal_cbs + n_vec_cbs;
-        
-    //     // ---------- FACE DOFs sizes ----------
-    //     const size_t n_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
-    //     const size_t n_faces_free = m_n_edges - m_n_essential_edges;
-    //     const size_t ndofs_faces = n_faces_free * n_fbs;
-                
-    //     // ---------- Triplets ----------
-    //     std::vector< Triplet<T> > P_triplets;
-    //     std::vector< Triplet<T> > IP_triplets;
-    //     std::vector< Triplet<T> > Pfine_triplets;
-    //     std::vector< Triplet<T> > Pcoarse_triplets;
-        
-    //     P_triplets.reserve(msh.cells_size() * n_cbs);
-    //     IP_triplets.reserve(msh.cells_size() * n_cbs);
-    //     Pfine_triplets.reserve(msh.cells_size() * howmany_faces(msh, *msh.cells_begin()) * n_fbs);
-    //     Pcoarse_triplets.reserve(msh.cells_size() * howmany_faces(msh, *msh.cells_begin()) * n_fbs);
-        
-    //     // ---------- Loop cells ----------
-    //     for (size_t cell_id = 0; cell_id < msh.cells_size(); ++cell_id) {
-
-    //         auto& cell = *std::next(msh.cells_begin(), cell_id);
-    //         const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
-            
-    //         const bool is_fine   = (h < hc);
-    //         const bool is_coarse = !is_fine;
-            
-    //         const T valP  = is_fine ? T(1) : T(0);
-    //         const T valIP = T(1) - valP;
-            
-    //         const size_t cell_ofs = disk::offset(msh, cell);
-    //         const size_t glob_ofs = cell_ofs * n_cbs;
-            
-    //         for (size_t i = 0; i < n_cbs; ++i) {
-    //             P_triplets.emplace_back(glob_ofs + i, glob_ofs + i, valP);
-    //             IP_triplets.emplace_back(glob_ofs + i, glob_ofs + i, valIP);
-    //         }
-            
-    //         auto fcs = faces(msh, cell);
-    //         for (size_t lf = 0; lf < fcs.size(); ++lf) {
-
-    //             auto fc = fcs[lf];
-    //             const auto face_offset = disk::offset(msh, fc);
-                
-    //             const auto fc_id = msh.lookup(fc);
-    //             const bool dirichlet = m_bnd.is_dirichlet_face(fc_id);
-                
-    //             if (dirichlet) {
-    //                 continue;
-    //             }
-                
-    //             const size_t cf = m_compress_indexes.at(face_offset);
-    //             const size_t f_ofs = cf * n_fbs;
-                
-    //             if (is_fine) {
-    //                 for (size_t i = 0; i < n_fbs; ++i) {
-    //                     Pfine_triplets.emplace_back(f_ofs + i, f_ofs + i, 0.5);
-    //                 }
-    //             }
-                
-    //             if (is_coarse) {
-    //                 for (size_t i = 0; i < n_fbs; ++i) {
-    //                     Pcoarse_triplets.emplace_back(f_ofs + i, f_ofs + i, 0.5);
-    //                 }
-    //             }
-    //         }
-    //     }
-        
-    //     // ---------- Finalize CELL projectors ----------
-    //     P_cell.setFromTriplets(P_triplets.begin(), P_triplets.end());
-    //     IminusP_cell.setFromTriplets(IP_triplets.begin(), IP_triplets.end());
-    //     P_cell.makeCompressed();
-    //     IminusP_cell.makeCompressed();
-        
-    //     // ---------- Finalize FACE projectors ----------
-    //     Pfacefine.setFromTriplets(Pfine_triplets.begin(), Pfine_triplets.end());
-    //     Pfacecoarse.setFromTriplets(Pcoarse_triplets.begin(), Pcoarse_triplets.end());
-    //     Pfacefine.makeCompressed();
-    //     Pfacecoarse.makeCompressed();
-        
-    //     Pfacefine = Pfacefine.unaryExpr([](const T& x) { return (x > T(0)) ? T(1) : T(0); });
-    //     Pfacecoarse = Pfacecoarse.unaryExpr([](const T& x) { return (x > T(0)) ? T(1) : T(0); });
-
-    // }
     
+    void assemble_P_bis(const Mesh& msh, T h_c) {
+
+        Pfine.setZero();
+        Pcoarse.setZero();
+        
+        const T hc = std::round(h_c * T(1000)) / T(1000);
+        
+        // ---------- CELL DOFs sizes ----------
+        const size_t n_scal_cbs = disk::scalar_basis_size(m_hho_di.cell_degree(), Mesh::dimension);
+        const size_t n_vec_cbs  = disk::scalar_basis_size(m_hho_di.reconstruction_degree(), Mesh::dimension) - 1;
+        const size_t n_cbs      = n_scal_cbs + n_vec_cbs;
+        
+        // ---------- FACE DOFs sizes ----------
+        const size_t n_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
+        const size_t n_faces_free = m_n_edges - m_n_essential_edges;
+        
+        const size_t n_cell_dofs  = msh.cells_size() * n_cbs;
+        const size_t n_face_dofs  = n_faces_free * n_fbs;
+        
+        // ---------- Triplets ----------
+        std::vector< Triplet<T> > Pfine_triplets;
+        std::vector< Triplet<T> > Pcoarse_triplets;
+        
+        Pfine_triplets.reserve(n_cell_dofs + n_face_dofs);
+        Pcoarse_triplets.reserve(n_cell_dofs + n_face_dofs);
+        
+        // ---------- Mark faces ----------
+        std::vector<bool> face_is_fine(n_faces_free, false);
+        
+        // ============================
+        //        CELL PART
+        // ============================
+        for (size_t cell_id = 0; cell_id < msh.cells_size(); ++cell_id) {
+            
+            auto& cell = *std::next(msh.cells_begin(), cell_id);
+            const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+            
+            const bool is_fine = (h < hc);
+            
+            const size_t cell_ofs = disk::offset(msh, cell);
+            const size_t glob_ofs = cell_ofs * n_cbs;
+            
+            for (size_t i = 0; i < n_cbs; ++i) {
+                const size_t dof = glob_ofs + i;
+                
+                if (is_fine)
+                Pfine_triplets.emplace_back(dof, dof, 1.0);
+                else
+                Pcoarse_triplets.emplace_back(dof, dof, 1.0);
+            }
+            
+            // ---------- Mark faces ----------
+            auto fcs = faces(msh, cell);
+            for (auto& fc : fcs) {
+                
+                const auto fc_id = msh.lookup(fc);
+                if (m_bnd.is_dirichlet_face(fc_id)) continue;
+                
+                const size_t face_offset = disk::offset(msh, fc);
+                const size_t cf = m_compress_indexes.at(face_offset);
+                
+                if (is_fine)
+                face_is_fine[cf] = true;
+            }
+        }
+        
+        // ============================
+        //        FACE PART
+        // ============================
+        for (size_t cf = 0; cf < n_faces_free; ++cf) {
+            
+            for (size_t i = 0; i < n_fbs; ++i) {
+                
+                const size_t face_dof =
+                n_cell_dofs + cf * n_fbs + i;
+                
+                if (face_is_fine[cf])
+                Pfine_triplets.emplace_back(face_dof, face_dof, 1.0);
+                else
+                Pcoarse_triplets.emplace_back(face_dof, face_dof, 1.0);
+            }
+        }
+        
+        // ---------- Finalize ----------
+        Pfine.setFromTriplets(Pfine_triplets.begin(), Pfine_triplets.end());
+        Pcoarse.setFromTriplets(Pcoarse_triplets.begin(), Pcoarse_triplets.end());
+        
+        Pfine.makeCompressed();
+        Pcoarse.makeCompressed();
+    }
     
     void LTS_infos(const Mesh& msh, T h_c) const {
 

@@ -267,80 +267,80 @@ void ELTSAcousticFirstOrder(int argc, char **argv){
     // ################################################## Time marching
     // ##################################################
     
-    size_t p = 1;
-    size_t dtau = dt / p;
+    // size_t p = 1;
+    // size_t dtau = dt / p;
 
-    // DISCRTIZATION INFOS
-    std::cout << bold << red << "   TIME LOOP: " << std::endl;
-    Matrix<RealType, Dynamic, 1> x_dof_n;
-    for(size_t it = 1; it <= nt; it++) {
+    // // DISCRTIZATION INFOS
+    // std::cout << bold << red << "   TIME LOOP: " << std::endl;
+    // Matrix<RealType, Dynamic, 1> x_dof_n;
+    // for(size_t it = 1; it <= nt; it++) {
         
-        std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
-        RealType tn = dt*(it-1)+ti;
+    //     std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
+    //     RealType tn = dt*(it-1)+ti;
         
-        // ERK step
-        tc.tic();
+    //     // ERK step
+    //     tc.tic();
         
-            size_t n_dof = x_dof.rows();
-            Matrix<double, Dynamic, Dynamic> k = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
-            Matrix<double, Dynamic, Dynamic> k_T = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
-            Matrix<double, Dynamic, Dynamic> k_F = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
-            Matrix<double, Dynamic, 1> Fg, Fg_c, xd;
-            xd = Matrix<double, Dynamic, 1>::Zero(n_dof, 1);
+    //         size_t n_dof = x_dof.rows();
+    //         Matrix<double, Dynamic, Dynamic> k = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
+    //         Matrix<double, Dynamic, Dynamic> k_T = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
+    //         Matrix<double, Dynamic, Dynamic> k_F = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
+    //         Matrix<double, Dynamic, 1> Fg, Fg_c, xd;
+    //         xd = Matrix<double, Dynamic, 1>::Zero(n_dof, 1);
             
-            Matrix<double, Dynamic, 1> yn, ki;
-            x_dof_n = x_dof;
+    //         Matrix<double, Dynamic, 1> yn, ki;
+    //         x_dof_n = x_dof;
         
-            // PREDICTOR STEP
-            auto W = erk_an.coarse_predictor(s, b, c, x_dof_n, assembler.IminusP);
+    //         // PREDICTOR STEP
+    //         // auto W = erk_an.coarse_predictor(s, b, c, x_dof_n, assembler.IminusP);
 
-            // LOOP ON LOCAL REFINEMENT RATIOS
-            for (int m = 0; m < p; ++m) {            
-                yn = x_dof;
+    //         // LOOP ON LOCAL REFINEMENT RATIOS
+    //         for (int m = 0; m < p; ++m) {            
+    //             yn = x_dof;
 
-                // LOOP ON ERK STAGES
-                for (int r = 0; r < s; ++r) {     
+    //             // LOOP ON ERK STAGES
+    //             for (int r = 0; r < s; ++r) {     
                     
-                    t = tn + (m+c(r,0)) * dtau;
+    //                 t = tn + (m+c(r,0)) * dtau;
 
-                    // MANUFACTURED SOLUTION
-                    auto s_v_fun    = functions.Evaluate_s_v(t);
-                    auto s_f_fun    = functions.Evaluate_s_f(t);
-                    assembler.get_e_bc_conditions().updateDirichletFunction(null_fun, 0);
-                    assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
-                    assembler.assemble_rhs(msh, null_fun, s_f_fun, true);
-                    erk_an.SetFg(assembler.RHS);
+    //                 // MANUFACTURED SOLUTION
+    //                 auto s_v_fun    = functions.Evaluate_s_v(t);
+    //                 auto s_f_fun    = functions.Evaluate_s_f(t);
+    //                 assembler.get_e_bc_conditions().updateDirichletFunction(null_fun, 0);
+    //                 assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
+    //                 assembler.assemble_rhs(msh, null_fun, s_f_fun, true);
+    //                 erk_an.SetFg(assembler.RHS);
 
-                    // UPDATE 
-                    erk_an.compute_k(r, m, s, dtau, W, c, yn, k, a, assembler.P, assembler.IminusP);
+    //                 // UPDATE 
+    //                 erk_an.compute_k(r, m, s, dtau, W, c, yn, k, a, assembler.P, assembler.IminusP);
                     
-                }
-                // ACCUMULATED SOLUTION
-                for (int i = 0; i < s; i++) {
-                    x_dof_n += dtau*b(i,0)*k.block(0, i, n_dof, 1);
-                }
-            }
+    //             }
+    //             // ACCUMULATED SOLUTION
+    //             for (int i = 0; i < s; i++) {
+    //                 x_dof_n += dtau*b(i,0)*k.block(0, i, n_dof, 1);
+    //             }
+    //         }
 
-            tc.toc();
-            std::cout << bold << yellow << "         LTS-ERK step completed: " << tc << " seconds" << reset << std::endl;
-            x_dof = x_dof_n;
+    //         tc.toc();
+    //         std::cout << bold << yellow << "         LTS-ERK step completed: " << tc << " seconds" << reset << std::endl;
+    //         x_dof = x_dof_n;
             
-            t = tn + dt;
-            auto s_v_fun    = functions.Evaluate_s_v(t);
-            auto s_flux_fun = functions.Evaluate_s_q(t);
+    //         t = tn + dt;
+    //         auto s_v_fun    = functions.Evaluate_s_v(t);
+    //         auto s_flux_fun = functions.Evaluate_s_q(t);
             
-            if(it == nt) {
-                std::cout << std::endl;
-                postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic(msh, hho_di, assembler, x_dof, null_fun, null_flux_fun, s_v_fun, s_flux_fun, simulation_log);
-                postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic_energy_norm(msh, hho_di, assembler, x_dof, null_fun, null_flux_fun, s_v_fun, s_flux_fun, simulation_log);
-            }
-    }
+    //         if(it == nt) {
+    //             std::cout << std::endl;
+    //             postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic(msh, hho_di, assembler, x_dof, null_fun, null_flux_fun, s_v_fun, s_flux_fun, simulation_log);
+    //             postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic_energy_norm(msh, hho_di, assembler, x_dof, null_fun, null_flux_fun, s_v_fun, s_flux_fun, simulation_log);
+    //         }
+    // }
     
-    bool mesh_quality = false;
-    if (mesh_quality) {
-        std::ofstream mesh_file("mesh_file.txt");
-        postprocessor<mesh_type>::mesh_quality(msh, assembler, mesh_file);
-    }
+    // bool mesh_quality = false;
+    // if (mesh_quality) {
+    //     std::ofstream mesh_file("mesh_file.txt");
+    //     postprocessor<mesh_type>::mesh_quality(msh, assembler, mesh_file);
+    // }
 
     cpu.toc();
     simulation_log << "TOTAL CPU TIME: " << cpu << std::endl;

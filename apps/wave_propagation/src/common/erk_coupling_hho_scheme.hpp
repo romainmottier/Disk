@@ -370,59 +370,21 @@ class erk_coupling_hho_scheme
 
     }
 
-    void erk_lts_weight(const Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, const Matrix<T, Dynamic, 1> & w_stage) {
-        
-        k=y;
-        Matrix<T, Dynamic, 1> y_c = y.block(0,0,m_n_c_dof,1);
-        Matrix<T, Dynamic, 1> y_f = y.block(m_n_c_dof,0,m_n_f_dof,1);
-        
-        // CELLS UPDATE
-        Matrix<T, Dynamic, 1> RHSc = w_stage + Kcc()*y_c + Kcf()*y_f; // w_stage contient déjà les termes (I-P)
-        Matrix<T, Dynamic, 1> k_c = m_Mc_inv * RHSc;
-        k.block(0,0,m_n_c_dof,1) = k_c;
-        
-        // FACES UPDATE (condensation)
-        Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c;
-        if (m_sff_is_block_diagonal_Q) {
-            k.block(m_n_c_dof,0,m_n_f_dof,1) = - m_Sff_inv * RHSf;
-        } 
-        else {
-            k.block(m_n_c_dof,0,m_n_f_dof,1) = - m_inv_Sff * RHSf;
-        }
-
-    }
- 
-    void compute_wi(const Matrix<T, Dynamic, 1> &y, const int n_w, const Eigen::SparseMatrix<double> &IminusP, std::vector<Eigen::VectorXd> &w, std::vector<Eigen::VectorXd> &k) {
+    void 
+    compute_wi(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
     
-        w.resize(n_w);
-        k.resize(n_w);
-        int total_dof = m_n_c_dof + m_n_f_dof;
-        for(int i=0;i<n_w;i++) {
-            w[i].resize(m_n_c_dof);
-            k[i].resize(total_dof);
-        }
-    
-        Matrix<T, Dynamic, 1> Biy = y;          // B^i y0
-        Matrix<T, Dynamic, 1> tmp(total_dof);
-        Matrix<T, Dynamic, 1> By_c(m_n_c_dof), By_f(m_n_f_dof);
-        
-        for(int i=0; i<n_w; i++){
-
-            if(i > 0) {
-                Matrix<T, Dynamic, 1> y_c = Biy.block(0, 0, m_n_c_dof, 1);
-                Matrix<T, Dynamic, 1> y_f = Biy.block(m_n_c_dof, 0, m_n_f_dof, 1);
-
-                Matrix<T, Dynamic, 1> kc = - m_Mc_inv * (Kcc()*y_c - Kcf()*y_f );
-                Matrix<T, Dynamic, 1> kf = - m_Sff_inv * (Kfc()*kc);
-                
-                Biy.block(0,0,m_n_c_dof,1) = kc;
-                Biy.block(m_n_c_dof,0,m_n_f_dof,1) = kf;
+        Matrix<T, Dynamic, 1> k = y;                 
+        Matrix<T, Dynamic, 1> Biy = y; // i= 0   
+        for(int i=0; i<4; i++) {
+            // COMPUTATION OF B^iy
+            if (i != 0) {
+                erk_weight(Biy, k);
+                Biy = k;
             }
-            auto tmp_c = IminusP * Biy.block(0,0,m_n_c_dof,1);
-            auto tmp_f = - m_Sff_inv * (Kfc()*tmp_c);
-
-            By_c = - m_Mc_inv  * ( Kcc() * tmp_c + Kcf() * tmp_f );            
-            w[i] = By_c;
+            // COMPUTATION OF w_i
+            k.block(0, 0, m_n_c_dof, 1) = IminusP * Biy.block(0, 0, m_n_c_dof, 1);
+            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = Pfacecoarse * Biy.block(m_n_c_dof, 0, m_n_f_dof, 1);
+            erk_weight(k, w[i]);
         }
     }
 
@@ -432,9 +394,9 @@ class erk_coupling_hho_scheme
         Matrix<T, Dynamic, 1> y_c = y.block(0, 0, m_n_c_dof, 1);
         Matrix<T, Dynamic, 1> y_f = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
         
-        Matrix<T, Dynamic, 1> w = - m_Mc_inv * (Kcc()*Proj*y_c - Kcf()*Proj*y_f);
+        Matrix<T, Dynamic, 1> res = - m_Mc_inv * (Kcc()*Proj*y_c - Kcf()*Proj*y_f);
 
-        return w;
+        return res;
         
     }
     

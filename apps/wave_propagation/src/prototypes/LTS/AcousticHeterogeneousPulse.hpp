@@ -245,6 +245,8 @@ void AcousticHeterogeneousPulse(int argc, char **argv) {
     Matrix<RealType, Dynamic, 1> x_dof_n;
     timecounter simulation_tc;
     simulation_tc.tic();
+
+
     for(size_t it = 1; it <= nt; it++){
 
         std::cout << bold << yellow << "Time step number : " << it << " being executed." << reset << std::endl;
@@ -288,6 +290,7 @@ void AcousticHeterogeneousPulse(int argc, char **argv) {
         // if (sim_data.m_report_energy_Q) {
         //     postprocessor<mesh_type>::compute_acoustic_energy_two_fields_LTS(msh, hho_di, assembler, t, x_dof, simulation_log);
         // }
+
     }
     simulation_tc.toc();
     simulation_log << "Simulation time : " << simulation_tc << " seconds" << std::endl;
