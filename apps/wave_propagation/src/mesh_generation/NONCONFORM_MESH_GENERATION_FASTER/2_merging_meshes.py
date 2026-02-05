@@ -228,8 +228,8 @@ def write_vtk_poly(points, cells, cell_data, filename):
 # ============================================================
 if __name__ == "__main__":
 
-    input_vtk  = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square.vtk"
-    output_vtk = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square.vtk"
+    input_vtk  = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling.vtk"
+    output_vtk = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling.vtk"
 
     print("📖 Lecture du maillage...")
     points, cells, cell_data = read_vtk(input_vtk)

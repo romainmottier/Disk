@@ -167,8 +167,8 @@ def write_vtk_poly(points, cells, cell_data, filename):
 # ============================================================
 if __name__ == "__main__":
 
-    input_vtk  = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square.vtk"
-    output_vtk = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square_poly.vtk"
+    input_vtk  = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.vtk"
+    output_vtk = "/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.vtk"
 
     y_mid = 0.5   # INTERFACE (doit matcher le script gmsh)
 

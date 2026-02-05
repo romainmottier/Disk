@@ -841,6 +841,147 @@ public:
         Pfacecoarse.makeCompressed();
     }
     
+//     void assemble_P(const Mesh& msh, T h_c, int n_layers) {
+
+//     P_cell.setZero();
+//     IminusP_cell.setZero();
+//     Pfacefine.setZero();
+//     Pfacecoarse.setZero();
+
+//     const T hc = std::round(h_c * T(1000)) / T(1000);
+
+//     // ---------- CELL DOFs sizes ----------
+//     const size_t n_scal_cbs = disk::scalar_basis_size(m_hho_di.cell_degree(), Mesh::dimension);
+//     const size_t n_vec_cbs  = disk::scalar_basis_size(m_hho_di.reconstruction_degree(), Mesh::dimension) - 1;
+//     const size_t n_cbs      = n_scal_cbs + n_vec_cbs;
+
+//     // ---------- FACE DOFs sizes ----------
+//     const size_t n_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
+//     const size_t n_faces_free = m_n_edges - m_n_essential_edges;
+
+//     // ---------- Triplets ----------
+//     std::vector< Triplet<T> > P_triplets, IP_triplets;
+//     std::vector< Triplet<T> > Pfine_triplets, Pcoarse_triplets;
+
+//     P_triplets.reserve(msh.cells_size() * n_cbs);
+//     IP_triplets.reserve(msh.cells_size() * n_cbs);
+//     Pfine_triplets.reserve(n_faces_free * n_fbs);
+//     Pcoarse_triplets.reserve(n_faces_free * n_fbs);
+
+//     // ============================================================
+//     // 1) Initial cell classification (layer 0)
+//     // ============================================================
+//     std::vector<bool> cell_is_fine(msh.cells_size(), false);
+
+//     for (size_t cell_id = 0; cell_id < msh.cells_size(); ++cell_id) {
+//         auto& cell = *std::next(msh.cells_begin(), cell_id);
+//         const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+//         cell_is_fine[cell_id] = (h < hc);
+//     }
+
+//     // ============================================================
+//     // 2) Propagation over layers
+//     // ============================================================
+//     for (int layer = 0; layer < n_layers; ++layer) {
+
+//         std::vector<bool> next_is_fine = cell_is_fine;
+
+//         for (size_t cell_id = 0; cell_id < msh.cells_size(); ++cell_id) {
+
+//             if (cell_is_fine[cell_id]) continue; // already fine
+
+//             auto& cell = *std::next(msh.cells_begin(), cell_id);
+//             auto fcs = faces(msh, cell);
+
+//             for (auto& fc : fcs) {
+
+//                 const auto fc_id = msh.lookup(fc);
+//                 if (m_bnd.is_dirichlet_face(fc_id)) continue;
+
+//                 auto neigh_cells = cells(msh, fc);
+//                 for (auto& nc : neigh_cells) {
+//                     const size_t nid = msh.lookup(nc);
+//                     if (cell_is_fine[nid]) {
+//                         next_is_fine[cell_id] = true;
+//                         break;
+//                     }
+//                 }
+
+//                 if (next_is_fine[cell_id]) break;
+//             }
+//         }
+
+//         cell_is_fine.swap(next_is_fine);
+//     }
+
+//     // ============================================================
+//     // 3) Build CELL projectors
+//     // ============================================================
+//     for (size_t cell_id = 0; cell_id < msh.cells_size(); ++cell_id) {
+
+//         const bool is_fine = cell_is_fine[cell_id];
+//         const T valP  = is_fine ? T(1) : T(0);
+//         const T valIP = T(1) - valP;
+
+//         const size_t glob_ofs = cell_id * n_cbs;
+
+//         for (size_t i = 0; i < n_cbs; ++i) {
+//             P_triplets.emplace_back(glob_ofs + i, glob_ofs + i, valP);
+//             IP_triplets.emplace_back(glob_ofs + i, glob_ofs + i, valIP);
+//         }
+//     }
+
+//     // ============================================================
+//     // 4) Mark faces
+//     // ============================================================
+//     std::vector<bool> face_is_fine(n_faces_free, false);
+
+//     for (size_t cell_id = 0; cell_id < msh.cells_size(); ++cell_id) {
+
+//         if (!cell_is_fine[cell_id]) continue;
+
+//         auto& cell = *std::next(msh.cells_begin(), cell_id);
+//         auto fcs = faces(msh, cell);
+
+//         for (auto& fc : fcs) {
+
+//             const auto fc_id = msh.lookup(fc);
+//             if (m_bnd.is_dirichlet_face(fc_id)) continue;
+
+//             const size_t face_offset = disk::offset(msh, fc);
+//             const size_t cf = m_compress_indexes.at(face_offset);
+//             face_is_fine[cf] = true;
+//         }
+//     }
+
+//     // ============================================================
+//     // 5) Build FACE projectors
+//     // ============================================================
+//     for (size_t cf = 0; cf < n_faces_free; ++cf) {
+//         for (size_t i = 0; i < n_fbs; ++i) {
+//             const size_t f_ofs = cf * n_fbs + i;
+//             if (face_is_fine[cf]) {
+//                 Pfine_triplets.emplace_back(f_ofs, f_ofs, 1.0);
+//             } else {
+//                 Pcoarse_triplets.emplace_back(f_ofs, f_ofs, 1.0);
+//             }
+//         }
+//     }
+
+//     // ============================================================
+//     // Finalize matrices
+//     // ============================================================
+//     P_cell.setFromTriplets(P_triplets.begin(), P_triplets.end());
+//     IminusP_cell.setFromTriplets(IP_triplets.begin(), IP_triplets.end());
+//     Pfacefine.setFromTriplets(Pfine_triplets.begin(), Pfine_triplets.end());
+//     Pfacecoarse.setFromTriplets(Pcoarse_triplets.begin(), Pcoarse_triplets.end());
+
+//     P_cell.makeCompressed();
+//     IminusP_cell.makeCompressed();
+//     Pfacefine.makeCompressed();
+//     Pfacecoarse.makeCompressed();
+// }
+
     void assemble_P_bis(const Mesh& msh, T h_c) {
 
         Pfine.setZero();

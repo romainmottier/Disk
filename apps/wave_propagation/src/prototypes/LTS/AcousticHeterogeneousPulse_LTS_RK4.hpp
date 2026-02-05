@@ -46,7 +46,11 @@ void AcousticHeterogeneousPulse_LTS_RK4(int argc, char **argv) {
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
         
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square.txt");    // l = 0
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p1.txt");    // l = 0
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p2.txt");    // l = 1
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p3.txt");    // l = 2
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.txt");    // l = 3
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p5.txt");    // l = 4
 
         // mesh_files.push_back("/home/romain/GitHub/MESHES_DISK/nonconform_square.txt");       // l = 0
 
@@ -222,6 +226,7 @@ void AcousticHeterogeneousPulse_LTS_RK4(int argc, char **argv) {
     auto dtau = dt / p;
     for(size_t it = 1; it <= nt; it++) {
         //////////////////////////////////////////////////////////////////////////
+        tcit.tic();
         RealType tn = dt*(it-1)+ti;
         if (it % step_interval == 0 || it == nt) {
             std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
@@ -263,6 +268,10 @@ void AcousticHeterogeneousPulse_LTS_RK4(int argc, char **argv) {
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
             std::string silo_file_name = "ricker_LTS_euler_";
             postprocessor<mesh_type>::write_silo_two_fields(silo_file_name, it, msh, hho_di, x_dof, vel_fun, null_flux_fun, false);
+        }
+        tcit.toc();
+        if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
+            std::cout << bold << yellow << "         Iteration completed in " << tcit << " seconds" << reset << std::endl;
         }
     }
     simulation_tc.toc();
