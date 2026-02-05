@@ -69,8 +69,6 @@ public:
     SparseMatrix<T>         LHS_STAB;
     Matrix<T, Dynamic, 1>   RHS;
     SparseMatrix<T>         MASS;
-    SparseMatrix<T>         P;
-    SparseMatrix<T>         IminusP;
     SparseMatrix<T>         COUPLING;
 
     // Identification of Dirichlet faces; Construction of compressed face index maps; Computation of dofs counts; 
