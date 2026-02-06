@@ -45,7 +45,11 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
         
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling.txt");    // l = 0
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p1.txt");    // l = 0
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p2.txt");    // l = 1
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p3.txt");    // l = 2
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p4.txt");    // l = 3
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.txt");    // l = 4
         // mesh_files.push_back("/home/romain/GitHub/MESHES_DISK/nonconform_square.txt");       // l = 0
 
         // Reading the polygonal mesh
@@ -170,7 +174,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     std::map<size_t,std::pair<size_t,size_t>> interface_cell_pair_indexes;
     
     RealType eps = 1.0e-10;
-    RealType y_interface = 0.05;
+    RealType y_interface = 0.0;
     for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
         const auto face = *face_it;
         mesh_type::point_type bar = barycenter(msh, face);
@@ -313,7 +317,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         x    = pt.x();
         y    = pt.y();
         xc   = 0.0;
-        yc   = 0.25; // 0.1;
+        yc   = 0.1; // 0.1;
         fc   = 10.0;
         c    = 10;
         vp   = std::sqrt(1.0);

@@ -4,12 +4,12 @@ gmsh.initialize()
 gmsh.model.add("two_nonconformal_domains")
 
 # Paramètres
-p = 4              # facteur de raffinement
+p = 5              # facteur de raffinement
 lc_inf = 0.015625       # taille éléments partie inférieure
 lc_sup = lc_inf / p  # taille éléments partie supérieure
 
-xmin, xmax = 0.0, 1.05
-ymin, ymax = 0.0, 1.05
+xmin, xmax = -0.5, 0.5
+ymin, ymax = -0.5, 0.5
 y_mid = abs((ymin + ymax) / 2)
 
 # --- Partie inférieure : rectangle [-0.5,0.5] x [-0.5,0] ---
@@ -79,8 +79,8 @@ gmsh.model.setPhysicalName(2, pg_sup, "Material_Upper")
 gmsh.model.mesh.generate(2)
 
 # Sauvegarder
-gmsh.write("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.msh")
-gmsh.write("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.vtk")
+gmsh.write("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.msh")
+gmsh.write("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.vtk")
 
 # Afficher
 # gmsh.fltk.run()

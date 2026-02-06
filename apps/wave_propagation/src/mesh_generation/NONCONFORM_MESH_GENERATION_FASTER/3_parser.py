@@ -11,14 +11,14 @@ os.chdir(current_directory)
 
 # Lire le fichier VTK
 reader = vtk.vtkUnstructuredGridReader()
-reader.SetFileName('/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.vtk')
+reader.SetFileName('/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.vtk')
 reader.Update()
 
 # Récupérer les données du maillage
 unstructured_grid = reader.GetOutput()
 
 # Lire le fichier VTK
-with open('/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.vtk', "r")  as vtk_file:
+with open('/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.vtk', "r")  as vtk_file:
     lines = vtk_file.readlines()
     
 # Trouver la ligne qui commence par "POINTS"
@@ -70,7 +70,7 @@ if cell_data_line:
 
 
 # Ouvrir un fichier de sortie pour les coordonnées des points en écriture
-with open("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_p4.txt", "w") as output_file:
+with open("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.txt", "w") as output_file:
     
     # Écrire le nombre de points, le nombre de cellules, et "4" sur la première ligne
     output_file.write(f"{len(points_data)} {num_cells} 4\n")
