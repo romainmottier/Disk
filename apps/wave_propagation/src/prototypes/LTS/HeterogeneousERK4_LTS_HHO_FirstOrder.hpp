@@ -70,6 +70,9 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         mesh_builder.move_to_mesh_storage(msh);
     }
     
+    
+
+
     RealType h_max = 1e-5;
     RealType h_min = 10;
     for (auto & cell : msh ) {

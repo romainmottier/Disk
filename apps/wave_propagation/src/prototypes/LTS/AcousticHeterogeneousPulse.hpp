@@ -257,7 +257,7 @@ void AcousticHeterogeneousPulse(int argc, char **argv) {
         {
             size_t n_dof = x_dof.rows();
             Matrix<RealType, Dynamic, Dynamic> k = Matrix<RealType, Dynamic, Dynamic>::Zero(n_dof, s);
-            Matrix<RealType, Dynamic, 1> Fg, Fg_c,xd;
+            Matrix<RealType, Dynamic, 1> Fg, Fg_c, xd;
             xd = Matrix<RealType, Dynamic, 1>::Zero(n_dof, 1);
             
             Matrix<RealType, Dynamic, 1> yn, ki;

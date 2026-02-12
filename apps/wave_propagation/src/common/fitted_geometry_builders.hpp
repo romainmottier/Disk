@@ -969,7 +969,63 @@ public:
             vertices.push_back(node_type());
         }
     }
-
+    
+    void refine_cells_with_pypolymesher(const std::vector<size_t>& cell_indices) {
+        
+        // Export des polygones à raffiner
+        std::ofstream out("cells_to_refine.csv");
+        for (auto idx : cell_indices) {
+            const auto& poly = polygons[idx];
+            for (auto node_id : poly.m_member_nodes) {
+                const auto& p = points[node_id];
+                out << p.x() << " " << p.y() << " ";
+            }
+            out << std::endl;
+        }
+        out.close();
+        
+        // Appel Python
+        system("python3 /home/mottie0000/Github/Diskpp/Disk/apps/wave_propagation/src/common/pyPolyMesher/refine_cells.py");
+        
+        // Import des cellules raffinées
+        std::ifstream in("refined_cells.csv");
+        size_t new_node_id = points.size();
+        std::string line;
+        while (std::getline(in, line)) {
+            std::stringstream ss(line);
+            std::vector<T> coords;
+            T x, y;
+            while (ss >> x >> y) coords.push_back(x), coords.push_back(y);
+            
+            polygon_2d new_poly;
+            std::set<std::array<size_t,2>> new_edges;
+            for (size_t i = 0; i < coords.size(); i += 2) {
+                point_type p(coords[i], coords[i + 1]);
+                points.push_back(p);
+                new_poly.m_member_nodes.push_back(new_node_id);
+                if (i > 0) {
+                    new_edges.insert({new_node_id - 1, new_node_id});
+                }
+                new_node_id++;
+            }
+            // fermer le polygone
+            if(new_poly.m_member_nodes.size() > 2){
+                new_edges.insert({new_poly.m_member_nodes.back(), new_poly.m_member_nodes[0]});
+            }
+            new_poly.m_member_edges = new_edges;
+            polygons.push_back(new_poly);
+        }
+        
+        // Recréer les facets
+        facets.clear();
+        for (auto& poly : polygons) {
+            for (auto& e : poly.m_member_edges) {
+                facets.push_back(e);
+            }
+        }
+    }
+    
+    
 };
 
 #endif /* fitted_geometry_builder_hpp */
