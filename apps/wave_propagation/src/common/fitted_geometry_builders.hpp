@@ -19,6 +19,9 @@
 #include "diskpp/geometry/geometry.hpp"
 #include <unordered_map>
 
+#include <pybind11/embed.h>
+#include <pybind11/numpy.h>
+namespace py = pybind11;
 
 template<typename MESH>
 class fitted_geometry_builder {
@@ -970,60 +973,99 @@ public:
         }
     }
     
-    void refine_cells_with_pypolymesher(const std::vector<size_t>& cell_indices) {
+    
+    
+    
+    void main() {
+        py::scoped_interpreter guard{};   // démarre python
         
-        // Export des polygones à raffiner
-        std::ofstream out("cells_to_refine.csv");
-        for (auto idx : cell_indices) {
-            const auto& poly = polygons[idx];
-            for (auto node_id : poly.m_member_nodes) {
-                const auto& p = points[node_id];
-                out << p.x() << " " << p.y() << " ";
-            }
-            out << std::endl;
-        }
-        out.close();
+        // importer ton module
+        py::module bridge = py::module::import("polymesher_bridge");
         
-        // Appel Python
-        system("python3 /home/mottie0000/Github/Diskpp/Disk/apps/wave_propagation/src/common/pyPolyMesher/refine_cells.py");
+        // -----------------------------
+        // données venant de ton code C++
+        // -----------------------------
+        std::vector<std::vector<double>> polygon = {
+            {0.0,0.0},
+            {1.0,0.0},
+            {1.2,0.5},
+            {1.0,1.0},
+            {0.0,1.0}
+        };
         
-        // Import des cellules raffinées
-        std::ifstream in("refined_cells.csv");
-        size_t new_node_id = points.size();
-        std::string line;
-        while (std::getline(in, line)) {
-            std::stringstream ss(line);
-            std::vector<T> coords;
-            T x, y;
-            while (ss >> x >> y) coords.push_back(x), coords.push_back(y);
-            
-            polygon_2d new_poly;
-            std::set<std::array<size_t,2>> new_edges;
-            for (size_t i = 0; i < coords.size(); i += 2) {
-                point_type p(coords[i], coords[i + 1]);
-                points.push_back(p);
-                new_poly.m_member_nodes.push_back(new_node_id);
-                if (i > 0) {
-                    new_edges.insert({new_node_id - 1, new_node_id});
-                }
-                new_node_id++;
-            }
-            // fermer le polygone
-            if(new_poly.m_member_nodes.size() > 2){
-                new_edges.insert({new_poly.m_member_nodes.back(), new_poly.m_member_nodes[0]});
-            }
-            new_poly.m_member_edges = new_edges;
-            polygons.push_back(new_poly);
-        }
+        int nelem = 50;
+        int maxiter = 100;
         
-        // Recréer les facets
-        facets.clear();
-        for (auto& poly : polygons) {
-            for (auto& e : poly.m_member_edges) {
-                facets.push_back(e);
-            }
-        }
+        // appel python
+        auto result = bridge.attr("generate_mesh")(polygon, nelem, maxiter);
+        
+        // récupération
+        py::array_t<double> Node = result[0].cast<py::array_t<double>>();
+        py::array_t<int> Element = result[1].cast<py::array_t<int>>();
+        
+        // accès aux données
+        auto nodes = Node.unchecked<2>();
+        auto elems = Element.unchecked<2>();
+        
+        std::cout << "Nb nodes = " << nodes.shape(0) << std::endl;
+        std::cout << "Nb elems = " << elems.shape(0) << std::endl;
     }
+
+    
+    // void refine_cells_with_pypolymesher(const std::vector<size_t>& cell_indices) {
+        
+    //     // Export des polygones à raffiner
+    //     std::ofstream out("cells_to_refine.csv");
+    //     for (auto idx : cell_indices) {
+    //         const auto& poly = polygons[idx];
+    //         for (auto node_id : poly.m_member_nodes) {
+    //             const auto& p = points[node_id];
+    //             out << p.x() << " " << p.y() << " ";
+    //         }
+    //         out << std::endl;
+    //     }
+    //     out.close();
+        
+    //     // Appel Python
+    //     system("python3 /home/mottie0000/Github/Diskpp/Disk/apps/wave_propagation/src/common/pyPolyMesher/refine_cells.py");
+        
+    //     // Import des cellules raffinées
+    //     std::ifstream in("refined_cells.csv");
+    //     size_t new_node_id = points.size();
+    //     std::string line;
+    //     while (std::getline(in, line)) {
+    //         std::stringstream ss(line);
+    //         std::vector<T> coords;
+    //         T x, y;
+    //         while (ss >> x >> y) coords.push_back(x), coords.push_back(y);
+            
+    //         polygon_2d new_poly;
+    //         std::set<std::array<size_t,2>> new_edges;
+    //         for (size_t i = 0; i < coords.size(); i += 2) {
+    //             point_type p(coords[i], coords[i + 1]);
+    //             points.push_back(p);
+    //             new_poly.m_member_nodes.push_back(new_node_id);
+    //             if (i > 0) {
+    //                 new_edges.insert({new_node_id - 1, new_node_id});
+    //             }
+    //             new_node_id++;
+    //         }
+    //         // fermer le polygone
+    //         if(new_poly.m_member_nodes.size() > 2){
+    //             new_edges.insert({new_poly.m_member_nodes.back(), new_poly.m_member_nodes[0]});
+    //         }
+    //         new_poly.m_member_edges = new_edges;
+    //         polygons.push_back(new_poly);
+    //     }
+        
+    //     // Recréer les facets
+    //     facets.clear();
+    //     for (auto& poly : polygons) {
+    //         for (auto& e : poly.m_member_edges) {
+    //             facets.push_back(e);
+    //         }
+    //     }
+    // }
     
     
 };

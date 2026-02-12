@@ -160,8 +160,8 @@ PolygonDomain.Plot()
 # ---------------------------
 # 6. Générer le maillage
 # ---------------------------
-NumberofElements = 50   # nombre d'éléments désiré
-MaxIterations = 2     # nombre max d'itérations pour l'algorithme
+NumberofElements = 5   # nombre d'éléments désiré
+MaxIterations = 1000     # nombre max d'itérations pour l'algorithme
 Node, Element, Supp, Load, P = PolyMesher(PolygonDomain, NumberofElements, MaxIterations, anim=False)
 
 # ---------------------------
