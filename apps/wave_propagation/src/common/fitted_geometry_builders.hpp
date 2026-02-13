@@ -973,41 +973,42 @@ public:
         }
     }
     
-    // void refine_cell(size_t cell_index, int nelem = 50, int maxiter = 100) {
-    //     if (cell_index >= polygons.size()) {
-    //         std::cerr << "Invalid cell index" << std::endl;
-    //         return;
-    //     }
+    void refine_cell(size_t cell_index, int nelem = 50, int maxiter = 100) {
+
+        if (cell_index >= polygons.size()) {
+            std::cerr << "Invalid cell index" << std::endl;
+            return;
+        }
         
-    //     py::scoped_interpreter guard{};   
+        py::scoped_interpreter guard{};   
         
-    //     py::module bridge = py::module::import("polymesher_bridge");
+        py::module bridge = py::module::import("polymesher_bridge");
         
-    //     const auto& poly = polygons[cell_index];
+        const auto& poly = polygons[cell_index];
         
-    //     std::vector<std::vector<double>> polygon_points;
-    //     for (auto node_id : poly.m_member_nodes) {
-    //         const auto& pt = points[node_id];
-    //         polygon_points.push_back({pt.x(), pt.y()});
-    //     }
+        std::vector<std::vector<double>> polygon_points;
+        for (auto node_id : poly.m_member_nodes) {
+            const auto& pt = points[node_id];
+            polygon_points.push_back({pt.x(), pt.y()});
+        }
         
-    //     if (polygon_points.front() != polygon_points.back()) {
-    //         polygon_points.push_back(polygon_points.front());
-    //     }
+        if (polygon_points.front() != polygon_points.back()) {
+            polygon_points.push_back(polygon_points.front());
+        }
+         
+        auto result = bridge.attr("generate_mesh")(polygon_points, nelem, maxiter);
+        auto result_tuple = result.cast<py::tuple>();  // <-- conversion en tuple
         
-    //     auto result = bridge.attr("generate_mesh")(polygon_points, nelem, maxiter);
-    //     auto result_tuple = result.cast<py::tuple>();  // <-- conversion en tuple
+        py::array_t<double> Node = result_tuple[0].cast<py::array_t<double>>();
+        py::array_t<int> Element = result_tuple[1].cast<py::array_t<int>>();
         
-    //     py::array_t<double> Node = result_tuple[0].cast<py::array_t<double>>();
-    //     py::array_t<int> Element = result_tuple[1].cast<py::array_t<int>>();
+        auto nodes = Node.unchecked<2>();
+        auto elems = Element.unchecked<2>();
         
-    //     auto nodes = Node.unchecked<2>();
-    //     auto elems = Element.unchecked<2>();
-        
-    //     std::cout << "Refined cell " << cell_index << ":\n";
-    //     std::cout << "Nb nodes = " << nodes.shape(0) << "\n";
-    //     std::cout << "Nb elems = " << elems.shape(0) << "\n";
-    // }
+        std::cout << "Refined cell " << cell_index << ":\n";
+        std::cout << "Nb nodes = " << nodes.shape(0) << "\n";
+        std::cout << "Nb elems = " << elems.shape(0) << "\n";
+    }
 
     
     
