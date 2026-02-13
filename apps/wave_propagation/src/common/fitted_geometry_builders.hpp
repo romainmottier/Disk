@@ -973,47 +973,46 @@ public:
         }
     }
     
-    
-    
-    
-    void main() {
-        py::scoped_interpreter guard{};   // démarre python
+    // void refine_cell(size_t cell_index, int nelem = 50, int maxiter = 100) {
+    //     if (cell_index >= polygons.size()) {
+    //         std::cerr << "Invalid cell index" << std::endl;
+    //         return;
+    //     }
         
-        // importer ton module
-        py::module bridge = py::module::import("polymesher_bridge");
+    //     py::scoped_interpreter guard{};   
         
-        // -----------------------------
-        // données venant de ton code C++
-        // -----------------------------
-        std::vector<std::vector<double>> polygon = {
-            {0.0,0.0},
-            {1.0,0.0},
-            {1.2,0.5},
-            {1.0,1.0},
-            {0.0,1.0}
-        };
+    //     py::module bridge = py::module::import("polymesher_bridge");
         
-        int nelem = 50;
-        int maxiter = 100;
+    //     const auto& poly = polygons[cell_index];
         
-        // appel python
-        auto result = bridge.attr("generate_mesh")(polygon, nelem, maxiter);
+    //     std::vector<std::vector<double>> polygon_points;
+    //     for (auto node_id : poly.m_member_nodes) {
+    //         const auto& pt = points[node_id];
+    //         polygon_points.push_back({pt.x(), pt.y()});
+    //     }
         
-        // récupération
-        py::array_t<double> Node = result[0].cast<py::array_t<double>>();
-        py::array_t<int> Element = result[1].cast<py::array_t<int>>();
+    //     if (polygon_points.front() != polygon_points.back()) {
+    //         polygon_points.push_back(polygon_points.front());
+    //     }
         
-        // accès aux données
-        auto nodes = Node.unchecked<2>();
-        auto elems = Element.unchecked<2>();
+    //     auto result = bridge.attr("generate_mesh")(polygon_points, nelem, maxiter);
+    //     auto result_tuple = result.cast<py::tuple>();  // <-- conversion en tuple
         
-        std::cout << "Nb nodes = " << nodes.shape(0) << std::endl;
-        std::cout << "Nb elems = " << elems.shape(0) << std::endl;
-    }
+    //     py::array_t<double> Node = result_tuple[0].cast<py::array_t<double>>();
+    //     py::array_t<int> Element = result_tuple[1].cast<py::array_t<int>>();
+        
+    //     auto nodes = Node.unchecked<2>();
+    //     auto elems = Element.unchecked<2>();
+        
+    //     std::cout << "Refined cell " << cell_index << ":\n";
+    //     std::cout << "Nb nodes = " << nodes.shape(0) << "\n";
+    //     std::cout << "Nb elems = " << elems.shape(0) << "\n";
+    // }
 
     
+    
     // void refine_cells_with_pypolymesher(const std::vector<size_t>& cell_indices) {
-        
+    
     //     // Export des polygones à raffiner
     //     std::ofstream out("cells_to_refine.csv");
     //     for (auto idx : cell_indices) {
