@@ -69,9 +69,6 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         mesh_builder.build_mesh();
         mesh_builder.move_to_mesh_storage(msh);
     }
-    
-    
-
 
     RealType h_max = 1e-5;
     RealType h_min = 10;
@@ -461,7 +458,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         if (it % step_interval == 0 || it == nt) {
             std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
         }
-        //////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////// PRECOMPUTATIONS: ERK ON THE GLOBAL DOFS 
         std::vector<Matrix<RealType, Dynamic, 1>> w(4);
         size_t n_dof = x_dof.rows();
         for (int i = 0; i < 4; ++i) {
@@ -472,7 +469,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         Matrix<RealType, Dynamic, 1> k1(n_dof),  k2(n_dof),  k3(n_dof),  k4(n_dof);
         auto x_dof_n = x_dof;
         erk_an.compute_wi(x_dof_n, assembler.IminusP_cell, assembler.Pfacecoarse, w);
-        //////////////////////////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////// LOOP OVER THE SUBSTEPS: ERK4 ON THE LOCAL DOFS WITH INJECTION OF THE GLOBAL DOFS
         for (int m = 0; m < p; m++) { 
             // k1
             yn1 = assembler.Pfine * x_dof_n;
