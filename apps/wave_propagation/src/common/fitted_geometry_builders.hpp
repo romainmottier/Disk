@@ -754,94 +754,169 @@ void refine_cells(const std::vector<size_t>& cell_indices,
 }
 
 void move_to_mesh_storage(mesh_type& msh){
-                
-                auto storage = msh.backend_storage();
-                storage->points = std::move(points);
-                storage->nodes = std::move(vertices);
-                
-                std::vector<edge_type> edges;
-                edges.reserve(facets.size());
-                for (size_t i = 0; i < facets.size(); i++)
-                {
-                    assert(facets[i][0] < facets[i][1]);
-                    auto node1 = typename node_type::id_type(facets[i][0]);
-                    auto node2 = typename node_type::id_type(facets[i][1]);
-                    auto e = edge_type(node1, node2);
-                    edges.push_back(e);
+    
+    auto storage = msh.backend_storage();
+    storage->points = std::move(points);
+    storage->nodes = std::move(vertices);
+    
+    std::vector<edge_type> edges;
+    edges.reserve(facets.size());
+    for (size_t i = 0; i < facets.size(); i++)
+    {
+        assert(facets[i][0] < facets[i][1]);
+        auto node1 = typename node_type::id_type(facets[i][0]);
+        auto node2 = typename node_type::id_type(facets[i][1]);
+        auto e = edge_type(node1, node2);
+        edges.push_back(e);
+    }
+    std::sort(edges.begin(), edges.end());
+    
+    storage->boundary_info.resize(edges.size());
+    for (size_t i = 0; i < boundary_edges.size(); i++)
+    {
+        assert(boundary_edges[i][0] < boundary_edges[i][1]);
+        auto node1 = typename node_type::id_type(boundary_edges[i][0]);
+        auto node2 = typename node_type::id_type(boundary_edges[i][1]);
+        auto e = edge_type(node1, node2);
+        auto position = find_element_id(edges.begin(), edges.end(), e);
+        if (position.first == false)
+        {
+            std::cout << "Bad bug at " << __FILE__ << "("
+                      << __LINE__ << ")" << std::endl;
+            std::cout << "  [diag] missing boundary edge ["
+                      << boundary_edges[i][0] << ", "
+                      << boundary_edges[i][1] << "]" << std::endl;
+            return;
+        }
+        disk::boundary_descriptor bi{0, true};
+        storage->boundary_info.at(position.second) = bi;
+    }
+    
+    storage->edges = std::move(edges);
+    
+    std::vector<surface_type> surfaces;
+    surfaces.reserve(polygons.size());
+    
+    size_t pi = 0;
+    for (auto& p : polygons)
+    {
+        // ----------------------------------------------------------------
+        // Rebuild ordered node list by chaining m_member_edges,
+        // starting from the smallest node index for determinism.
+        // ----------------------------------------------------------------
+        std::vector<size_t> ordered_nodes;
+        {
+            const auto& medges = p.m_member_edges;
+            if (!medges.empty()) {
+                std::unordered_map<size_t, std::vector<size_t>> adj;
+                for (const auto& e : medges) {
+                    adj[e[0]].push_back(e[1]);
+                    adj[e[1]].push_back(e[0]);
                 }
-                std::sort(edges.begin(), edges.end());
-                
-                storage->boundary_info.resize(edges.size());
-                for (size_t i = 0; i < boundary_edges.size(); i++)
-                {
-                    assert(boundary_edges[i][0] < boundary_edges[i][1]);
-                    auto node1 = typename node_type::id_type(boundary_edges[i][0]);
-                    auto node2 = typename node_type::id_type(boundary_edges[i][1]);
-                    auto e = edge_type(node1, node2);
-                    auto position = find_element_id(edges.begin(), edges.end(), e);
-                    if (position.first == false)
-                    {
-                        std::cout << "Bad bug at " << __FILE__ << "("
-                        << __LINE__ << ")" << std::endl;
-                        // -- DIAGNOSTIC --
-                        std::cout << "  [diag] missing boundary edge ["
-                        << boundary_edges[i][0] << ", "
-                        << boundary_edges[i][1] << "]" << std::endl;
-                        // -- END DIAGNOSTIC --
-                        return;
-                    }
-                    disk::boundary_descriptor bi{0, true};
-                    storage->boundary_info.at(position.second) = bi;
+                size_t start = std::numeric_limits<size_t>::max();
+                for (const auto& e : medges) {
+                    if (e[0] < start) start = e[0];
+                    if (e[1] < start) start = e[1];
                 }
-                
-                storage->edges = std::move(edges);
-                
-                std::vector<surface_type> surfaces;
-                surfaces.reserve( polygons.size() );
-                
-                size_t pi = 0; // -- DIAGNOSTIC: polygon index --
-                for (auto& p : polygons)
-                {
-                    std::vector<typename edge_type::id_type> surface_edges;
-                    for (auto& e : p.m_member_edges)
-                    {
-                        assert(e[0] < e[1]);
-                        auto n1 = typename node_type::id_type(e[0]);
-                        auto n2 = typename node_type::id_type(e[1]);
-                        edge_type edge(n1, n2);
-                        auto edge_id = find_element_id(storage->edges.begin(),
-                        storage->edges.end(), edge);
-                        if (!edge_id.first)
-                        {
-                            std::cout << "Bad bug at " << __FILE__ << "("
-                            << __LINE__ << ")" << std::endl;
-                            // -- DIAGNOSTIC --
-                            std::cout << "  [diag] polygon " << pi
-                            << " | missing edge ["
-                            << e[0] << ", " << e[1] << "]" << std::endl;
-                            std::cout << "  [diag] polygon nodes: ";
-                            for (auto n : p.m_member_nodes)
-                            std::cout << n << " ";
-                            std::cout << std::endl;
-                            std::cout << "  [diag] polygon edges: ";
-                            for (auto& pe : p.m_member_edges)
-                            std::cout << "[" << pe[0] << "," << pe[1] << "] ";
-                            std::cout << std::endl;
-                            // -- END DIAGNOSTIC --
-                            return;
-                        }
-                        surface_edges.push_back(edge_id.second);
-                    }
-                    auto surface = surface_type(surface_edges);
-                    surface.set_point_ids(p.m_member_nodes.begin(), p.m_member_nodes.end());
-                    surfaces.push_back( surface );
-                    pi++; // -- DIAGNOSTIC --
+                ordered_nodes.reserve(medges.size());
+                size_t prev = std::numeric_limits<size_t>::max();
+                size_t cur  = start;
+                for (size_t step = 0; step < medges.size(); ++step) {
+                    ordered_nodes.push_back(cur);
+                    const auto& nbrs = adj[cur];
+                    size_t next = std::numeric_limits<size_t>::max();
+                    for (size_t nb : nbrs)
+                        if (nb != prev) { next = nb; break; }
+                    if (next == std::numeric_limits<size_t>::max()) break;
+                    prev = cur;
+                    cur  = next;
                 }
-                
-                std::sort(surfaces.begin(), surfaces.end());
-                storage->surfaces = std::move(surfaces);
             }
-            
+        }
+
+        // ----------------------------------------------------------------
+        // Filter hanging nodes from point_ids.
+        // A hanging node is collinear with its two neighbors — it lies
+        // strictly on the edge between them.
+        // Hanging nodes must stay in m_member_edges (HHO faces) but must
+        // NOT appear in point_ids which drives quadrature and barycenter.
+        // Without this filter:
+        //   - barycenter() is biased toward hanging node positions
+        //   - integrate_convex() uses a wrong center for triangle fan
+        //   - a 4+1 pentagon takes the wrong quadrature path
+        // ----------------------------------------------------------------
+        std::vector<size_t> corner_nodes;
+        {
+            const size_t nn = ordered_nodes.size();
+            for (size_t k = 0; k < nn; ++k) {
+                size_t prev_n = ordered_nodes[(k + nn - 1) % nn];
+                size_t cur_n  = ordered_nodes[k];
+                size_t next_n = ordered_nodes[(k + 1) % nn];
+
+                const auto& pp = storage->points[prev_n];
+                const auto& pc = storage->points[cur_n];
+                const auto& pn = storage->points[next_n];
+
+                T ex = pn.x() - pp.x(), ey = pn.y() - pp.y();
+                T fx = pc.x() - pp.x(), fy = pc.y() - pp.y();
+                T cross = ex * fy - ey * fx;
+                T len2  = ex*ex + ey*ey;
+                constexpr T tol = T(1e-10);
+
+                bool is_hanging = (len2 > tol*tol) &&
+                                  (std::abs(cross) < tol * std::sqrt(len2));
+                if (!is_hanging)
+                    corner_nodes.push_back(cur_n);
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Build surface edges
+        // ----------------------------------------------------------------
+        std::vector<typename edge_type::id_type> surface_edges;
+        for (auto& e : p.m_member_edges)
+        {
+            assert(e[0] < e[1]);
+            auto n1 = typename node_type::id_type(e[0]);
+            auto n2 = typename node_type::id_type(e[1]);
+            edge_type edge(n1, n2);
+            auto edge_id = find_element_id(storage->edges.begin(),
+                                           storage->edges.end(), edge);
+            if (!edge_id.first)
+            {
+                std::cout << "Bad bug at " << __FILE__ << "("
+                          << __LINE__ << ")" << std::endl;
+                std::cout << "  [diag] polygon " << pi
+                          << " | missing edge ["
+                          << e[0] << ", " << e[1] << "]" << std::endl;
+                std::cout << "  [diag] polygon nodes: ";
+                for (auto n : p.m_member_nodes) std::cout << n << " ";
+                std::cout << std::endl;
+                std::cout << "  [diag] polygon edges: ";
+                for (auto& pe : p.m_member_edges)
+                    std::cout << "[" << pe[0] << "," << pe[1] << "] ";
+                std::cout << std::endl;
+                return;
+            }
+            surface_edges.push_back(edge_id.second);
+        }
+
+        auto surface = surface_type(surface_edges);
+        // corner_nodes excludes hanging nodes -> correct quadrature/barycenter
+        // ordered_nodes fallback if corner filtering produced nothing
+        if (!corner_nodes.empty())
+            surface.set_point_ids(corner_nodes.begin(), corner_nodes.end());
+        else if (!ordered_nodes.empty())
+            surface.set_point_ids(ordered_nodes.begin(), ordered_nodes.end());
+        else
+            surface.set_point_ids(p.m_member_nodes.begin(), p.m_member_nodes.end());
+        surfaces.push_back(surface);
+        pi++;
+    }
+    
+    std::sort(surfaces.begin(), surfaces.end());
+    storage->surfaces = std::move(surfaces);
+}
 void set_translation_data(T x_t, T y_t){
                 m_x_t = x_t;
                 m_y_t = y_t;

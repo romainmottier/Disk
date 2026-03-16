@@ -67,14 +67,21 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         mesh_builder.refine_mesh(sim_data.m_n_divs);
         mesh_builder.set_translation_data(-0.5, -0.5);
         mesh_builder.build_mesh();
-        std::vector<size_t> cells_to_refine = {2526, 2527, 2528, 2462, 2463, 2464, 2398, 2399, 2400};
+        std::vector<size_t> cells_to_refine = {2651, 2652, 2653, 2654, 2655, 2656, 2657, 2658, 2659, 2660,
+                                               2587, 2588, 2589, 2590, 2591, 2592, 2593, 2594, 2595, 2596,
+                                               2523, 2524, 2525, 2526, 2527, 2528, 2529, 2530, 2531, 2532,
+                                               2459, 2460, 2461, 2462, 2463, 2464, 2465, 2466, 2467, 2468,
+                                               2395, 2396, 2397, 2398, 2399, 2400, 2401, 2402, 2403, 2404,
+                                               2331, 2332, 2333, 2334, 2335, 2336, 2337, 2338, 2339, 2340,
+                                               2267, 2268, 2269, 2270, 2271, 2272, 2273, 2274, 2275, 2276, 
+                                               2203, 2204, 2205, 2206, 2207, 2208, 2209, 2210, 2211, 2212};
         mesh_builder.refine_cells(cells_to_refine, 3);
         mesh_builder.move_to_mesh_storage(msh);
     }
     
     tc.toc();
     std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
-    std::cout << tc << " seconds" << reset << std::endl << std::endl;
+    std::cout << tc << " seconds" << reset << std::endl;
     RealType h_max = 1e-5;
     RealType h_min = 10;
     for (auto & cell : msh ) {
@@ -89,8 +96,9 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         }
     }
     auto h_c = 0.75*h_max;
+    std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
     std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
-    std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl << std::endl;
+    std::cout << bold << cyan << "      h_max/h_min = " << h_max/h_min << reset << std::endl << std::endl;
 
     // ######################################################################
     // ###################################################################### Time controls 
