@@ -67,8 +67,11 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         mesh_builder.refine_mesh(sim_data.m_n_divs);
         mesh_builder.set_translation_data(-0.5, -0.5);
         mesh_builder.build_mesh();
+        std::vector<size_t> cells_to_refine = {9, 10, 5, 6};
+        mesh_builder.refine_cells(cells_to_refine, 3);
         mesh_builder.move_to_mesh_storage(msh);
     }
+
 
     RealType h_max = 1e-5;
     RealType h_min = 10;
