@@ -1,6 +1,6 @@
-  //
+//
 //  postprocessor.hpp
-//  acoustics
+//  
 //
 //  Created by Omar Durán on 4/10/20.
 //  Contributor: Romain Mottier
@@ -3173,6 +3173,204 @@ public:
             silo.add_variable("mesh", vhy_silo);
             silo.add_variable("mesh", vhy_bis_silo);
             silo.add_variable("mesh", vh_silo);
+        }
+        
+        silo.close();
+        tc.toc();
+        // std::cout << "      ";
+        // std::cout << bold << cyan << "Silo file rendered in : " << tc << " seconds" << reset
+        //           << std::endl;
+    
+    }
+
+
+    static void write_silo_four_fields_elastoacoustic_LTS(std::string silo_file_name, size_t it, Mesh & msh, disk::hho_degree_info & hho_di, Matrix<double, Dynamic, 1> & x_dof, std::map<size_t,elastic_material_data<double>> & e_material, std::map<size_t,acoustic_material_data<double>> & a_material, bool cell_centered_Q, double h_c) {
+
+        timecounter tc;
+        tc.tic();
+    
+        auto dim = Mesh::dimension;
+        auto num_cells  = msh.cells_size(); 
+        auto num_points = msh.points_size();
+        
+        using RealType  = double;
+        std::vector<RealType> approx_ux, approx_uy, approx_uy_bis;
+        std::vector<RealType> approx_u;
+        
+        size_t n_ten_cbs = disk::sym_matrix_basis_size(hho_di.grad_degree(), Mesh::dimension, Mesh::dimension);
+        size_t n_vec_cbs = disk::vector_basis_size(hho_di.cell_degree(), Mesh::dimension, Mesh::dimension);
+        size_t e_cell_dof = n_ten_cbs + n_vec_cbs;
+        size_t n_vel_scal_cbs = disk::scalar_basis_size(hho_di.reconstruction_degree(), Mesh::dimension) -1;
+        size_t n_scal_cbs = disk::scalar_basis_size(hho_di.cell_degree(), Mesh::dimension);
+        size_t a_cell_dof = n_vel_scal_cbs + n_scal_cbs;
+        
+        auto storage = msh.backend_storage();
+        
+        if (cell_centered_Q) {
+            approx_ux.resize(num_cells);
+            approx_uy.resize(num_cells);
+            approx_uy_bis.resize(num_cells);
+            approx_u.resize (num_cells);
+            
+            size_t e_cell_ind = 0;
+            for (auto& e_chunk : e_material) {
+	
+                auto& cell = storage->surfaces[e_chunk.first];
+                auto bar = barycenter(msh, cell);
+                approx_u.at(e_chunk.first) = (0.0/0.0);
+                
+                // vector evaluation
+                {
+                    auto cell_basis = make_vector_monomial_basis(msh, cell, hho_di.cell_degree());
+                    Matrix<RealType, Dynamic, 1> vec_x_cell_dof = x_dof.block(e_cell_ind*e_cell_dof 
+                    + n_ten_cbs, 0, n_vec_cbs, 1);
+                    auto t_phi = cell_basis.eval_functions( bar );
+                    assert(t_phi.rows() == cell_basis.size());
+                    auto uh = disk::eval(vec_x_cell_dof, t_phi);
+                    approx_ux.at(e_chunk.first) = (uh(0,0));
+                    approx_uy.at(e_chunk.first) = (uh(1,0));
+                    approx_uy_bis.at(e_chunk.first) = (uh(1,0));
+                }
+                e_cell_ind++;
+            }
+            
+            size_t n_elastic_cell_dof = e_material.size() * e_cell_dof;
+            size_t a_cell_ind = 0;
+            for (auto& a_chunk : a_material) {
+	
+                auto& cell = storage->surfaces[a_chunk.first];
+                auto bar = barycenter(msh, cell);
+                approx_ux.at(a_chunk.first) = (0.0/0.0);
+                approx_uy.at(a_chunk.first) = (0.0/0.0);
+                approx_uy_bis.at(a_chunk.first) = (0.0/0.0);
+                
+                // scalar evaluation
+                {
+                    auto cell_basis = make_scalar_monomial_basis(msh, cell, hho_di.cell_degree());
+                    Matrix<RealType, Dynamic, 1> scalar_cell_dof = x_dof.block(a_cell_ind*a_cell_dof +
+                    n_vel_scal_cbs +
+                    n_elastic_cell_dof, 0,
+                    n_scal_cbs, 1);
+                    auto t_phi = cell_basis.eval_functions( bar );
+                    RealType uh = scalar_cell_dof.dot( t_phi );
+                    approx_u.at(a_chunk.first) = (uh);
+                }
+                a_cell_ind++;
+            }
+        }
+        
+        else {
+      
+            // Filling with nan (It is weird but useful in Paraview)
+            approx_ux.resize(num_points,0.0/0.0);
+            approx_uy.resize(num_points,0.0/0.0);
+            approx_uy_bis.resize(num_points,0.0/0.0);
+            approx_u.resize(num_points,0.0/0.0);
+            
+            std::map<size_t,size_t> e_cell_index;
+            std::map<size_t,size_t> a_cell_index;
+            size_t e_cell_ind = 0;
+            for (auto chunk : e_material) {
+                e_cell_index.insert(std::make_pair(chunk.first,e_cell_ind));
+                e_cell_ind++;
+            }
+            
+            // acoustic data
+            size_t a_cell_ind = 0;
+            for (auto chunk : a_material) {
+                a_cell_index.insert(std::make_pair(chunk.first,a_cell_ind));
+                a_cell_ind++;
+            }
+            
+            for (auto& e_chunk : e_material) {
+                
+                auto& cell = storage->surfaces[e_chunk.first];
+                size_t e_cell_ind = e_cell_index[e_chunk.first];
+                auto cell_basis = make_vector_monomial_basis(msh, cell, hho_di.cell_degree());
+                Matrix<RealType, Dynamic, 1> vec_x_cell_dof = x_dof.block(e_cell_ind*e_cell_dof
+                + n_ten_cbs, 0, n_vec_cbs, 1);
+                
+                auto points = cell.point_ids();
+                size_t n_p  = points.size();
+                // problème sur cette boucle 
+                for (size_t l = 0; l < n_p; l++) {
+                    auto pt_id = points[l];
+                    auto pt_coord = *std::next(msh.points_begin(), pt_id);
+                    
+                    // vector evaluation
+                    {
+                        auto t_phi = cell_basis.eval_functions(pt_coord);
+                        assert(t_phi.rows() == cell_basis.size());
+                        auto uh = disk::eval(vec_x_cell_dof, t_phi);
+                        
+                        approx_ux.at(pt_id) = uh(0,0);
+                        approx_uy.at(pt_id) = uh(1,0);
+                        approx_uy_bis.at(pt_id) = std::sqrt( std::abs(uh(0,0))*std::abs(uh(0,0))
+                        + std::abs(uh(1,0))*std::abs(uh(1,0)) );
+                    }
+                }
+            }
+            
+            size_t n_elastic_cell_dof = e_material.size() * e_cell_dof;
+            for (auto& a_chunk : a_material) {	
+                auto& cell = storage->surfaces[a_chunk.first];
+                size_t a_cell_ind = a_cell_index[a_chunk.first];
+                auto cell_basis = make_scalar_monomial_basis(msh, cell, hho_di.cell_degree());
+                Matrix<RealType, Dynamic, 1> scalar_cell_dof = x_dof.block(a_cell_ind*a_cell_dof +
+                n_vel_scal_cbs + n_elastic_cell_dof,
+                0, n_scal_cbs, 1);
+                
+                auto points = cell.point_ids();
+                size_t n_p = points.size();
+                // std::cout << n_p <<std::cout;
+                for (size_t l = 0; l < n_p; l++) {
+                    auto pt_id = points[l];
+                    auto pt_coord = *std::next(msh.points_begin(), pt_id);
+                    // scalar evaluation
+                    {
+                        auto t_phi = cell_basis.eval_functions( pt_coord );
+                        RealType uh = scalar_cell_dof.dot( t_phi );
+                        approx_u.at(pt_id) = uh;
+                    }
+                }
+            }
+            
+        }
+        
+        std::vector<double> fine_coarse(num_cells, 0.0);
+        size_t cell_id = 0;
+        for (auto& cell : msh) {
+            fine_coarse[cell_id] = (diameter(msh, cell) < h_c) ? 1.0 : 0.0;
+            cell_id++;
+        }
+        
+        disk::silo_database silo;
+        silo_file_name += std::to_string(it) + ".silo";
+        silo.create(silo_file_name.c_str());
+        silo.add_mesh(msh, "mesh");
+        if (cell_centered_Q) {
+            disk::silo_zonal_variable<double> vhx_silo("vhx", approx_ux);
+            disk::silo_zonal_variable<double> vhy_silo("vhy", approx_uy);
+            disk::silo_zonal_variable<double> vhy_bis_silo("norm_v", approx_uy_bis);
+            disk::silo_zonal_variable<double> vh_silo("vh", approx_u);
+            disk::silo_zonal_variable<double> fc_silo("fine_cells", fine_coarse);
+            silo.add_variable("mesh", vhx_silo);
+            silo.add_variable("mesh", vhy_silo);
+            silo.add_variable("mesh", vhy_bis_silo);
+            silo.add_variable("mesh", vh_silo);
+            silo.add_variable("mesh", fc_silo);
+        }
+        else {
+            disk::silo_nodal_variable<double> vhx_silo("vhx", approx_ux);
+            disk::silo_nodal_variable<double> vhy_silo("vhy", approx_uy);
+            disk::silo_nodal_variable<double> vhy_bis_silo("norm_v", approx_uy_bis);
+            disk::silo_nodal_variable<double> vh_silo("vh", approx_u);
+            disk::silo_zonal_variable<double> fc_silo("fine_cells", fine_coarse);
+            silo.add_variable("mesh", vhx_silo);
+            silo.add_variable("mesh", vhy_silo);
+            silo.add_variable("mesh", vhy_bis_silo);
+            silo.add_variable("mesh", vh_silo);
+            silo.add_variable("mesh", fc_silo);
         }
         
         silo.close();

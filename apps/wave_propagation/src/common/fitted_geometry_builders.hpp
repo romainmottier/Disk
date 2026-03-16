@@ -86,7 +86,8 @@ class cartesian_2d_mesh_builder : public fitted_geometry_builder<disk::generic_m
         int                                 m_material          = 0;
         bool                                m_elastic_material  = false;
         int                                 m_refinement_level  = 0;
-        
+        bool                                m_to_refine        = false;
+
         bool operator<(const polygon_2d & other) {
             return m_member_nodes < other.m_member_nodes;
         }
@@ -597,172 +598,59 @@ void refine_quad_cell(size_t cell_index,
     polygons.push_back(q3);
 }
 
+// In struct polygon_2d, add:
+//   bool m_to_refine = false;
 
-    assert(cell_index < polygons.size());
-
-    const int  parent_level = polygons[cell_index].m_refinement_level;
-    const int  parent_mat   = polygons[cell_index].m_material;
-    const bool parent_elas  = polygons[cell_index].m_elastic_material;
-
-    // ----------------------------------------------------------------
-    // 1. The 4 corners in CCW order (precomputed before any refinement):
-    //
-    //   n3 (top-left) ---- n2 (top-right)
-    //        |                    |
-    //   n0 (bot-left) ---- n1 (bot-right)
-    // ----------------------------------------------------------------
-
-    const size_t n0 = corners[0]; // bottom-left
-    const size_t n1 = corners[1]; // bottom-right
-    const size_t n2 = corners[2]; // top-right
-    const size_t n3 = corners[3]; // top-left
-
-    // ----------------------------------------------------------------
-    // 2. Create the 4 edge midpoints and the barycenter
-    //
-    //   n3 ---m23--- n2
-    //   |      |      |
-    //  m03----c-----m12
-    //   |      |      |
-    //   n0 ---m01--- n1
-    // ----------------------------------------------------------------
-
-    auto get_or_create_midpoint = [&](size_t na, size_t nb) -> size_t {
-        point_type mid(
-            (points[na].x() + points[nb].x()) * T(0.5),
-            (points[na].y() + points[nb].y()) * T(0.5)
-        );
-        constexpr T tol = T(1e-14);
-        for (size_t k = 0; k < points.size(); ++k) {
-            T dx = points[k].x() - mid.x();
-            T dy = points[k].y() - mid.y();
-            if (dx*dx + dy*dy < tol*tol)
-                return k;
-        }
-        size_t new_id = points.size();
-        points.push_back(mid);
-        vertices.push_back(node_type(disk::point_identifier<2>(new_id)));
-        return new_id;
-    };
-
-    const size_t m01 = get_or_create_midpoint(n0, n1);
-    const size_t m12 = get_or_create_midpoint(n1, n2);
-    const size_t m23 = get_or_create_midpoint(n2, n3);
-    const size_t m03 = get_or_create_midpoint(n0, n3);
-
-    const size_t c = [&]() -> size_t {
-        point_type center(
-            (points[n0].x() + points[n1].x() + points[n2].x() + points[n3].x()) * T(0.25),
-            (points[n0].y() + points[n1].y() + points[n2].y() + points[n3].y()) * T(0.25)
-        );
-        size_t new_id = points.size();
-        points.push_back(center);
-        vertices.push_back(node_type(disk::point_identifier<2>(new_id)));
-        return new_id;
-    }();
-
-    // ----------------------------------------------------------------
-    // 3. Update boundary edges
-    // ----------------------------------------------------------------
-
-    auto split_boundary_edge = [&](size_t a, size_t mid, size_t b) {
-        std::array<size_t,2> full_edge = {a, b};
-        validate_edge(full_edge);
-        auto it = std::find(boundary_edges.begin(), boundary_edges.end(), full_edge);
-        if (it != boundary_edges.end()) {
-            boundary_edges.erase(it);
-            std::array<size_t,2> e1 = {a, mid}; validate_edge(e1);
-            std::array<size_t,2> e2 = {mid, b}; validate_edge(e2);
-            boundary_edges.push_back(e1);
-            boundary_edges.push_back(e2);
-        }
-    };
-
-    split_boundary_edge(n0, m01, n1);
-    split_boundary_edge(n1, m12, n2);
-    split_boundary_edge(n2, m23, n3);
-    split_boundary_edge(n3, m03, n0);
-
-    // ----------------------------------------------------------------
-    // 4. Build the 4 child cells
-    //
-    //   Q0 : n0,  m01, c,   m03
-    //   Q1 : m01, n1,  m12, c
-    //   Q2 : c,   m12, n2,  m23
-    //   Q3 : m03, c,   m23, n3
-    // ----------------------------------------------------------------
-
-    auto make_quad = [&](size_t a, size_t b, size_t d_, size_t e_) -> polygon_2d {
-        polygon_2d q;
-        q.m_member_nodes     = {a, b, d_, e_};
-        q.m_material         = parent_mat;
-        q.m_elastic_material = parent_elas;
-        q.m_refinement_level = parent_level + 1;
-
-        auto add_edge = [&](size_t x, size_t y) {
-            std::array<size_t,2> edge = {x, y};
-            validate_edge(edge);
-            q.m_member_edges.insert(edge);
-            facets.push_back(edge);
-        };
-        add_edge(a, b);
-        add_edge(b, d_);
-        add_edge(d_, e_);
-        add_edge(e_, a);
-        return q;
-    };
-
-    polygon_2d q0 = make_quad(n0,  m01, c,   m03);
-    polygon_2d q1 = make_quad(m01, n1,  m12, c  );
-    polygon_2d q2 = make_quad(c,   m12, n2,  m23);
-    polygon_2d q3 = make_quad(m03, c,   m23, n3 );
-
-    // ----------------------------------------------------------------
-    // 5. Erase parent cell and append the 4 children
-    // ----------------------------------------------------------------
-
-    polygons.erase(polygons.begin() + cell_index);
-    polygons.push_back(q0);
-    polygons.push_back(q1);
-    polygons.push_back(q2);
-    polygons.push_back(q3);
-}
 void refine_cells(const std::vector<size_t>& cell_indices,
                   int refinement_level) {
 
     if (refinement_level <= 0) return;
 
-    std::vector<size_t> targets(cell_indices.begin(), cell_indices.end());
-    std::sort(targets.begin(), targets.end(), std::greater<size_t>());
+    // Mark the initial targets
+    for (size_t idx : cell_indices) {
+        assert(idx < polygons.size());
+        polygons[idx].m_to_refine = true;
+    }
 
     for (int pass = 0; pass < refinement_level; ++pass) {
 
-        std::cout << "[refine_cells] pass " << pass
-                  << " | polygons=" << polygons.size()
-                  << " | targets=" << targets.size() << std::endl;
+        // Collect current indices of all marked cells
+        std::vector<size_t> targets;
+        for (size_t i = 0; i < polygons.size(); ++i)
+            if (polygons[i].m_to_refine)
+                targets.push_back(i);
 
-        // Extract all corners BEFORE any refinement in this pass.
-        // This guarantees that each cell's corners are read from the
-        // intact mesh, before neighboring cells are erased or modified.
-        std::map<size_t, std::array<size_t,4>> corners_map;
+        // std::cout << "[refine_cells] pass " << pass
+        //           << " | polygons=" << polygons.size()
+        //           << " | targets=" << targets.size() << std::endl;
+
+        // Sort descending so that erasing cell at index i does not
+        // shift the indices of cells not yet processed in this pass.
+        std::sort(targets.begin(), targets.end(), std::greater<size_t>());
+
+        // Extract all corners BEFORE any refinement
+        std::vector<std::array<size_t,4>> all_corners(targets.size());
+        for (size_t i = 0; i < targets.size(); ++i)
+            all_corners[i] = extract_quad_corners(targets[i]);
+
+        // Clear flags — children will be re-marked below
         for (size_t idx : targets)
-            corners_map[idx] = extract_quad_corners(idx);
+            polygons[idx].m_to_refine = false;
 
-        std::set<size_t> targets_set(targets.begin(), targets.end());
-        std::vector<size_t> next_targets;
-        next_targets.reserve(targets.size() * 4);
+        for (size_t i = 0; i < targets.size(); ++i) {
 
-        for (size_t idx : targets) {
-            refine_quad_cell(idx, corners_map.at(idx));
+            // Since targets is sorted descending and we erase from high
+            // to low, erasing targets[i] does not shift any targets[j]
+            // with j > i (they all have lower indices). No adjustment needed.
+            size_t idx = targets[i];
+
+            refine_quad_cell(idx, all_corners[i]);
+
+            // Mark the 4 children for the next pass
             size_t new_end = polygons.size();
             for (size_t ci = new_end - 4; ci < new_end; ++ci)
-                next_targets.push_back(ci);
+                polygons[ci].m_to_refine = true;
         }
-
-        // ----------------------------------------------------------------
-        // Rebuild m_member_edges and m_member_nodes for ALL polygons
-        // after all refinements of this pass.
-        // ----------------------------------------------------------------
 
         // Step 1: initial facet set from all polygon edges
         {
@@ -789,25 +677,23 @@ void refine_cells(const std::vector<size_t>& cell_indices,
                             if      (f[0] == e[0]) shared = f[1];
                             else if (f[1] == e[0]) shared = f[0];
                             else continue;
-
                             if (shared == e[1]) continue;
 
                             const auto& pa = points[e[0]];
                             const auto& pb = points[e[1]];
                             const auto& pm = points[shared];
-                            T ex = pb.x() - pa.x(), ey = pb.y() - pa.y();
-                            T fx = pm.x() - pa.x(), fy = pm.y() - pa.y();
+                            T ex = pb.x()-pa.x(), ey = pb.y()-pa.y();
+                            T fx = pm.x()-pa.x(), fy = pm.y()-pa.y();
                             T cross = ex*fy - ey*fx;
                             T len2  = ex*ex + ey*ey;
                             constexpr T tol = T(1e-10);
-                            if (std::abs(cross) > tol * std::sqrt(len2)) continue;
+                            if (std::abs(cross) > tol*std::sqrt(len2)) continue;
                             T t = (fx*ex + fy*ey) / len2;
                             if (t <= T(0) || t >= T(1)) continue;
 
                             std::array<size_t,2> h1 = {e[0], shared};
                             std::array<size_t,2> h2 = {shared, e[1]};
-                            validate_edge(h1);
-                            validate_edge(h2);
+                            validate_edge(h1); validate_edge(h2);
                             if (facet_set.count(h1) && facet_set.count(h2)) {
                                 updated_edges.insert(h1);
                                 updated_edges.insert(h2);
@@ -836,7 +722,6 @@ void refine_cells(const std::vector<size_t>& cell_indices,
             size_t start = edges.begin()->operator[](0);
             std::vector<size_t> ordered;
             ordered.reserve(edges.size());
-
             size_t prev = std::numeric_limits<size_t>::max();
             size_t cur  = start;
 
@@ -844,14 +729,12 @@ void refine_cells(const std::vector<size_t>& cell_indices,
                 ordered.push_back(cur);
                 const auto& nbrs = adj[cur];
                 size_t next = std::numeric_limits<size_t>::max();
-                for (size_t nb : nbrs) {
+                for (size_t nb : nbrs)
                     if (nb != prev) { next = nb; break; }
-                }
                 if (next == std::numeric_limits<size_t>::max()) break;
                 prev = cur;
                 cur  = next;
             }
-
             poly.m_member_nodes = ordered;
         }
 
@@ -863,11 +746,11 @@ void refine_cells(const std::vector<size_t>& cell_indices,
                     facet_set.insert(e);
             facets.assign(facet_set.begin(), facet_set.end());
         }
-
-        std::sort(next_targets.begin(), next_targets.end(),
-                  std::greater<size_t>());
-        targets = next_targets;
     }
+
+    // Clear all flags
+    for (auto& poly : polygons)
+        poly.m_to_refine = false;
 }
 
 void move_to_mesh_storage(mesh_type& msh){

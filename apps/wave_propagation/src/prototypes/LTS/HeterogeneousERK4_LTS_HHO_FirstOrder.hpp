@@ -67,12 +67,14 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         mesh_builder.refine_mesh(sim_data.m_n_divs);
         mesh_builder.set_translation_data(-0.5, -0.5);
         mesh_builder.build_mesh();
-        std::vector<size_t> cells_to_refine = {9, 10, 5, 6};
+        std::vector<size_t> cells_to_refine = {2526, 2527, 2528, 2462, 2463, 2464, 2398, 2399, 2400};
         mesh_builder.refine_cells(cells_to_refine, 3);
         mesh_builder.move_to_mesh_storage(msh);
     }
-
-
+    
+    tc.toc();
+    std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
+    std::cout << tc << " seconds" << reset << std::endl << std::endl;
     RealType h_max = 1e-5;
     RealType h_min = 10;
     for (auto & cell : msh ) {
@@ -86,10 +88,9 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
             h_max = h_l;
         }
     }
-    
-    tc.toc();
-    std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
-    std::cout << tc << " seconds" << reset << std::endl << std::endl;
+    auto h_c = 0.75*h_max;
+    std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
+    std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl << std::endl;
 
     // ######################################################################
     // ###################################################################### Time controls 
@@ -349,14 +350,6 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     Matrix<RealType, Dynamic, 1> b;
     Matrix<RealType, Dynamic, 1> c;
     
-    if (sim_data.m_render_silo_files_Q) {
-        size_t it = 0;
-        std::ostringstream filename;
-        filename << "mesh";
-        std::string silo_file_name = filename.str();
-        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
-    }
-
     // ERK(s) schemes
     std::cout << bold << red << "   ASSEMBLY 2 : " << std::endl;
     std::cout << bold << cyan << "      First stiffness assembly completed: ";
@@ -402,7 +395,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         std::ostringstream filename;
         filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
         std::string silo_file_name = filename.str();
-        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
+        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
     }
 
     // ##################################################
@@ -446,7 +439,6 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     // ################################################## Time marching
     // ##################################################
     
-    auto h_c = 0.75*h_max;
     assembler.assemble_P(msh, h_c);
     assembler.assemble_P_bis(msh, h_c);
     size_t nb_silo_files = 25;
@@ -499,7 +491,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
             std::ostringstream filename;
             filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
             std::string silo_file_name = filename.str();
-            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
+            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
         }
         tcit.toc();
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
