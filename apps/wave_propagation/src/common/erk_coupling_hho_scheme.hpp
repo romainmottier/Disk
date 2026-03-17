@@ -448,7 +448,7 @@ class erk_coupling_hho_scheme
             
             F0.block(0, 0, m_n_c_dof, 1) = Fc_n;
             F1.block(0, 0, m_n_c_dof, 1) = (-3.0*Fc_n + 4.0*Fc_n12 - Fc_n1) / dt;
-            F2.block(0, 0, m_n_c_dof, 1) = ( 2.0*Fc_n - 4.0*Fc_n12 + 2.0*Fc_n1) / (dt*dt);
+            F2.block(0, 0, m_n_c_dof, 1) = ( 4.0*Fc_n - 8.0*Fc_n12 + 4.0*Fc_n1) / dt;
             
             // Contribution du terme source : w_F[i] = Mc_inv * B^i F_coeff
             // w[0] += Mc_inv * F0  (ordre 0)
