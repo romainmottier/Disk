@@ -370,44 +370,14 @@ class erk_coupling_hho_scheme
 
     }
 
-    void 
-    compute_wi(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
-    
-        Matrix<T, Dynamic, 1> k = y;                 
-        Matrix<T, Dynamic, 1> Biy = y; // i= 0   
-        for(int i=0; i<4; i++) {
-            // COMPUTATION OF B^iy
-            if (i != 0) {
-                erk_weight(Biy, k);
-                Biy = k;
-            }
-            // COMPUTATION OF w_i
-            k.block(0, 0, m_n_c_dof, 1) = IminusP * Biy.block(0, 0, m_n_c_dof, 1);
-            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = Pfacecoarse * Biy.block(m_n_c_dof, 0, m_n_f_dof, 1);
-            erk_weight(k, w[i]);
-        }
-    }
-
-    Matrix<T, Dynamic, 1> 
-    apply_B(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> & Proj) {
-        
-        Matrix<T, Dynamic, 1> y_c = y.block(0, 0, m_n_c_dof, 1);
-        Matrix<T, Dynamic, 1> y_f = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
-        
-        Matrix<T, Dynamic, 1> res = - m_Mc_inv * (Kcc()*Proj*y_c - Kcf()*Proj*y_f);
-
-        return res;
-        
-    }
-    
-    void erk_LTS_weight(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k) {
+    void erk_weight_without_F(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k) {
         
         k=y;
         Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
         Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
         
         ////////// CELLS UPDATE
-        Matrix<T, Dynamic, 1> RHSc = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
+        Matrix<T, Dynamic, 1> RHSc = - Kcc()*y_c_dof - Kcf()*y_f_dof;
         Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * RHSc;
         k.block(0, 0, m_n_c_dof, 1) = k_c_dof;
         
@@ -419,92 +389,85 @@ class erk_coupling_hho_scheme
         else {
             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_inv_Sff * RHSf; 
         }
-
-    }
-
-    Matrix<T, Dynamic, 1>
-    apply_B(const Matrix<T, Dynamic, 1>& vT) {
-        Matrix<T, Dynamic, 1> Kcc_v = Kcc() * vT;
-        Matrix<T, Dynamic, 1> Kfc_v = Kfc() * vT;
-        Matrix<T, Dynamic, 1> tmpF;
-        if (m_sff_is_block_diagonal_Q) {
-            tmpF = m_Sff_inv * Kfc_v;        
-        }
-        else {
-            tmpF = m_inv_Sff * Kfc_v;        
-        }
-        Matrix<T, Dynamic, 1> corr = Kcf() * tmpF;
-        Matrix<T, Dynamic, 1> result = - m_Mc_inv * (Kcc_v - corr);
-        return result;
-    }
-
-    Matrix<T, Dynamic, 1>
-    apply_B_power(const Matrix<T, Dynamic, 1>& vT, int n) {
-        Matrix<T, Dynamic, 1> result = vT;
-        for (int i = 0; i < n; ++i) {
-            result = apply_B(result); 
-        }
-        return result;
-    }
-
-    Matrix<T, Dynamic, Dynamic>
-    coarse_predictor(int s, Matrix<double, Dynamic, 1> &b, Matrix<double, Dynamic, 1> &c, Matrix<T, Dynamic, 1> & y, SparseMatrix<T> IminusP) {
-
-        Matrix<T, Dynamic, Dynamic> W = Matrix<T, Dynamic, Dynamic>::Zero(m_n_c_dof, s);
-        Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
         
-        for (int i = 0; i < s; ++i) {
-            Matrix<T, Dynamic, 1> S = Matrix<T, Dynamic, 1>::Zero(m_n_c_dof);
-            for (int j = 0; j < s; ++j) {
-                T coeff = b(j,0) * std::pow(c(j,0), i);
-                Matrix<T, Dynamic, 1> term = apply_B_power(y_c_dof, i);
-                for (int ell = 1; ell <= i; ++ell) {
-                    // term += apply_B_power(H(ell-1), i-ell);
-                }
-                S += coeff * term;
-            }
-            T factor = T(i+1) / tgamma(i+1);
-            S *= factor;
-            W.col(i) = apply_B(IminusP * S);
+    }
+    
+    void 
+    compute_wi(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
+    
+        Matrix<T, Dynamic, 1> B0y, B1y, B2y, B3y;
+        Matrix<T, Dynamic, 1> PB0y, PB1y, PB2y, PB3y;
+    
+        B0y = y;                        // B^0 y = y
+        erk_weight_without_F(B0y, B1y); // B^1 y = B(B^0 y)
+        erk_weight_without_F(B1y, B2y); // B^2 y = B(B^1 y)
+        erk_weight_without_F(B2y, B3y); // B^3 y = B(B^2 y)
+    
+        // w[i] = B( Pcoarse * B^i y )
+        PB0y = Pcoarse * B0y;  erk_weight_without_F(PB0y, w[0]);
+        PB1y = Pcoarse * B1y;  erk_weight_without_F(PB1y, w[1]);
+        PB2y = Pcoarse * B2y;  erk_weight_without_F(PB2y, w[2]);
+        PB3y = Pcoarse * B3y;  erk_weight_without_F(PB3y, w[3]);
+    }
+    
+    
+    void 
+    compute_wi_with_F(const Matrix<T, Dynamic, 1> &y,
+        const Eigen::SparseMatrix<double> &Pcoarse,
+        std::vector<Matrix<T, Dynamic, 1>> &w,
+        const Matrix<T, Dynamic, 1> &Fn,
+        const Matrix<T, Dynamic, 1> &Fn12,
+        const Matrix<T, Dynamic, 1> &Fn1,
+        const T dt) {
+            
+            Matrix<T, Dynamic, 1> B0y, B1y, B2y, B3y;
+            Matrix<T, Dynamic, 1> PB0y, PB1y, PB2y, PB3y;
+            
+            B0y = y;                        // B^0 y = y
+            erk_weight_without_F(B0y, B1y); // B^1 y = B(B^0 y)
+            erk_weight_without_F(B1y, B2y); // B^2 y = B(B^1 y)
+            erk_weight_without_F(B2y, B3y); // B^3 y = B(B^2 y)
+            
+            // w[i] = B( Pcoarse * B^i y )  [partie homogène, sans F]
+            PB0y = Pcoarse * B0y;  erk_weight_without_F(PB0y, w[0]);
+            PB1y = Pcoarse * B1y;  erk_weight_without_F(PB1y, w[1]);
+            PB2y = Pcoarse * B2y;  erk_weight_without_F(PB2y, w[2]);
+            PB3y = Pcoarse * B3y;  erk_weight_without_F(PB3y, w[3]);
+            
+            // Coefficients du terme source par interpolation quadratique de Lagrange
+            // F(t) ≈ a0 + a1*t + a2*t^2  avec les noeuds 0, dt/2, dt
+            // a0  = Fn
+            // a1  = (-3Fn + 4Fn12 - Fn1) / dt
+            // a2  = (2Fn - 4Fn12 + 2Fn1) / dt^2
+            Matrix<T, Dynamic, 1> Fc_n   = Fn.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> Fc_n12 = Fn12.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> Fc_n1  = Fn1.block(0, 0, m_n_c_dof, 1);
+            
+            Matrix<T, Dynamic, 1> F0(y.rows()), F1(y.rows()), F2(y.rows());
+            F0.setZero(); F1.setZero(); F2.setZero();
+            
+            F0.block(0, 0, m_n_c_dof, 1) = Fc_n;
+            F1.block(0, 0, m_n_c_dof, 1) = (-3.0*Fc_n + 4.0*Fc_n12 - Fc_n1) / dt;
+            F2.block(0, 0, m_n_c_dof, 1) = ( 2.0*Fc_n - 4.0*Fc_n12 + 2.0*Fc_n1) / (dt*dt);
+            
+            // Contribution du terme source : w_F[i] = Mc_inv * B^i F_coeff
+            // w[0] += Mc_inv * F0  (ordre 0)
+            // w[1] += Mc_inv * F1  (ordre 1)
+            // w[2] += Mc_inv * F2  (ordre 2)
+            // w[3] += 0            (ordre 3, nul pour interpolation quadratique)
+            Matrix<T, Dynamic, 1> tmp;
+            tmp = m_Mc_inv * F0.block(0, 0, m_n_c_dof, 1);
+            w[0].block(0, 0, m_n_c_dof, 1) += tmp;
+            
+            tmp = m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
+            w[1].block(0, 0, m_n_c_dof, 1) += tmp;
+            
+            tmp = m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
+            w[2].block(0, 0, m_n_c_dof, 1) += tmp;
+            // w[3] inchangé (terme source d'ordre 3 nul avec interpolation quadratique)
         }
         
-        return W;  
-    }
-
-    void compute_k(int r, int m, int s, T Delta_tau, Matrix<T, Dynamic, Dynamic> W, Matrix<T, Dynamic, 1> c, Matrix<T, Dynamic, 1> & y,Matrix<T, Dynamic, Dynamic> k, Matrix<T, Dynamic, Dynamic> a, SparseMatrix<T> P, SparseMatrix<T> IminusP) {
-
-        Matrix<T, Dynamic, Dynamic> k_T = Matrix<T, Dynamic, 1>::Zero(m_n_c_dof,1);
-        Matrix<T, Dynamic, Dynamic> k_F = Matrix<T, Dynamic, 1>::Zero(m_n_f_dof,1);
-
-        // CELL UPDATE
-        T alpha = (m + c(r-1,0)) * Delta_tau;
-        for(int j = 0; j < s; ++j) {
-            k_T += std::pow(alpha, j) * W.col(j);
-        }
-        Matrix<T, Dynamic, 1> tmp = Matrix<T, Dynamic, 1>::Zero(m_n_c_dof,1);
-        for(int i = 1; i <= r-1; ++i) {
-            tmp += a(r,i) * k_T;
-        }
-        tmp *= Delta_tau;
-        Matrix<T, Dynamic, 1> y_c = y.block(0, 0, m_n_c_dof, 1);
-        tmp += y_c;
-        k_T = apply_B(P * tmp);
-        
-        // FACE UPDATE
-        Matrix<T, Dynamic, 1> RHSf = Kfc()*k_T;
-        if (m_sff_is_block_diagonal_Q) {
-            k_F = - m_Sff_inv * RHSf;
-        }
-        else { 
-            k_F = - m_inv_Sff * RHSf;
-        }
-
-        k.block(0, r, m_n_c_dof, 1) = k_T;
-        k.block(m_n_c_dof, r, m_n_f_dof, 1) = k_F;
-
-    }
-
-    #ifdef HAVE_INTEL_MKL
+        #ifdef HAVE_INTEL_MKL
         PardisoLDLT<SparseMatrix<T>> & FacesAnalysis(){
             return m_analysis_f;
         }
@@ -609,56 +572,6 @@ class erk_coupling_hho_scheme
         
     }
 
-    SparseMatrix<T> 
-    extract_submatrix(const SparseMatrix<T> &A, const std::vector<size_t> &row_indices, const std::vector<size_t> &col_indices, int nnz) {
-        std::vector<Triplet<T>> triplets;
-        triplets.reserve(nnz); // estimation grossière
-        
-        for (size_t i_local = 0; i_local < row_indices.size(); i_local++) {
-            size_t i_global = row_indices[i_local];
-            for (typename SparseMatrix<T>::InnerIterator it(A, i_global); it; ++it) {
-                size_t j_global = it.col();
-                auto it_col = std::find(col_indices.begin(), col_indices.end(), j_global);
-                if (it_col != col_indices.end()) {
-                    size_t j_local = std::distance(col_indices.begin(), it_col);
-                    triplets.emplace_back(i_local, j_local, it.value());
-                }
-            }
-        }
-        
-        SparseMatrix<T> submatrix(row_indices.size(), col_indices.size());
-        submatrix.setFromTriplets(triplets.begin(), triplets.end());
-        return submatrix;
-    }
-
-    void extract_coarse_fine_blocks(const std::vector<size_t>& coarse_cell_dofs, const std::vector<size_t>& fine_cell_dofs, const std::vector<size_t>& coarse_face_dofs, const std::vector<size_t>& fine_face_dofs, size_t nnz_Mcc_coarse, size_t nnz_Mcc_fine, size_t nnz_Kcf_coarse, size_t nnz_Kcf_fine, size_t nnz_Kfc_fine, size_t nnz_Sff_fine) {
-        
-        // Coarse
-        m_Mcc_coarse = extract_submatrix(m_Mc,  coarse_cell_dofs, coarse_cell_dofs, nnz_Mcc_coarse);
-        m_Kcc_coarse = extract_submatrix(m_Kcc, coarse_cell_dofs, coarse_cell_dofs, nnz_Kcf_coarse);
-        m_Kcf_coarse = extract_submatrix(m_Kcf, coarse_cell_dofs, coarse_face_dofs, nnz_Kcf_coarse);
-        
-        // Fine
-        m_Mcc_fine  = extract_submatrix(m_Mc,  fine_cell_dofs, fine_cell_dofs, nnz_Mcc_fine);
-        m_Kcc_fine  = extract_submatrix(m_Kcc, fine_cell_dofs, fine_cell_dofs, nnz_Kcf_fine);
-        m_Kcf_fine  = extract_submatrix(m_Kcf, fine_cell_dofs, fine_face_dofs, nnz_Kcf_fine);
-        m_Kfc_fine  = extract_submatrix(m_Kfc, fine_face_dofs, fine_cell_dofs, nnz_Kfc_fine);
-        m_Sff_fine  = extract_submatrix(m_Sff, fine_face_dofs, fine_face_dofs, nnz_Sff_fine);
-    }
-
-    VectorXd extract_subvector(const VectorXd& U_global, const std::vector<size_t>& indices) {
-        VectorXd U_sub(indices.size());
-        for (size_t i = 0; i < indices.size(); i++) {
-            U_sub[i] = U_global[indices[i]];
-        }
-        return U_sub;
-    }
-
-    void inject_subvector(VectorXd& U_global, const std::vector<size_t>& indices, const VectorXd& U_sub) {
-        for (size_t i = 0; i < indices.size(); i++) {
-            U_global[indices[i]] = U_sub[i];
-        }
-    }
 
 };
 

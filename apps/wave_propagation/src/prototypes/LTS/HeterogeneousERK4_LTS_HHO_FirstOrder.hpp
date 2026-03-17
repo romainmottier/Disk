@@ -327,7 +327,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         x    = pt.x();
         y    = pt.y();
         xc   = 0.0;
-        yc   = 0.1; // 0.1;
+        yc   = 0.3; // 0.1;
         fc   = 10.0;
         c    = 10;
         vp   = std::sqrt(1.0);
@@ -453,43 +453,48 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     auto p = std::pow(2, sim_data.m_substeps_Q);
     auto dtau = dt / p;
     for(size_t it = 1; it <= nt; it++) {
+
         //////////////////////////////////////////////////////////////////////////
         tcit.tic();
         RealType tn = dt*(it-1)+ti;
         if (it % step_interval == 0 || it == nt) {
             std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
         }
+
         ////////////////////////////////////////////////////////////////////////// PRECOMPUTATIONS: ERK ON THE GLOBAL DOFS 
-        std::vector<Matrix<RealType, Dynamic, 1>> w(4);
         size_t n_dof = x_dof.rows();
+        std::vector<Matrix<RealType, Dynamic, 1>> w(4), yn(4), k(4);
         for (int i = 0; i < 4; ++i) {
-            w[i].resize(n_dof);
-            w[i].setZero();
+            w[i].resize(n_dof);  w[i].setZero();
+            yn[i].resize(n_dof); yn[i].setZero();
+            k[i].resize(n_dof);  k[i].setZero();
         }
-        Matrix<RealType, Dynamic, 1> yn1(n_dof), yn2(n_dof), yn3(n_dof), yn4(n_dof);
-        Matrix<RealType, Dynamic, 1> k1(n_dof),  k2(n_dof),  k3(n_dof),  k4(n_dof);
         auto x_dof_n = x_dof;
-        erk_an.compute_wi(x_dof_n, assembler.IminusP_cell, assembler.Pfacecoarse, w);
+        erk_an.compute_wi(x_dof_n, assembler.Pcoarse, w);
+
         ////////////////////////////////////////////////////////////////////////// LOOP OVER THE SUBSTEPS: ERK4 ON THE LOCAL DOFS WITH INJECTION OF THE GLOBAL DOFS
-        for (int m = 0; m < p; m++) { 
-            // k1
-            yn1 = assembler.Pfine * x_dof_n;
-            erk_an.erk_weight(yn1, k1);
-            k1 += w[0] + m*dtau*w[1] + m*m*dtau*dtau*w[2]/2.0 + m*m*m*dtau*dtau*dtau*w[3]/6.0;
-            // k2
-            yn2 = assembler.Pfine * (x_dof_n+dtau*k1/2.0);
-            erk_an.erk_weight(yn2, k2);
-            k2 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
-            // k3
-            yn3 = assembler.Pfine * (x_dof_n+dtau*k2/2.0);
-            erk_an.erk_weight(yn3, k3);
-            k3 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
-            // k4
-            yn4 = assembler.Pfine * (x_dof_n+dtau*k3);
-            erk_an.erk_weight(yn4, k4);
-            k4 += w[0] + (m+1.0)*dtau*w[1] + (m+1.0)*(m+1.0)*dtau*dtau*w[2]/2.0 + (m+1.0)*(m+1.0)*(m+1.0)*dtau*dtau*dtau*w[3]/6.0;
+        // Butcher tableau offsets for RK4: 0, 1/2, 1/2, 1
+        const std::array<double, 4> c = {0.0, 0.5, 0.5, 1.0};
+        // RK4 stage increments
+        const std::array<double, 4> a = {0.0, 0.5, 0.5, 1.0};
+        
+        for (int m = 0; m < p; m++) {
+            for (int s = 0; s < 4; ++s) {
+                if (s == 0) {
+                    yn[s] = assembler.Pfine * x_dof_n;
+                }
+                else {
+                    yn[s] = assembler.Pfine * (x_dof_n + dtau * a[s] * k[s-1]);
+                }            
+                
+                erk_an.erk_weight(yn[s], k[s]);   // erk weight
+                double t  = (m + c[s]) * dtau;
+                double t2 = t * t;
+                double t3 = t * t2;
+                k[s] += w[0] + t*w[1] + t2*w[2]/2.0 + t3*w[3]/6.0;
+            }
             // FINAL UPDATE
-            x_dof_n += dtau*(k1 + 2.0*k2 + 2.0*k3 + k4)/6.0;
+            x_dof_n += dtau * (k[0] + 2.0*k[1] + 2.0*k[2] + k[3]) / 6.0;
         }
         x_dof = x_dof_n;
         t += dt;

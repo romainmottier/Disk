@@ -17,7 +17,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     using RealType = double;
     simulation_data sim_data = preprocessor::process_args(argc, argv);
     sim_data.print_simulation_data();
-    timecounter tc, cpu;
+    timecounter tc, cpu, tcit;
     
     // #############################################################################################
     // ############################## Mesh generation ##############################################
@@ -64,17 +64,26 @@ void ERK4_LTS_conv_test(int argc, char **argv){
         mesh_builder.build_mesh();
         mesh_builder.move_to_mesh_storage(msh);
     }
-    
-    RealType h = 10;
+    tc.toc();
+    std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
+    std::cout << tc << " seconds" << reset << std::endl;
+    RealType h_max = 1e-5;
+    RealType h_min = 10;
     for (auto & cell : msh ) {
         auto cell_ind = msh.lookup(cell);
         mesh_type::point_type bar = barycenter(msh, cell);
         RealType h_l = diameter(msh, cell);
-        if (h_l < h) {
-            h = h_l;            
+        if (h_l < h_min) {
+            h_min = h_l;
+        }
+        else if (h_l > h_max) {
+            h_max = h_l;
         }
     }
-
+    auto h_c = 0.75*h_max;
+    std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
+    std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
+    std::cout << bold << cyan << "      h_max/h_min = " << h_max/h_min << reset << std::endl << std::endl;
     
     // #############################################################################################
     // ################################ Time controls ##############################################
@@ -253,7 +262,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     simulation_log << "Number of time steps =  " << nt << std::endl;
     simulation_log << "Step size =  " << dt << std::endl;
     simulation_log << "Number of equations : " << assembler.RHS.rows() << std::endl;
-    simulation_log << "Space step = " << h << std::endl;
+    simulation_log << "Space step = " << h_max << std::endl;
     simulation_log.flush();
     std::cout << std::endl << std::endl;
 
@@ -267,120 +276,105 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     // ################################################## Time marching
     // ##################################################
     
-    size_t p = 1;
-    size_t dtau = dt / p;
-    auto l0 = x_dof;
+    assembler.assemble_P(msh, h_c);
+    assembler.assemble_P_bis(msh, h_c);
+    size_t nb_silo_files = 25;
+    size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
+    std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
+    auto p = std::pow(2, sim_data.m_substeps_Q);
+    auto dtau = dt / p;
+    for(size_t it = 1; it <= nt; it++) {
 
-    // // DISCRTIZATION INFOS
-    // std::cout << bold << red << "   TIME LOOP: " << std::endl;
-    // Matrix<RealType, Dynamic, 1> x_dof_n;
-    // for(size_t it = 1; it <= nt; it++) {
+        //////////////////////////////////////////////////////////////////////////
+        tcit.tic();
+        RealType tn = dt*(it-1)+ti;
+        if (it % step_interval == 0 || it == nt) {
+            std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
+        }
+
+        ////////////////////////////////////////////////////////////////////////// PRECOMPUTATIONS: ERK ON THE GLOBAL DOFS 
+        size_t n_dof = x_dof.rows();
+        std::vector<Matrix<RealType, Dynamic, 1>> w(4), yn(4), k(4);
+        for (int i = 0; i < 4; ++i) {
+            w[i].resize(n_dof);  w[i].setZero();
+            yn[i].resize(n_dof); yn[i].setZero();
+            k[i].resize(n_dof);  k[i].setZero();
+        }
+        auto x_dof_n = x_dof;
         
-    //     std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
-    //     RealType tn = dt*(it-1)+ti;
+        // Manufactured solution + BC at tn, tn+1/2, tn+1
+        auto tn12 = tn + 0.5*dt;
+        auto tn1 = tn + dt;
+        auto v_fun_n = functions.Evaluate_v(tn);
+        auto f_fun_n = functions.Evaluate_f(tn);
+        auto s_v_fun_n = functions.Evaluate_s_v(tn);
+        auto s_f_fun_n = functions.Evaluate_s_f(tn);
+        assembler.get_e_bc_conditions().updateDirichletFunction(v_fun_n, 0);
+        assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun_n, 0);
+        assembler.assemble_rhs(msh, f_fun_n, s_f_fun_n, false);
+        Matrix<RealType, Dynamic, 1> Fn = assembler.RHS;
+        // Manufactured solution + BC at tn+1/2
+        auto v_fun_n12 = functions.Evaluate_v(tn12);
+        auto f_fun_n12 = functions.Evaluate_f(tn12);
+        auto s_v_fun12 = functions.Evaluate_s_v(tn12);
+        auto s_f_fun_n12 = functions.Evaluate_s_f(tn12);
+        assembler.get_e_bc_conditions().updateDirichletFunction(v_fun_n12, 0);
+        assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun12, 0);
+        assembler.assemble_rhs(msh, f_fun_n12, s_f_fun_n12, false);        
+        Matrix<RealType, Dynamic, 1> Fn12 = assembler.RHS;
+        // Manufactured solution + BC at tn+1
+        auto v_fun_n1 = functions.Evaluate_v(tn1);
+        auto f_fun_n1   = functions.Evaluate_f(tn1);
+        auto s_v_fun_n1 = functions.Evaluate_s_v(tn1);
+        auto s_f_fun_n1 = functions.Evaluate_s_f(tn1);
+        assembler.get_e_bc_conditions().updateDirichletFunction(v_fun_n1, 0);
+        assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun_n1, 0);
+        assembler.assemble_rhs(msh, f_fun_n1, s_f_fun_n1, false);
+        Matrix<RealType, Dynamic, 1> Fn1 = assembler.RHS;
         
-    //     tc.tic();
+        erk_an.compute_wi_with_F(x_dof_n, assembler.Pcoarse, w, Fn, Fn12, Fn1, dt);
 
-    //     size_t n_dof = x_dof.rows();
-    //     Matrix<double, Dynamic, Dynamic> k = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
-    //     Matrix<double, Dynamic, Dynamic> k_T = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
-    //     Matrix<double, Dynamic, Dynamic> k_F = Matrix<double, Dynamic, Dynamic>::Zero(n_dof, s);
-    //     Matrix<double, Dynamic, 1> Fg, Fg_c, xd;
-    //     xd = Matrix<double, Dynamic, 1>::Zero(n_dof, 1);
-            
-    //     Matrix<double, Dynamic, 1> yn, ki;
-    //     x_dof_n = x_dof;
-        
-    //     //////////////////////////////////////////////////////////// SOURCE TERMS
-    //     auto s_v_fun    = functions.Evaluate_s_v(t);
-    //     auto s_f_fun_tn = functions.Evaluate_s_f(t);
-    //     assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
-    //     assembler.assemble_rhs(msh, null_fun, s_f_fun, true);
-    //     erk_an.SetFg(assembler.RHS);
-    //     auto F0 = erk_an.invMc() * erk_an.Fc();
+        ////////////////////////////////////////////////////////////////////////// LOOP OVER THE SUBSTEPS: ERK4 ON THE LOCAL DOFS WITH INJECTION OF THE GLOBAL DOFS
+        // Butcher tableau offsets for RK4: 0, 1/2, 1/2, 1
+        const std::array<double, 4> c = {0.0, 0.5, 0.5, 1.0};
+        // RK4 stage increments
+        const std::array<double, 4> a = {0.0, 0.5, 0.5, 1.0};
+        for (int m = 0; m < p; m++) {
+            for (int s = 0; s < 4; ++s) {
+                if (s == 0) {
+                    yn[s] = assembler.Pfine * x_dof_n;
+                }
+                else {
+                    yn[s] = assembler.Pfine * (x_dof_n + dtau * a[s] * k[s-1]);
+                }            
+                
+                erk_an.erk_weight(yn[s], k[s]);   // erk weight
+                double t  = (m + c[s]) * dtau;
+                double t2 = t * t;
+                double t3 = t * t2;
+                k[s] += w[0] + t*w[1] + t2*w[2]/2.0 + t3*w[3]/6.0;
+            }
 
-    //     auto t_dt = t+dt;
-    //     s_v_fun = functions.Evaluate_s_v(t_dt);
-    //     s_f_fun = functions.Evaluate_s_f(t_dt);
-    //     assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
-    //     assembler.assemble_rhs(msh, null_fun, s_f_fun, true);
-    //     erk_an.SetFg(assembler.RHS);
-    //     auto F1 = erk_an.invMc() * erk_an.Fc();
+            // FINAL UPDATE
+            x_dof_n += dtau * (k[0] + 2.0*k[1] + 2.0*k[2] + k[3]) / 6.0;
 
-    //     auto t_dt_2 = t+dt/2.0;
-    //     s_v_fun = functions.Evaluate_s_v(t_dt_2);
-    //     s_f_fun = functions.Evaluate_s_f(t_dt_2);
-    //     assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
-    //     assembler.assemble_rhs(msh, null_fun, s_f_fun, true);
-    //     erk_an.SetFg(assembler.RHS);
-    //     auto F2 = erk_an.invMc() * erk_an.Fc();
-
-    //     ////////////////////////////////////////////////////////////// COARSE PREDICTOR
-    //     Matrix<double, Dynamic, 1> w0, w1, w2, w3;
-    //     Eigen::VectorXd tmp;
-    //     tmp = assembler.IminusP * x_dof_n;
-    //     // w0 
-    //     w0 = erk_an.apply_B(tmp) + assembler.IminusP * F0;
-    //     // w1
-    //     tmp = assembler.IminusP * (erk_an.apply_B(x_dof_n) + F0);
-    //     w1 = erk_an.apply_B(tmp) + assembler.IminusP * ((-3.0*F0 + 4.0*F2 - F1)/dt);
-    //     // w2
-    //     tmp = assembler.IminusP * (erk_an.apply_B_power(x_dof_n,2) + erk_an.apply_B(F0) + (-3.0*F0 + 4.0*F2 - F1)/dt);
-    //     w2 = erk_an.apply_B(tmp) + assembler.IminusP * ((4.0*F0 - 8.0*F2 + 4.0*F1)/(dt*dt));
-
-    //     // w3
-    //     auto tmp1 = (-3*F0+4*F2-F1)/dt;
-    //     tmp = assembler.IminusP * (erk_an.apply_B_power(x_dof_n,3) + erk_an.apply_B_power(F0,2) + erk_an.apply_B(tmp1) + ((4.0*F0 - 8.0*F2 + 4.0*F1)/(dt*dt)) );
-    //     w3 = erk_an.apply_B(tmp);
-        
-    //     // LOOP ON LOCAL REFINEMENT RATIOS
-    //     for (int m = 0; m < p; ++m) {            
-            
-    //         auto tm = tn + m * dtau;
-    //         auto tm1 = tn + (m+1)*dtau;
-    //         auto tm2 = tn + (m+0.5)*dtau;
-
-    //         auto tmp1 = assembler.P*l0;     
-    //         auto k1 = w0 + m*dtau*w1 + (m*m/2)*dtau*dtau*w2 + (m*m*m/6)*dtau*dtau*dtau*w3 + erk_an.apply_B(tmp1);
-
-    //         auto tmp2 = assembler.P*(l0 + (dtau/2)*k1);     
-    //         auto k2 = w0 + (m+0.5)*dtau*w1 + 0.5*(m+0.5)*(m+0.5)*dtau*dtau*w2 + (1/6)*(m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w3 + erk_an.apply_B(tmp2);
-
-    //         auto tmp3 = assembler.P*(l0 + (dtau/2)*k2);
-    //         auto k3 = w0 + (m+0.5)*dtau*w1 + 0.5*(m+0.5)*(m+0.5)*dtau*dtau*w2 + (1/6)*(m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w3 + erk_an.apply_B(tmp3);
-
-    //         auto tmp4 = assembler.P*(l0 + dtau*k3);
-    //         auto k4 = w0 + (m+1)*dtau*w1 + 0.5*(m+1)*(m+1)*dtau*dtau*w2 + (1/6)*(m+1)*(m+1)*(m+1)*dtau*dtau*dtau*w3 + erk_an.apply_B(tmp4);
-            
-    //         // ACCUMULATED SOLUTION
-    //         auto l1 = l0 + (dtau/6) * (k1 + 2*k2 + 2*k3 + k4);
-    //         l0 = l1;
-            
-    //     }
-        
-    //     tc.toc();
-    //     std::cout << bold << yellow << "         LTS-ERK step completed: " << tc << " seconds" << reset << std::endl;
-    //     x_dof_n = l0;
-    //     x_dof = x_dof_n;
-    //     t = tn + dt;
-        
-    //     if(it == nt) {
-    //         std::cout << std::endl;
-    //         postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic(msh, hho_di, assembler, x_dof, null_fun, null_flux_fun, s_v_fun, s_flux_fun, simulation_log);
-    //         postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic_energy_norm(msh, hho_di, assembler, x_dof, null_fun, null_flux_fun, s_v_fun, s_flux_fun, simulation_log);
-    //     }
-
-    // }
+        }
+        x_dof = x_dof_n;
+        t += dt;
+        if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
+            std::ostringstream filename;
+            filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
+            std::string silo_file_name = filename.str();
+            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
+        }
+        tcit.toc();
+        if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
+            std::cout << bold << yellow << "         Iteration completed in " << tcit << " seconds" << reset << std::endl;
+        }
+    }
     
-    // bool mesh_quality = false;
-    // if (mesh_quality) {
-    //     std::ofstream mesh_file("mesh_file.txt");
-    //     postprocessor<mesh_type>::mesh_quality(msh, assembler, mesh_file);
-    // }
-
     cpu.toc();
     simulation_log << "TOTAL CPU TIME: " << cpu << std::endl;
-    std::cout << bold << red << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
-    
-}
+    std::cout << bold << red << std::endl << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
 
+}

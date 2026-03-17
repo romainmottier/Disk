@@ -81,7 +81,6 @@ using namespace Eigen;
    
    // LTS
       // CONV TEST 
-      #include "prototypes/LTS/ELTSAcoustic_conv_test.hpp" // ACOUSTIC 
       #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"     // COUPLING 
       // PULSE
       #include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"            // ACOUSTIC ERK
@@ -137,14 +136,14 @@ int main(int argc, char **argv){
    // BassinEHHOFirstOrder(argc, argv); Not working 
   
 // LOCAL TIME STEPPING 
-   // ERK4_LTS_conv_test(argc, argv);
+   ERK4_LTS_conv_test(argc, argv);
    // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
 
    // TEST LTS PULSE:
    // AcousticHeterogeneousPulse(argc, argv);
    // AcousticLTSEulerHeterogeneousPulse(argc, argv);
    // AcousticHeterogeneousPulse_LTS_RK4(argc, argv); 
-   HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
 
 }
 
