@@ -233,11 +233,8 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     Matrix<RealType, Dynamic, 1> c;
     
     // ERK schemes
-    int s = 4;
-    erk_butcher_tableau::erk_tables(s, a, b, c);
     assembler.assemble(msh, null_fun, s_f_fun, true);
     assembler.LHS += assembler.COUPLING; 
-    assembler.assemble_P(msh, 1);
 
     size_t elastic_cell_dofs  = assembler.get_e_n_cells_dof();
     size_t acoustic_cell_dofs = assembler.get_a_n_cells_dof();
@@ -254,11 +251,11 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     // ##################################################  
     
     std::ostringstream filename;
-    filename << "explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << "_discret_" << sim_data.m_hdg_stabilization_Q << ".txt";
+    filename << "explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_discret_" << sim_data.m_hdg_stabilization_Q << ".txt";
     std::string filename_str = filename.str();
     std::ofstream simulation_log(filename_str);
     sim_data.write_simulation_data(simulation_log);
-    simulation_log << "Number of ERK steps =  " << s << std::endl;
+    simulation_log << "Number of ERK steps =  " << 4 << std::endl;
     simulation_log << "Number of time steps =  " << nt << std::endl;
     simulation_log << "Step size =  " << dt << std::endl;
     simulation_log << "Number of equations : " << assembler.RHS.rows() << std::endl;
@@ -268,7 +265,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
 
     size_t it = 0;
     std::ostringstream filename_silo;
-    filename_silo << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << "_";
+    filename_silo << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
     std::string silo_file_name = filename_silo.str();
     postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
 
@@ -277,7 +274,6 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     // ##################################################
     
     assembler.assemble_P(msh, h_c);
-    assembler.assemble_P_bis(msh, h_c);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
@@ -309,8 +305,6 @@ void ERK4_LTS_conv_test(int argc, char **argv){
         auto f_fun_n = functions.Evaluate_f(tn);
         auto s_v_fun_n = functions.Evaluate_s_v(tn);
         auto s_f_fun_n = functions.Evaluate_s_f(tn);
-        assembler.get_e_bc_conditions().updateDirichletFunction(v_fun_n, 0);
-        assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun_n, 0);
         assembler.assemble_rhs(msh, f_fun_n, s_f_fun_n, false);
         Matrix<RealType, Dynamic, 1> Fn = assembler.RHS;
         // Manufactured solution + BC at tn+1/2
@@ -318,8 +312,6 @@ void ERK4_LTS_conv_test(int argc, char **argv){
         auto f_fun_n12 = functions.Evaluate_f(tn12);
         auto s_v_fun12 = functions.Evaluate_s_v(tn12);
         auto s_f_fun_n12 = functions.Evaluate_s_f(tn12);
-        assembler.get_e_bc_conditions().updateDirichletFunction(v_fun_n12, 0);
-        assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun12, 0);
         assembler.assemble_rhs(msh, f_fun_n12, s_f_fun_n12, false);        
         Matrix<RealType, Dynamic, 1> Fn12 = assembler.RHS;
         // Manufactured solution + BC at tn+1
@@ -327,8 +319,6 @@ void ERK4_LTS_conv_test(int argc, char **argv){
         auto f_fun_n1   = functions.Evaluate_f(tn1);
         auto s_v_fun_n1 = functions.Evaluate_s_v(tn1);
         auto s_f_fun_n1 = functions.Evaluate_s_f(tn1);
-        assembler.get_e_bc_conditions().updateDirichletFunction(v_fun_n1, 0);
-        assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun_n1, 0);
         assembler.assemble_rhs(msh, f_fun_n1, s_f_fun_n1, false);
         Matrix<RealType, Dynamic, 1> Fn1 = assembler.RHS;
         
@@ -348,8 +338,22 @@ void ERK4_LTS_conv_test(int argc, char **argv){
                     yn[s] = assembler.Pfine * (x_dof_n + dtau * a[s] * k[s-1]);
                 }            
                 
-                erk_an.erk_weight(yn[s], k[s]);   // erk weight
-                double t  = (m + c[s]) * dtau;
+                double t = (m + c[s]) * dtau;
+
+                // Manufactured solution
+                auto v_fun      = functions.Evaluate_v(t);
+                auto f_fun      = functions.Evaluate_f(t);
+                auto s_v_fun    = functions.Evaluate_s_v(t);
+                auto s_f_fun    = functions.Evaluate_s_f(t);   
+                assembler.get_e_bc_conditions().updateDirichletFunction(v_fun, 0);
+                assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
+                assembler.assemble_rhs(msh, f_fun, s_f_fun, true);
+                erk_an.SetFg(assembler.RHS);
+
+                // ERK weight 
+                erk_an.erk_weight(yn[s], k[s]);  
+
+                // Adding coarse contributions
                 double t2 = t * t;
                 double t3 = t * t2;
                 k[s] += w[0] + t*w[1] + t2*w[2]/2.0 + t3*w[3]/6.0;

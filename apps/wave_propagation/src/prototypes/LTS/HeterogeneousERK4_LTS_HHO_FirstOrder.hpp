@@ -46,12 +46,16 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
         
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p1.txt");    // l = 0
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p2.txt");    // l = 1
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p3.txt");    // l = 2
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p4.txt");    // l = 3
-        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.txt");    // l = 4
-        // mesh_files.push_back("/home/romain/GitHub/MESHES_DISK/nonconform_square.txt");       // l = 0
+        // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p1.txt");    // l = 0
+        // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p2.txt");    // l = 1
+        // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p3.txt");    // l = 2
+        // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p4.txt");    // l = 3
+        // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.txt");    // l = 4
+        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p1.txt");    // l = 0
+        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p2.txt");    // l = 1
+        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p3.txt");    // l = 2
+        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p4.txt");    // l = 3
+        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p5.txt");    // l = 4
 
         // Reading the polygonal mesh
         mesh_builder.set_poly_mesh_file(mesh_files[l]);
@@ -73,7 +77,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
                                                2461, 2462, 2463, 2464, 2465, 2466,
                                                2397, 2398, 2399, 2400, 2401, 2402,
                                                2333, 2334, 2335, 2336, 2337, 2338};
-        mesh_builder.refine_cells(cells_to_refine, 7);
+        // mesh_builder.refine_cells(cells_to_refine, 7);
         mesh_builder.move_to_mesh_storage(msh);
     }
     
@@ -327,7 +331,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         x    = pt.x();
         y    = pt.y();
         xc   = 0.0;
-        yc   = 0.3; // 0.1;
+        yc   = 0.1; // 0.1;
         fc   = 10.0;
         c    = 10;
         vp   = std::sqrt(1.0);
@@ -446,7 +450,6 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     // ##################################################
     
     assembler.assemble_P(msh, h_c);
-    assembler.assemble_P_bis(msh, h_c);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;

@@ -370,7 +370,7 @@ class erk_coupling_hho_scheme
 
     }
 
-    void erk_weight_without_F(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k) {
+    void erk_weight_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k) {
         
         k=y;
         Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
@@ -399,78 +399,106 @@ class erk_coupling_hho_scheme
         Matrix<T, Dynamic, 1> PB0y, PB1y, PB2y, PB3y;
     
         B0y = y;                        // B^0 y = y
-        erk_weight_without_F(B0y, B1y); // B^1 y = B(B^0 y)
-        erk_weight_without_F(B1y, B2y); // B^2 y = B(B^1 y)
-        erk_weight_without_F(B2y, B3y); // B^3 y = B(B^2 y)
+        erk_weight(B0y, B1y); // B^1 y = B(B^0 y)
+        erk_weight(B1y, B2y); // B^2 y = B(B^1 y)
+        erk_weight(B2y, B3y); // B^3 y = B(B^2 y)
     
         // w[i] = B( Pcoarse * B^i y )
-        PB0y = Pcoarse * B0y;  erk_weight_without_F(PB0y, w[0]);
-        PB1y = Pcoarse * B1y;  erk_weight_without_F(PB1y, w[1]);
-        PB2y = Pcoarse * B2y;  erk_weight_without_F(PB2y, w[2]);
-        PB3y = Pcoarse * B3y;  erk_weight_without_F(PB3y, w[3]);
+        PB0y = Pcoarse * B0y;  erk_weight(PB0y, w[0]);
+        PB1y = Pcoarse * B1y;  erk_weight(PB1y, w[1]);
+        PB2y = Pcoarse * B2y;  erk_weight(PB2y, w[2]);
+        PB3y = Pcoarse * B3y;  erk_weight(PB3y, w[3]);
     }
     
     
-    void 
-    compute_wi_with_F(const Matrix<T, Dynamic, 1> &y,
-        const Eigen::SparseMatrix<double> &Pcoarse,
-        std::vector<Matrix<T, Dynamic, 1>> &w,
-        const Matrix<T, Dynamic, 1> &Fn,
-        const Matrix<T, Dynamic, 1> &Fn12,
-        const Matrix<T, Dynamic, 1> &Fn1,
-        const T dt) {
+    // void  compute_wi_with_F(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
+        
+    //     Matrix<T, Dynamic, 1> B0y = y;  
+    //     Matrix<T, Dynamic, 1> B1y, PB0y, PB1yF, B1yF, B2yBF, B2yBFF, PB2yBFF, B3yB2FBFF, PB3yB2FBF;
+        
+    //     auto F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
+    //     auto F2 = (4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
+        
+    //     // Computation of w[0]
+    //     PB0y = Pcoarse * B0y; 
+    //     erk_weight_LTS(PB0y, w[0]);
+    //     w[0].block(0, 0, m_n_c_dof, 1) += Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof) * m_Mc_inv * Fn.block(0, 0, m_n_c_dof, 1); 
+        
+    //     // Computation of w[1]
+    //     erk_weight_LTS(B0y, B1y); 
+    //     B1yF = B1y;
+    //     B1yF.block(0, 0, m_n_c_dof, 1) += m_Mc_inv * Fn.block(0, 0, m_n_c_dof, 1);   
+    //     PB1yF = Pcoarse * B1yF;
+    //     erk_weight_LTS(PB1yF, w[1]);
+    //     w[1].block(0, 0, m_n_c_dof, 1) += Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof) * m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
+        
+    //     // Computation of w[2]
+    //     erk_weight_LTS(B1yF, B2yBF); 
+    //     B2yBFF = B2yBF;
+    //     B2yBFF.block(0, 0, m_n_c_dof, 1) += m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
+    //     PB2yBFF = Pcoarse * B2yBFF;
+    //     erk_weight_LTS(PB2yBFF, w[2]);
+    //     w[2].block(0, 0, m_n_c_dof, 1) += Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof) * m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
+        
+    //     // Computation of w[3]
+    //     erk_weight_LTS(B2yBFF, B3yB2FBFF);
+    //     B3yB2FBFF.block(0, 0, m_n_c_dof, 1) += m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
+    //     PB3yB2FBF = Pcoarse * B3yB2FBFF;
+    //     erk_weight_LTS(PB3yB2FBF, w[3]);
+    // }
+    
+    void compute_wi_with_F(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
             
-            Matrix<T, Dynamic, 1> B0y, B1y, B2y, B3y;
-            Matrix<T, Dynamic, 1> PB0y, PB1y, PB2y, PB3y;
+            // Quadratic Lagrange Interpolation: F(t) ≈ F0 + F1*t + F2*t^2
+            Matrix<T, Dynamic, 1> F0 = Fn;
+            Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
+            Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
             
-            B0y = y;                        // B^0 y = y
-            erk_weight_without_F(B0y, B1y); // B^1 y = B(B^0 y)
-            erk_weight_without_F(B1y, B2y); // B^2 y = B(B^1 y)
-            erk_weight_without_F(B2y, B3y); // B^3 y = B(B^2 y)
+            // Precompute: Pc = Pcoarse restricted to cell block, MinvF[i] = Mc_inv * Fi_c
+            auto Pc = Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof);
+            Matrix<T, Dynamic, 1> MinvF0 = m_Mc_inv * F0.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> MinvF1 = m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> MinvF2 = m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
             
-            // w[i] = B( Pcoarse * B^i y )  [partie homogène, sans F]
-            PB0y = Pcoarse * B0y;  erk_weight_without_F(PB0y, w[0]);
-            PB1y = Pcoarse * B1y;  erk_weight_without_F(PB1y, w[1]);
-            PB2y = Pcoarse * B2y;  erk_weight_without_F(PB2y, w[2]);
-            PB3y = Pcoarse * B3y;  erk_weight_without_F(PB3y, w[3]);
+            // BiyF[i] = B^i y + (accumulated source terms)
+            // Each step: BiyF = B(B^{i-1}yF) then add Mc_inv * Fi
+            Matrix<T, Dynamic, 1> B0yF = y;
             
-            // Coefficients du terme source par interpolation quadratique de Lagrange
-            // F(t) ≈ a0 + a1*t + a2*t^2  avec les noeuds 0, dt/2, dt
-            // a0  = Fn
-            // a1  = (-3Fn + 4Fn12 - Fn1) / dt
-            // a2  = (2Fn - 4Fn12 + 2Fn1) / dt^2
-            Matrix<T, Dynamic, 1> Fc_n   = Fn.block(0, 0, m_n_c_dof, 1);
-            Matrix<T, Dynamic, 1> Fc_n12 = Fn12.block(0, 0, m_n_c_dof, 1);
-            Matrix<T, Dynamic, 1> Fc_n1  = Fn1.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> B1yF;
+            erk_weight_LTS(B0yF, B1yF);
+            B1yF.block(0, 0, m_n_c_dof, 1) += MinvF0;
             
-            Matrix<T, Dynamic, 1> F0(y.rows()), F1(y.rows()), F2(y.rows());
-            F0.setZero(); F1.setZero(); F2.setZero();
+            Matrix<T, Dynamic, 1> B2yF;
+            erk_weight_LTS(B1yF, B2yF);
+            B2yF.block(0, 0, m_n_c_dof, 1) += MinvF1;
             
-            F0.block(0, 0, m_n_c_dof, 1) = Fc_n;
-            F1.block(0, 0, m_n_c_dof, 1) = (-3.0*Fc_n + 4.0*Fc_n12 - Fc_n1) / dt;
-            F2.block(0, 0, m_n_c_dof, 1) = ( 4.0*Fc_n - 8.0*Fc_n12 + 4.0*Fc_n1) / dt;
+            Matrix<T, Dynamic, 1> B3yF;
+            erk_weight_LTS(B2yF, B3yF);
+            B3yF.block(0, 0, m_n_c_dof, 1) += MinvF2;
             
-            // Contribution du terme source : w_F[i] = Mc_inv * B^i F_coeff
-            // w[0] += Mc_inv * F0  (ordre 0)
-            // w[1] += Mc_inv * F1  (ordre 1)
-            // w[2] += Mc_inv * F2  (ordre 2)
-            // w[3] += 0            (ordre 3, nul pour interpolation quadratique)
+            // w[i] = B(Pcoarse * BiyF) + Pc * Mc_inv * F_{i+1}
             Matrix<T, Dynamic, 1> tmp;
-            tmp = m_Mc_inv * F0.block(0, 0, m_n_c_dof, 1);
-            w[0].block(0, 0, m_n_c_dof, 1) += tmp;
             
-            tmp = m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
-            w[1].block(0, 0, m_n_c_dof, 1) += tmp;
+            tmp = Pcoarse * B0yF;  
+            erk_weight_LTS(tmp, w[0]);
+            w[0].block(0, 0, m_n_c_dof, 1) += Pc * MinvF0;
             
-            tmp = m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
-            w[2].block(0, 0, m_n_c_dof, 1) += tmp;
-            // w[3] inchangé (terme source d'ordre 3 nul avec interpolation quadratique)
+            tmp = Pcoarse * B1yF;  
+            erk_weight_LTS(tmp, w[1]);
+            w[1].block(0, 0, m_n_c_dof, 1) += Pc * MinvF1;
+            
+            tmp = Pcoarse * B2yF;  
+            erk_weight_LTS(tmp, w[2]);
+            w[2].block(0, 0, m_n_c_dof, 1) += Pc * MinvF2;
+            
+            tmp = Pcoarse * B3yF;  erk_weight_LTS(tmp, w[3]);
+
         }
         
         #ifdef HAVE_INTEL_MKL
-        PardisoLDLT<SparseMatrix<T>> & FacesAnalysis(){
-            return m_analysis_f;
-        }
+    PardisoLDLT<SparseMatrix<T>> & FacesAnalysis(){
+        return m_analysis_f;
+    }
     #else
         SimplicialLDLT<SparseMatrix<T>> & FacesAnalysis(){
             return m_analysis_f;
