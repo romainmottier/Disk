@@ -94,8 +94,9 @@ void EHHOFirstOrder(int argc, char **argv){
     // ##################################################
     
     size_t nt = 10;
-    for (unsigned int i = 0; i < sim_data.m_nt_divs; i++) 
-        nt  = sim_data.m_nt_divs;
+    for (unsigned int i = 0; i < sim_data.m_nt_divs; i++) {
+        nt = sim_data.m_nt_divs;
+    }
     
     RealType ti = 0.0;
     RealType tf = 1.0;
@@ -132,8 +133,9 @@ void EHHOFirstOrder(int argc, char **argv){
     
     // Creating HHO approximation spaces and corresponding linear operator
     size_t cell_k_degree = sim_data.m_k_degree;
-    if(sim_data.m_hdg_stabilization_Q)
+    if (sim_data.m_hdg_stabilization_Q) {
         cell_k_degree++;
+    }
     disk::hho_degree_info hho_di(cell_k_degree,sim_data.m_k_degree);
     
     // ##################################################
@@ -254,8 +256,9 @@ void EHHOFirstOrder(int argc, char **argv){
     auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
     assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
     assembler.set_coupling_stabilization();
-    if(sim_data.m_scaled_stabilization_Q)
+    if (sim_data.m_scaled_stabilization_Q) {
         assembler.set_scaled_stabilization();
+    }   
 
     // DISCRTIZATION INFOS
     std::cout << bold << red << "   DISCRETIZATION: ";
@@ -296,7 +299,7 @@ void EHHOFirstOrder(int argc, char **argv){
     Matrix<RealType, Dynamic, 1> c;
     
     // ERK schemes
-    int s = 2;
+    int s = 4;
     erk_butcher_tableau::erk_tables(s, a, b, c);
     
     std::cout << bold << red << "   ASSEMBLY 2 : " << std::endl;
@@ -342,11 +345,19 @@ void EHHOFirstOrder(int argc, char **argv){
     // erk_an.compute_eigenvalues(simulation_log);
     simulation_log.flush();
     std::cout << std::endl << std::endl;
-
+    
+    size_t it = 0;
+    std::ostringstream filename_silo;
+    filename_silo << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << s << "_";
+    std::string silo_file_name = filename_silo.str();
+    postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
+    
     // ##################################################
     // ################################################## Time marching
     // ##################################################
     
+    size_t nb_silo_files = 25;
+    size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     Matrix<RealType, Dynamic, 1> x_dof_n;
     for(size_t it = 1; it <= nt; it++) {
         
@@ -396,6 +407,13 @@ void EHHOFirstOrder(int argc, char **argv){
         std::cout << bold << cyan << "      ERK step completed: " << tc << " seconds" << reset << std::endl;
         x_dof = x_dof_n;
         
+        if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
+            std::ostringstream filename;
+            filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
+            std::string silo_file_name = filename.str();
+            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
+        }
+
         t = tn + dt;
         auto v_fun      = functions.Evaluate_v(t);
         auto flux_fun   = functions.Evaluate_sigma(t);

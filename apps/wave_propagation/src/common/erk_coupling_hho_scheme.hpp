@@ -411,108 +411,83 @@ class erk_coupling_hho_scheme
     }
     
     
-    // void  compute_wi_with_F(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
+    void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
         
-    //     Matrix<T, Dynamic, 1> B0y = y;  
-    //     Matrix<T, Dynamic, 1> B1y, PB0y, PB1yF, B1yF, B2yBF, B2yBFF, PB2yBFF, B3yB2FBFF, PB3yB2FBF;
+        // Quadratic Lagrange Interpolation: F(t) ≈ F0 + F1*t + F2*t^2
+        Matrix<T, Dynamic, 1> F0 = Fn;
+        Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
+        Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
         
-    //     auto F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
-    //     auto F2 = (4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
+        // Precompute: Pc = Pcoarse restricted to cell block, MinvF[i] = Mc_inv * Fi_c
+        auto Pc = Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof);
+        Matrix<T, Dynamic, 1> MinvF0 = m_Mc_inv * F0.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> MinvF1 = m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> MinvF2 = m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
         
-    //     // Computation of w[0]
-    //     PB0y = Pcoarse * B0y; 
-    //     erk_weight_LTS(PB0y, w[0]);
-    //     w[0].block(0, 0, m_n_c_dof, 1) += Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof) * m_Mc_inv * Fn.block(0, 0, m_n_c_dof, 1); 
+        // BiyF[i] = B^i y + (accumulated source terms)
+        // Each step: BiyF = B(B^{i-1}yF) then add Mc_inv * Fi
+        Matrix<T, Dynamic, 1> B0yF = y;
         
-    //     // Computation of w[1]
-    //     erk_weight_LTS(B0y, B1y); 
-    //     B1yF = B1y;
-    //     B1yF.block(0, 0, m_n_c_dof, 1) += m_Mc_inv * Fn.block(0, 0, m_n_c_dof, 1);   
-    //     PB1yF = Pcoarse * B1yF;
-    //     erk_weight_LTS(PB1yF, w[1]);
-    //     w[1].block(0, 0, m_n_c_dof, 1) += Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof) * m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> B1yF;
+        erk_weight_LTS(B0yF, B1yF);
+        B1yF.block(0, 0, m_n_c_dof, 1) += MinvF0;
         
-    //     // Computation of w[2]
-    //     erk_weight_LTS(B1yF, B2yBF); 
-    //     B2yBFF = B2yBF;
-    //     B2yBFF.block(0, 0, m_n_c_dof, 1) += m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
-    //     PB2yBFF = Pcoarse * B2yBFF;
-    //     erk_weight_LTS(PB2yBFF, w[2]);
-    //     w[2].block(0, 0, m_n_c_dof, 1) += Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof) * m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> B2yF;
+        erk_weight_LTS(B1yF, B2yF);
+        B2yF.block(0, 0, m_n_c_dof, 1) += MinvF1;
         
-    //     // Computation of w[3]
-    //     erk_weight_LTS(B2yBFF, B3yB2FBFF);
-    //     B3yB2FBFF.block(0, 0, m_n_c_dof, 1) += m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
-    //     PB3yB2FBF = Pcoarse * B3yB2FBFF;
-    //     erk_weight_LTS(PB3yB2FBF, w[3]);
-    // }
+        Matrix<T, Dynamic, 1> B3yF;
+        erk_weight_LTS(B2yF, B3yF);
+        B3yF.block(0, 0, m_n_c_dof, 1) += MinvF2;
+        
+        // w[i] = B(Pcoarse * BiyF) + Pc * Mc_inv * F_{i+1}
+        Matrix<T, Dynamic, 1> tmp;
+        
+        tmp = Pcoarse * B0yF;  
+        erk_weight_LTS(tmp, w[0]);
+        w[0].block(0, 0, m_n_c_dof, 1) += Pc * MinvF0;
+        
+        tmp = Pcoarse * B1yF;  
+        erk_weight_LTS(tmp, w[1]);
+        w[1].block(0, 0, m_n_c_dof, 1) += Pc * MinvF1;
+        
+        tmp = Pcoarse * B2yF;  
+        erk_weight_LTS(tmp, w[2]);
+        w[2].block(0, 0, m_n_c_dof, 1) += Pc * MinvF2;
+        
+        tmp = Pcoarse * B3yF;  erk_weight_LTS(tmp, w[3]);
+        
+    }
     
-    void compute_wi_with_F(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
-            
-            // Quadratic Lagrange Interpolation: F(t) ≈ F0 + F1*t + F2*t^2
-            Matrix<T, Dynamic, 1> F0 = Fn;
-            Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
-            Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
-            
-            // Precompute: Pc = Pcoarse restricted to cell block, MinvF[i] = Mc_inv * Fi_c
-            auto Pc = Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof);
-            Matrix<T, Dynamic, 1> MinvF0 = m_Mc_inv * F0.block(0, 0, m_n_c_dof, 1);
-            Matrix<T, Dynamic, 1> MinvF1 = m_Mc_inv * F1.block(0, 0, m_n_c_dof, 1);
-            Matrix<T, Dynamic, 1> MinvF2 = m_Mc_inv * F2.block(0, 0, m_n_c_dof, 1);
-            
-            // BiyF[i] = B^i y + (accumulated source terms)
-            // Each step: BiyF = B(B^{i-1}yF) then add Mc_inv * Fi
-            Matrix<T, Dynamic, 1> B0yF = y;
-            
-            Matrix<T, Dynamic, 1> B1yF;
-            erk_weight_LTS(B0yF, B1yF);
-            B1yF.block(0, 0, m_n_c_dof, 1) += MinvF0;
-            
-            Matrix<T, Dynamic, 1> B2yF;
-            erk_weight_LTS(B1yF, B2yF);
-            B2yF.block(0, 0, m_n_c_dof, 1) += MinvF1;
-            
-            Matrix<T, Dynamic, 1> B3yF;
-            erk_weight_LTS(B2yF, B3yF);
-            B3yF.block(0, 0, m_n_c_dof, 1) += MinvF2;
-            
-            // w[i] = B(Pcoarse * BiyF) + Pc * Mc_inv * F_{i+1}
-            Matrix<T, Dynamic, 1> tmp;
-            
-            tmp = Pcoarse * B0yF;  
-            erk_weight_LTS(tmp, w[0]);
-            w[0].block(0, 0, m_n_c_dof, 1) += Pc * MinvF0;
-            
-            tmp = Pcoarse * B1yF;  
-            erk_weight_LTS(tmp, w[1]);
-            w[1].block(0, 0, m_n_c_dof, 1) += Pc * MinvF1;
-            
-            tmp = Pcoarse * B2yF;  
-            erk_weight_LTS(tmp, w[2]);
-            w[2].block(0, 0, m_n_c_dof, 1) += Pc * MinvF2;
-            
-            tmp = Pcoarse * B3yF;  erk_weight_LTS(tmp, w[3]);
-
-        }
+    void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &y_tilde, const Eigen::SparseMatrix<T> &Pfine, const Matrix<T, Dynamic, 1> &Fs, Matrix<T, Dynamic, 1> &k) {
         
-        #ifdef HAVE_INTEL_MKL
+        // k = B(Pfine * ỹ)
+        Matrix<T, Dynamic, 1> Py = Pfine * y_tilde;
+        erk_weight_LTS(Py, k);
+        
+        // k += Pfine * Mc_inv * Fs  (partie cellule seulement)
+        k.block(0, 0, m_n_c_dof, 1) += Pfine.block(0, 0, m_n_c_dof, m_n_c_dof)  * m_Mc_inv * Fs.block(0, 0, m_n_c_dof, 1);
+        
+    }
+    
+    #ifdef HAVE_INTEL_MKL
     PardisoLDLT<SparseMatrix<T>> & FacesAnalysis(){
         return m_analysis_f;
     }
     #else
-        SimplicialLDLT<SparseMatrix<T>> & FacesAnalysis(){
-            return m_analysis_f;
-        }
+    SimplicialLDLT<SparseMatrix<T>> & FacesAnalysis(){
+        return m_analysis_f;
+    }
     #endif
     
     SparseMatrix<T> & Mc(){
         return m_Mc;
     }
-
+    
     SparseMatrix<T> & invMc(){
         return m_Mc_inv;
     }
-
+    
     SparseMatrix<T> & Kcc(){
         return m_Kcc;
     }
@@ -536,9 +511,9 @@ class erk_coupling_hho_scheme
     void SetFg(Matrix<T, Dynamic, 1> & Fg){
         m_Fc = Fg.block(0, 0, m_n_c_dof, 1);
     }
-
+    
     void compute_eigenvalues(std::ostream & simulation_log = std::cout){
-
+        
         SparseMatrix<T> A_SCHUR = m_Kcc - m_Kcf*m_Sff_inv*m_Kfc;
         SparseMatrix<T> A = A_SCHUR.transpose()*m_Mc_inv*A_SCHUR;
         Spectra::SparseSymMatProd<double> opA(A);
@@ -552,13 +527,13 @@ class erk_coupling_hho_scheme
         bool debug = true;
         if (debug) {
             if(eigs.info() == Spectra::CompInfo::Successful)
-                std::cout << cyan << bold << "Successful\n";
+            std::cout << cyan << bold << "Successful\n";
             if(eigs.info() == Spectra::CompInfo::NotComputed)
-                std::cout << cyan << bold << "NotComputed\n";
+            std::cout << cyan << bold << "NotComputed\n";
             if(eigs.info() == Spectra::CompInfo::NotConverging)
-                std::cout << cyan << bold << "NotConverging\n";
+            std::cout << cyan << bold << "NotConverging\n";
             if(eigs.info() == Spectra::CompInfo::NumericalIssue)
-                std::cout << cyan << bold << "NumericalIssue\n";
+            std::cout << cyan << bold << "NumericalIssue\n";
         }
         eigs.eigenvalues();
         std::cout << bold << cyan << "      Eigenvalue found: " << reset << cyan << eigs.eigenvalues() << std::endl << std::endl; 
