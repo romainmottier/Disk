@@ -368,8 +368,8 @@ class erk_coupling_hho_scheme {
         }
         
     }
-     
-    void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double>  &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
+    
+    void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
         
         Matrix<T, Dynamic, 1> F0 =  Fn;
         Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
@@ -381,11 +381,10 @@ class erk_coupling_hho_scheme {
         
         Matrix<T, Dynamic, 1> zero = Matrix<T, Dynamic, 1>::Zero(y.rows());
         Matrix<T, Dynamic, 1> F0_full, F1_full, F2_full;
-        
         SetFg(IPF0); erk_weight(zero, F0_full); ZeroFc();
         SetFg(IPF1); erk_weight(zero, F1_full); ZeroFc();
         SetFg(IPF2); erk_weight(zero, F2_full); ZeroFc();
-
+        
         auto Pc = Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof);
         Matrix<T, Dynamic, 1> MinvF0 = F0_full.block(0, 0, m_n_c_dof, 1);
         Matrix<T, Dynamic, 1> MinvF1 = F1_full.block(0, 0, m_n_c_dof, 1);
@@ -404,17 +403,16 @@ class erk_coupling_hho_scheme {
         
         Matrix<T, Dynamic, 1> arg0 = B0y;
         Matrix<T, Dynamic, 1> arg1 = B1y + F0_full;
-        Matrix<T, Dynamic, 1> arg2 = B2y + BF0   + F1_full;
-        Matrix<T, Dynamic, 1> arg3 = B3y + B2F0  + BF1 + F2_full;
+        Matrix<T, Dynamic, 1> arg2 = B2y + BF0  + F1_full;
+        Matrix<T, Dynamic, 1> arg3 = B3y + B2F0 + BF1 + F2_full;
         
-        auto compute_one_w = [&](const Matrix<T, Dynamic, 1>  &arg, const Matrix<T, Dynamic, 1> *MinvFext, Matrix<T, Dynamic, 1> &wi) {
+        auto compute_one_w = [&](const Matrix<T, Dynamic, 1> &arg, const Matrix<T, Dynamic, 1> *MinvFext, Matrix<T, Dynamic, 1> &wi) {
             
             Matrix<T, Dynamic, 1> Ptmp   = Pcoarse * arg;
             Matrix<T, Dynamic, 1> Ptmp_c = Ptmp.block(0, 0, m_n_c_dof, 1);
             Matrix<T, Dynamic, 1> Ptmp_f = Ptmp.block(m_n_c_dof, 0, m_n_f_dof, 1);
             
-            Matrix<T, Dynamic, 1> wi_c =
-            m_Mc_inv * (-Kcc()*Ptmp_c - Kcf()*Ptmp_f);
+            Matrix<T, Dynamic, 1> wi_c = m_Mc_inv * (-Kcc()*Ptmp_c - Kcf()*Ptmp_f);
             
             if (MinvFext)
             wi_c += Pc * (*MinvFext);
@@ -441,20 +439,17 @@ class erk_coupling_hho_scheme {
             return w[0] + tau*w[1] + (tau2/2)*w[2] + (tau3/6)*w[3];
         };
         
-auto fine_stage = [&](const Matrix<T, Dynamic, 1> &y_stage,
-                       T tau,
-                       const Matrix<T, Dynamic, 1> &F_tau)
-                   -> Matrix<T, Dynamic, 1> {
-    Matrix<T, Dynamic, 1> Py = Pfine * y_stage;
-    // PF = partie fine du terme source
-    Matrix<T, Dynamic, 1> PF = Pfine * F_tau;
-    SetFg(PF);
-    Matrix<T, Dynamic, 1> k;
-    erk_weight(Py, k);
-    ZeroFc();
-    k += Taylor_w(tau);
-    return k;
-};
+        auto fine_stage = [&](const Matrix<T, Dynamic, 1> &y_stage, T tau, const Matrix<T, Dynamic, 1> &F_tau) -> Matrix<T, Dynamic, 1> {
+            Matrix<T, Dynamic, 1> Py = Pfine * y_stage;
+            Matrix<T, Dynamic, 1> PF = Pfine * F_tau;
+            SetFg(PF);
+            Matrix<T, Dynamic, 1> k;
+            erk_weight(Py, k);
+            ZeroFc();
+            k += Taylor_w(tau);
+            return k;
+        };
+        
         T tmh = tm + 0.5*dtau;
         T tm1 = tm +     dtau;
         
