@@ -12,7 +12,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     // ############################## Simulation paramaters ######################################## 
     // #############################################################################################
     
-    std::cout << std::endl << bold << red << "   EXPLICIT ACOUSTIC CONV TEST" << reset << std::endl;
+    std::cout << std::endl << bold << red << "   EXPLICIT CONV TEST" << reset << std::endl;
     
     using RealType = double;
     simulation_data sim_data = preprocessor::process_args(argc, argv);
@@ -30,405 +30,416 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     typedef disk::BoundaryConditions<mesh_type, true> a_boundary_type;
     mesh_type msh;
     
-    if (sim_data.m_polygonal_mesh_Q) {
+    if (sim_data.m_polygonal_mesh_Q) {       
         size_t l = sim_data.m_n_divs;
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
-        bool use_poly_mesh = false; 
-        bool use_simp_mesh = false; 
-        if (use_poly_mesh) {
-            for (int i = 0; i <= 9; ++i) {
-                mesh_files.push_back("../../meshes/conv_test/poly/poly_" + std::to_string(32 * (1 << i)) + ".txt");
-            }
+        {   // Simplicial meshes
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l0_conv_test_1.0.txt");    // l = 0
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l1_conv_test_0.35.txt");   // l = 1 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l2_conv_test_0.15.txt");   // l = 2
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l3_conv_test_0.07.txt");   // l = 3 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l4_conv_test_0.035.txt");  // l = 4
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l5_conv_test_0.026.txt");  // l = 5 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l6_conv_test_0.017.txt");  // l = 6
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l7_conv_test_0.0125.txt"); // l = 7 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l8_conv_test_0.0085.txt"); // l = 8
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l9_conv_test_0.005.txt");  // l = 9 
+        }  
+        {   // Polyhedral meshes
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_32.txt");     // -l 0
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_64.txt");     // -l 1
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_128.txt");    // -l 2
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_256.txt");    // -l 3
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_512.txt");    // -l 4
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_1024.txt");   // -l 5 
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_2048.txt");   // -l 6
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_4096.txt");   // -l 7 
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_8192.txt");   // -l 8
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_16384.txt");  // -l 9
+        }      
+        // Reading the polygonal mesh
+        mesh_builder.set_poly_mesh_file(mesh_files[l]);
+        mesh_builder.build_mesh();
+        mesh_builder.move_to_mesh_storage(msh);
+        mesh_builder.remove_duplicate_points();
+    }
+    else {
+        RealType lx = 2.0;  
+        RealType ly = 1.0;          
+        size_t nx = 4;
+        size_t ny = 2;
+        cartesian_2d_mesh_builder<RealType> mesh_builder(lx,ly,nx,ny);
+        mesh_builder.refine_mesh(sim_data.m_n_divs);
+        mesh_builder.set_translation_data(-1.0, 0.0);
+        mesh_builder.build_mesh();
+        mesh_builder.move_to_mesh_storage(msh);
+    }
+    tc.toc();
+    std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
+    std::cout << tc << " seconds" << reset << std::endl;
+    RealType h_max = 1e-5;
+    RealType h_min = 10;
+    for (auto & cell : msh ) {
+        auto cell_ind = msh.lookup(cell);
+        mesh_type::point_type bar = barycenter(msh, cell);
+        RealType h_l = diameter(msh, cell);
+        if (h_l < h_min) {
+            h_min = h_l;
+        }
+        else if (h_l > h_max) {
+            h_max = h_l;
+        }
+    }
+    auto h_c = 0.75*h_max;
+    std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
+    std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
+    std::cout << bold << cyan << "      h_max/h_min = " << h_max/h_min << reset << std::endl << std::endl;
+    
+    // #############################################################################################
+    // ################################ Time controls ##############################################
+    // #############################################################################################
+    
+    size_t nt = 10;
+    for (unsigned int i = 0; i < sim_data.m_nt_divs; i++) {
+        nt = sim_data.m_nt_divs;
+    }
+    
+    RealType ti = 0.0;
+    RealType tf = 1.0;
+    RealType dt = (tf-ti)/nt;
+    RealType t = ti;
+    
+    // #############################################################################################
+    // ############################## Manufactured solution ########################################
+    // #############################################################################################
+    
+    scal_vec_analytic_functions functions;
+    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionCubicInTimeAcoustic);
+    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuarticInTimeAcoustic);
+    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuadraticInSpaceAcoustic);
+    functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial_paper);
+    
+    // Elastic analytical functions
+    auto u_fun    = functions.Evaluate_u(t);
+    auto v_fun    = functions.Evaluate_v(t);
+    auto a_fun    = functions.Evaluate_a(t);
+    auto f_fun    = functions.Evaluate_f(t);
+    auto flux_fun = functions.Evaluate_sigma(t);
+    
+    // Acoustic analytical functions
+    auto s_u_fun    = functions.Evaluate_s_u(t);
+    auto s_v_fun    = functions.Evaluate_s_v(t);
+    auto s_a_fun    = functions.Evaluate_s_a(t);
+    auto s_f_fun    = functions.Evaluate_s_f(t);
+    auto s_flux_fun = functions.Evaluate_s_q(t);
+    
+    // #############################################################################################
+    // ################################## HHO setting ##############################################
+    // #############################################################################################
+    
+    // Creating HHO approximation spaces and corresponding linear operator
+    size_t cell_k_degree = sim_data.m_k_degree;
+    if (sim_data.m_hdg_stabilization_Q) {
+        cell_k_degree++;
+    }
+    disk::hho_degree_info hho_di(cell_k_degree, sim_data.m_k_degree);
+    
+    // #############################################################################################
+    // ################################ Material data ##############################################
+    // #############################################################################################
+    
+    // Classify cells per material data and bc faces
+    auto elastic_mat_fun = [](const typename mesh_type::point_type& pt) -> elastic_material_data<RealType> {
+        double x,y;
+        x = pt.x();
+        y = pt.y();
+        RealType rho, vp, vs;
+        rho = 1.0;            // Solid mass density
+        vp  = std::sqrt(3.0); // Seismic compressional velocity vp
+        vs  = 1.0;            // Seismic shear velocity vs
+        elastic_material_data<RealType> material(rho,vp,vs);
+        return material;
+    };
+    
+    auto acoustic_mat_fun = [](const typename mesh_type::point_type& pt) -> acoustic_material_data<RealType> {
+        double x,y;
+        x = pt.x();
+        y = pt.y();
+        RealType rho, vp;
+        rho = 1.0; // Fluid mass density
+        vp  = 1.0; // Seismic compressional velocity vp
+        acoustic_material_data<RealType> material(rho,vp);
+        return material;
+    };
+    
+    // #############################################################################################
+    // ############################## Boundary conditions ##########################################
+    // #############################################################################################
+    
+    std::map<size_t,elastic_material_data<RealType>> e_material;
+    std::map<size_t,acoustic_material_data<RealType>> a_material;
+    std::set<size_t> elastic_bc_face_indexes, acoustic_bc_face_indexes, interface_face_indexes;
+    std::map<size_t,std::pair<size_t,size_t>> interface_cell_pair_indexes;
+    RealType eps = 1.0e-10;
+    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++){
+        const auto face = *face_it;
+        mesh_type::point_type bar = barycenter(msh, face);
+        auto fc_id = msh.lookup(face);
+        if (std::fabs(bar.x()) < eps) {
+            interface_face_indexes.insert(fc_id);
+            continue;
         } 
-        else if (use_simp_mesh) {
-            std::vector<double> conv_vals = {1.0, 0.35, 0.15, 0.07, 0.035, 0.026, 0.017, 0.0125, 0.0085, 0.005};
-            for (int i = 0; i < conv_vals.size(); ++i) {
-                mesh_files.push_back(
-                    "../../meshes/conv_test/simplices/unstructured/l" + std::to_string(i) + "_conv_test_" + std::to_string(conv_vals[i]) + ".txt");
-                }
-            }
-            mesh_builder.set_poly_mesh_file(mesh_files[l]);
-            mesh_builder.build_mesh();
-            mesh_builder.move_to_mesh_storage(msh);
-            mesh_builder.remove_duplicate_points();
+    }
+    for (auto & cell : msh ) {
+        auto cell_ind = msh.lookup(cell);
+        mesh_type::point_type bar = barycenter(msh, cell);
+        // Assigning the material properties
+        if (bar.x() > 0) {
+            acoustic_material_data<RealType> material = acoustic_mat_fun(bar);
+            a_material.insert(std::make_pair(cell_ind,material));
         }
         else {
-            RealType lx = 2.0;  
-            RealType ly = 1.0;          
-            size_t nx = 4;
-            size_t ny = 2;
-            cartesian_2d_mesh_builder<RealType> mesh_builder(lx,ly,nx,ny);
-            mesh_builder.refine_mesh(sim_data.m_n_divs);
-            mesh_builder.set_translation_data(-1.0, 0.0);
-            mesh_builder.build_mesh();
-            mesh_builder.move_to_mesh_storage(msh);
+            elastic_material_data<RealType> material = elastic_mat_fun(bar);
+            e_material.insert(std::make_pair(cell_ind,material));
         }
-        tc.toc();
-        std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
-        std::cout << tc << " seconds" << reset << std::endl;
-        RealType h_max = 1e-5;
-        RealType h_min = 10;
-        for (auto & cell : msh ) {
-            auto cell_ind = msh.lookup(cell);
-            mesh_type::point_type bar = barycenter(msh, cell);
-            RealType h_l = diameter(msh, cell);
-            if (h_l < h_min) {
-                h_min = h_l;
-            }
-            else if (h_l > h_max) {
-                h_max = h_l;
-            }
-        }
-        auto h_c = 0.75*h_max;
-        std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
-        std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
-        std::cout << bold << cyan << "      h_max/h_min = " << h_max/h_min << reset << std::endl << std::endl;
-        
-        // #############################################################################################
-        // ################################ Time controls ##############################################
-        // #############################################################################################
-        
-        size_t nt = 10;
-        for (unsigned int i = 0; i < sim_data.m_nt_divs; i++) {
-            nt = sim_data.m_nt_divs;
-        }
-        
-        RealType ti = 0.0;
-        RealType tf = 1.0;
-        RealType dt = (tf-ti)/nt;
-        RealType t = ti;
-        
-        // #############################################################################################
-        // ############################## Manufactured solution ########################################
-        // #############################################################################################
-        
-        scal_vec_analytic_functions functions;
-        // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionCubicInTimeAcoustic);
-        // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuarticInTimeAcoustic);
-        // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuadraticInSpaceAcoustic);
-        functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial_paper);
-        
-        // Elastic analytical functions
-        auto u_fun    = functions.Evaluate_u(t);
-        auto v_fun    = functions.Evaluate_v(t);
-        auto a_fun    = functions.Evaluate_a(t);
-        auto f_fun    = functions.Evaluate_f(t);
-        auto flux_fun = functions.Evaluate_sigma(t);
-        
-        // Acoustic analytical functions
-        auto s_u_fun    = functions.Evaluate_s_u(t);
-        auto s_v_fun    = functions.Evaluate_s_v(t);
-        auto s_a_fun    = functions.Evaluate_s_a(t);
-        auto s_f_fun    = functions.Evaluate_s_f(t);
-        auto s_flux_fun = functions.Evaluate_s_q(t);
-        
-        // #############################################################################################
-        // ################################## HHO setting ##############################################
-        // #############################################################################################
-        
-        // Creating HHO approximation spaces and corresponding linear operator
-        size_t cell_k_degree = sim_data.m_k_degree;
-        if (sim_data.m_hdg_stabilization_Q) {
-            cell_k_degree++;
-        }
-        disk::hho_degree_info hho_di(cell_k_degree, sim_data.m_k_degree);
-        
-        // #############################################################################################
-        // ################################ Material data ##############################################
-        // #############################################################################################
-        
-        // Classify cells per material data and bc faces
-        auto elastic_mat_fun = [](const typename mesh_type::point_type& pt) -> elastic_material_data<RealType> {
-            double x,y;
-            x = pt.x();
-            y = pt.y();
-            RealType rho, vp, vs;
-            rho = 1.0;            // Solid mass density
-            vp  = std::sqrt(3.0); // Seismic compressional velocity vp
-            vs  = 1.0;            // Seismic shear velocity vs
-            elastic_material_data<RealType> material(rho,vp,vs);
-            return material;
-        };
-        
-        auto acoustic_mat_fun = [](const typename mesh_type::point_type& pt) -> acoustic_material_data<RealType> {
-            double x,y;
-            x = pt.x();
-            y = pt.y();
-            RealType rho, vp;
-            rho = 1.0; // Fluid mass density
-            vp  = 1.0; // Seismic compressional velocity vp
-            acoustic_material_data<RealType> material(rho,vp);
-            return material;
-        };
-        
-        // #############################################################################################
-        // ############################## Boundary conditions ##########################################
-        // #############################################################################################
-        
-        std::map<size_t,elastic_material_data<RealType>> e_material;
-        std::map<size_t,acoustic_material_data<RealType>> a_material;
-        std::set<size_t> elastic_bc_face_indexes, acoustic_bc_face_indexes, interface_face_indexes;
-        std::map<size_t,std::pair<size_t,size_t>> interface_cell_pair_indexes;
-        RealType eps = 1.0e-10;
-        for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++){
-            const auto face = *face_it;
-            mesh_type::point_type bar = barycenter(msh, face);
+        // Detection of faces on the interfaces
+        auto cell_faces = faces(msh,cell);
+        for (auto face :cell_faces) {
             auto fc_id = msh.lookup(face);
-            if (std::fabs(bar.x()) < eps) {
-                interface_face_indexes.insert(fc_id);
-                continue;
-            } 
-        }
-        for (auto & cell : msh ) {
-            auto cell_ind = msh.lookup(cell);
-            mesh_type::point_type bar = barycenter(msh, cell);
-            // Assigning the material properties
-            if (bar.x() > 0) {
-                acoustic_material_data<RealType> material = acoustic_mat_fun(bar);
-                a_material.insert(std::make_pair(cell_ind,material));
-            }
-            else {
-                elastic_material_data<RealType> material = elastic_mat_fun(bar);
-                e_material.insert(std::make_pair(cell_ind,material));
-            }
-            // Detection of faces on the interfaces
-            auto cell_faces = faces(msh,cell);
-            for (auto face :cell_faces) {
-                auto fc_id = msh.lookup(face);
-                bool is_member_Q = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
-                if (is_member_Q) {
-                    if (bar.x() > 0) 
-                    interface_cell_pair_indexes[fc_id].second = cell_ind;
-                    else 
-                    interface_cell_pair_indexes[fc_id].first = cell_ind;
-                }
-            }
-        }
-        // Internal faces structure 
-        std::set<size_t> elastic_internal_faces;
-        std::set<size_t> acoustic_internal_faces;
-        for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
-            const auto face = *face_it;
-            mesh_type::point_type bar = barycenter(msh, face);
-            auto fc_id = msh.lookup(face);      
             bool is_member_Q = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
             if (is_member_Q) {
-                if (bar.y() > 0) 
-                acoustic_internal_faces.insert(fc_id);
+                if (bar.x() > 0) 
+                interface_cell_pair_indexes[fc_id].second = cell_ind;
                 else 
-                elastic_internal_faces.insert(fc_id);
+                interface_cell_pair_indexes[fc_id].first = cell_ind;
             }
         }
-        
-        size_t bc_elastic_id  = 0;
-        size_t bc_acoustic_id = 1;
-        for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++){
-            auto face = *face_it;
-            mesh_type::point_type bar = barycenter(msh, face);
-            auto fc_id = msh.lookup(face);
-            if (bar.x() > 0) {
-                disk::boundary_descriptor bi{bc_acoustic_id, true};
-                msh.backend_storage()->boundary_info.at(fc_id) = bi;
-                acoustic_bc_face_indexes.insert(fc_id);
-            }
-            else {
-                disk::boundary_descriptor bi{bc_elastic_id, true};
-                msh.backend_storage()->boundary_info.at(fc_id) = bi;
-                elastic_bc_face_indexes.insert(fc_id);
-            }   
-        }
-        // Detect interface elastic - acoustic
-        e_boundary_type e_bnd(msh);
-        a_boundary_type a_bnd(msh);
-        e_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_elastic_id, u_fun);
-        a_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_acoustic_id, s_u_fun);
-        
-        // #############################################################################################
-        // ###################################### Assembly #############################################
-        // #############################################################################################
-        
-        tc.tic();
-        auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
-        assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
-        assembler.set_coupling_stabilization();
-        if (sim_data.m_scaled_stabilization_Q) {
-            assembler.set_scaled_stabilization();
-        }    
-        assembler.assemble_mass(msh);
-        assembler.assemble_coupling_terms(msh);
-        
-        // #############################################################################################
-        // ###################### Projecting initial data ##############################################
-        // #############################################################################################
-        
-        Matrix<RealType, Dynamic, 1> x_dof;
-        assembler.project_over_cells(msh, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun);
-        assembler.project_over_faces(msh, x_dof, v_fun, s_v_fun);
-        
-        // #############################################################################################
-        // ###################################### Solving ##############################################
-        // #############################################################################################
-        
-        Matrix<RealType, Dynamic, Dynamic> a;
-        Matrix<RealType, Dynamic, 1> b;
-        Matrix<RealType, Dynamic, 1> c;
-        
-        // ERK schemes
-        assembler.assemble(msh, f_fun, s_f_fun, true);
-        assembler.LHS += assembler.COUPLING; 
-        
-        size_t elastic_cell_dofs  = assembler.get_e_n_cells_dof();
-        size_t acoustic_cell_dofs = assembler.get_a_n_cells_dof();
-        size_t e_face_dofs = assembler.get_e_face_dof();
-        size_t a_face_dofs = assembler.get_a_face_dof();
-        
-        erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING, elastic_cell_dofs, acoustic_cell_dofs, e_face_dofs, a_face_dofs);
-        erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(), assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
-        erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(), assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(), assembler.get_e_compress(), assembler.get_a_compress(), elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);//assembler.get_interfaces());
-        erk_an.refresh_faces_unknowns(x_dof);
-        
-        // ##################################################
-        // ################################################## Preprocessor
-        // ##################################################  
-        
-        std::ostringstream filename;
-        filename << "explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_discret_" << sim_data.m_hdg_stabilization_Q << ".txt";
-        std::string filename_str = filename.str();
-        std::ofstream simulation_log(filename_str);
-        sim_data.write_simulation_data(simulation_log);
-        simulation_log << "Number of ERK steps =  " << 4 << std::endl;
-        simulation_log << "Number of time steps =  " << nt << std::endl;
-        simulation_log << "Step size =  " << dt << std::endl;
-        simulation_log << "Number of equations : " << assembler.RHS.rows() << std::endl;
-        simulation_log << "Space step = " << h_max << std::endl;
-        simulation_log.flush();
-        
-        size_t it = 0;
-        std::ostringstream filename_silo;
-        filename_silo << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
-        std::string silo_file_name = filename_silo.str();
-        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
-        
-        // ##################################################
-        // ################################################## Time marching
-        // ##################################################
-        
-        // eval_F utilise t persistant pour éviter les dangling references
-        // (toutes les fonctions analytiques capturent t par référence)
-        auto eval_F = [&](RealType t_abs) -> Matrix<RealType, Dynamic, 1> {
-            t = t_abs;
-            auto v_fun   = functions.Evaluate_v(t);
-            auto f_fun   = functions.Evaluate_f(t);
-            auto s_v_fun = functions.Evaluate_s_v(t);
-            auto s_f_fun = functions.Evaluate_s_f(t);
-            assembler.get_e_bc_conditions().updateDirichletFunction(v_fun, 0);
-            assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
-            assembler.assemble_rhs(msh, f_fun, s_f_fun, true);
-            return assembler.RHS;
-        };
-
-        assembler.assemble_P(msh, h_c);
-        size_t nb_silo_files = 25;
-        size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
-        std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
-        auto p    = std::pow(2, sim_data.m_substeps_Q);
-        auto dtau = dt / p;
-
-        for(size_t it = 1; it <= nt; it++) {
-
-            tcit.tic();
-            RealType tn   = dt*(it-1)+ti;
-            RealType tn12 = tn + 0.5*dt;
-            RealType tn1  = tn + dt;
-            if (it % step_interval == 0 || it == nt) {
-                std::cout << bold << cyan << "      Time step number " << it << ": t = " << tn << reset << std::endl;
-            }
-
-            ////////////////////////////////////////////////////////////////////////// PRECOMPUTATIONS: ERK ON THE GLOBAL DOFS 
-            size_t n_dof = x_dof.rows();
-            std::vector<Matrix<RealType, Dynamic, 1>> w(4), k(4);
-            for (int i = 0; i < 4; ++i) {
-                w[i].resize(n_dof); w[i].setZero();
-                k[i].resize(n_dof); k[i].setZero();
-            }
-            auto x_dof_n = x_dof;
-
-            // Terme source coarse aux 3 points d'interpolation de Lagrange
-            Matrix<RealType, Dynamic, 1> Fn   = eval_F(tn);
-            Matrix<RealType, Dynamic, 1> Fn12 = eval_F(tn12);
-            Matrix<RealType, Dynamic, 1> Fn1  = eval_F(tn1);
-            erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, Fn, Fn12, Fn1, dt);
-
-            ////////////////////////////////////////////////////////////////////////// LOOP OVER THE SUBSTEPS
-            for (int m = 0; m < p; m++) {
-
-                double tm  = m * dtau;
-                double tmh = (m + 0.5) * dtau;
-                double tm1 = (m + 1.0) * dtau;
-
-                // Terme source fin aux 3 temps du sous-pas (temps absolu = tn + tau_local)
-                Matrix<RealType, Dynamic, 1> Fm  = eval_F(tn + tm);
-                Matrix<RealType, Dynamic, 1> Fmh = eval_F(tn + tmh);
-                Matrix<RealType, Dynamic, 1> Fm1 = eval_F(tn + tm1);
-
-                // Taylor expansion de w au temps LOCAL tau
-                auto Taylor_w = [&](double tau) {
-                    double tau2 = tau * tau;
-                    double tau3 = tau * tau2;
-                    return (w[0] + tau*w[1] + tau2/2.0*w[2] + tau3/6.0*w[3]).eval();
-                };
-
-                // k1
-                erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, Fm, k[0]);
-                k[0] += Taylor_w(tm);
-
-                // k2
-                Matrix<RealType, Dynamic, 1> x2 = x_dof_n + dtau/2.0 * k[0];
-                erk_an.erk_weight_LTS_fine(x2, assembler.Pfine, Fmh, k[1]);
-                k[1] += Taylor_w(tmh);
-
-                // k3
-                Matrix<RealType, Dynamic, 1> x3 = x_dof_n + dtau/2.0 * k[1];
-                erk_an.erk_weight_LTS_fine(x3, assembler.Pfine, Fmh, k[2]);
-                k[2] += Taylor_w(tmh);
-
-                // k4
-                Matrix<RealType, Dynamic, 1> x4 = x_dof_n + dtau * k[2];
-                erk_an.erk_weight_LTS_fine(x4, assembler.Pfine, Fm1, k[3]);
-                k[3] += Taylor_w(tm1);
-
-                // FINAL UPDATE
-                x_dof_n += dtau * (k[0] + 2.0*k[1] + 2.0*k[2] + k[3]) / 6.0;
-            }
-            x_dof = x_dof_n;
-            t = tn + dt;
-
-            if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
-                std::ostringstream filename;
-                filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
-                std::string silo_file_name = filename.str();
-                postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
-            }
-            tcit.toc();
-            if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
-                std::cout << bold << yellow << "         Iteration completed in " << tcit << " seconds" << reset << std::endl;
-            }
-
-            if(it == nt){
-                t = tn + dt;
-                auto v_fun      = functions.Evaluate_v(t);
-                auto flux_fun   = functions.Evaluate_sigma(t);
-                auto s_v_fun    = functions.Evaluate_s_v(t);
-                auto s_flux_fun = functions.Evaluate_s_q(t);
-                std::cout << std::endl;
-                postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic(msh, hho_di, assembler, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun, simulation_log);
-                postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic_energy_norm(msh, hho_di, assembler, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun, simulation_log);
-            }
-        }
-
-        cpu.toc();
-        simulation_log << "TOTAL CPU TIME: " << cpu << std::endl;
-        std::cout << bold << red << std::endl << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
-        
     }
+    // Internal faces structure 
+    std::set<size_t> elastic_internal_faces;
+    std::set<size_t> acoustic_internal_faces;
+    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
+        const auto face = *face_it;
+        mesh_type::point_type bar = barycenter(msh, face);
+        auto fc_id = msh.lookup(face);      
+        bool is_member_Q = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
+        if (is_member_Q) {
+            if (bar.y() > 0) 
+            acoustic_internal_faces.insert(fc_id);
+            else 
+            elastic_internal_faces.insert(fc_id);
+        }
+    }
+    
+    size_t bc_elastic_id  = 0;
+    size_t bc_acoustic_id = 1;
+    for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++){
+        auto face = *face_it;
+        mesh_type::point_type bar = barycenter(msh, face);
+        auto fc_id = msh.lookup(face);
+        if (bar.x() > 0) {
+            disk::boundary_descriptor bi{bc_acoustic_id, true};
+            msh.backend_storage()->boundary_info.at(fc_id) = bi;
+            acoustic_bc_face_indexes.insert(fc_id);
+        }
+        else {
+            disk::boundary_descriptor bi{bc_elastic_id, true};
+            msh.backend_storage()->boundary_info.at(fc_id) = bi;
+            elastic_bc_face_indexes.insert(fc_id);
+        }   
+    }
+    // Detect interface elastic - acoustic
+    e_boundary_type e_bnd(msh);
+    a_boundary_type a_bnd(msh);
+    e_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_elastic_id, u_fun);
+    a_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_acoustic_id, s_u_fun);
+    
+    // #############################################################################################
+    // ###################################### Assembly #############################################
+    // #############################################################################################
+    
+    tc.tic();
+    auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
+    assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
+    assembler.set_coupling_stabilization();
+    if (sim_data.m_scaled_stabilization_Q) {
+        assembler.set_scaled_stabilization();
+    }    
+    assembler.assemble_mass(msh);
+    assembler.assemble_coupling_terms(msh);
+    
+    // #############################################################################################
+    // ###################### Projecting initial data ##############################################
+    // #############################################################################################
+    
+    Matrix<RealType, Dynamic, 1> x_dof;
+    assembler.project_over_cells(msh, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun);
+    assembler.project_over_faces(msh, x_dof, v_fun, s_v_fun);
+    
+    // #############################################################################################
+    // ###################################### Solving ##############################################
+    // #############################################################################################
+    
+    Matrix<RealType, Dynamic, Dynamic> a;
+    Matrix<RealType, Dynamic, 1> b;
+    Matrix<RealType, Dynamic, 1> c;
+    
+    // ERK schemes
+    assembler.assemble(msh, f_fun, s_f_fun, true);
+    assembler.LHS += assembler.COUPLING; 
+    
+    size_t elastic_cell_dofs  = assembler.get_e_n_cells_dof();
+    size_t acoustic_cell_dofs = assembler.get_a_n_cells_dof();
+    size_t e_face_dofs = assembler.get_e_face_dof();
+    size_t a_face_dofs = assembler.get_a_face_dof();
+    
+    erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING, elastic_cell_dofs, acoustic_cell_dofs, e_face_dofs, a_face_dofs);
+    erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(), assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
+    erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(), assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(), assembler.get_e_compress(), assembler.get_a_compress(), elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);//assembler.get_interfaces());
+    erk_an.refresh_faces_unknowns(x_dof);
+    
+    // ##################################################
+    // ################################################## Preprocessor
+    // ##################################################  
+    
+    std::ostringstream filename;
+    filename << "explicit_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_discret_" << sim_data.m_hdg_stabilization_Q << ".txt";
+    std::string filename_str = filename.str();
+    std::ofstream simulation_log(filename_str);
+    sim_data.write_simulation_data(simulation_log);
+    simulation_log << "Number of ERK steps =  " << 4 << std::endl;
+    simulation_log << "Number of time steps =  " << nt << std::endl;
+    simulation_log << "Step size =  " << dt << std::endl;
+    simulation_log << "Number of equations : " << assembler.RHS.rows() << std::endl;
+    simulation_log << "Space step = " << h_max << std::endl;
+    simulation_log.flush();
+    
+    size_t it = 0;
+    std::ostringstream filename_silo;
+    filename_silo << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
+    std::string silo_file_name = filename_silo.str();
+    postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false);
+    
+    // ##################################################
+    // ################################################## Time marching
+    // ##################################################
+    
+    // eval_F utilise t persistant pour éviter les dangling references
+    // (toutes les fonctions analytiques capturent t par référence)
+    auto eval_F = [&](RealType t_abs) -> Matrix<RealType, Dynamic, 1> {
+        t = t_abs;
+        auto v_fun   = functions.Evaluate_v(t);
+        auto f_fun   = functions.Evaluate_f(t);
+        auto s_v_fun = functions.Evaluate_s_v(t);
+        auto s_f_fun = functions.Evaluate_s_f(t);
+        assembler.get_e_bc_conditions().updateDirichletFunction(v_fun, 0);
+        assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun, 0);
+        assembler.assemble_rhs(msh, f_fun, s_f_fun, true);
+        return assembler.RHS;
+    };
+    
+    assembler.assemble_P(msh, h_c);
+    size_t nb_silo_files = 25;
+    size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
+    std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
+    auto p    = std::pow(2, sim_data.m_substeps_Q);
+    auto dtau = dt / p;
+    
+    for(size_t it = 1; it <= nt; it++) {
+        
+        tcit.tic();
+        RealType tn   = dt*(it-1)+ti;
+        RealType tn12 = tn + 0.5*dt;
+        RealType tn1  = tn + dt;
+        if (it % step_interval == 0 || it == nt) {
+            std::cout << bold << cyan << "      Time step number " << it << ": t = " << tn << reset << std::endl;
+        }
+        
+        ////////////////////////////////////////////////////////////////////////// PRECOMPUTATIONS: ERK ON THE GLOBAL DOFS 
+        size_t n_dof = x_dof.rows();
+        std::vector<Matrix<RealType, Dynamic, 1>> w(4), k(4);
+        for (int i = 0; i < 4; ++i) {
+            w[i].resize(n_dof); w[i].setZero();
+            k[i].resize(n_dof); k[i].setZero();
+        }
+        auto x_dof_n = x_dof;
+        
+        // Terme source coarse aux 3 points d'interpolation de Lagrange
+        Matrix<RealType, Dynamic, 1> Fn   = eval_F(tn);
+        Matrix<RealType, Dynamic, 1> Fn12 = eval_F(tn12);
+        Matrix<RealType, Dynamic, 1> Fn1  = eval_F(tn1);
+        erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, Fn, Fn12, Fn1, dt);
+        
+        ////////////////////////////////////////////////////////////////////////// LOOP OVER THE SUBSTEPS
+        for (int m = 0; m < p; m++) {
+            
+            double tm  = m * dtau;
+            double tmh = (m + 0.5) * dtau;
+            double tm1 = (m + 1.0) * dtau;
+            
+            // Terme source fin aux 3 temps du sous-pas (temps absolu = tn + tau_local)
+            Matrix<RealType, Dynamic, 1> Fm  = eval_F(tn + tm);
+            Matrix<RealType, Dynamic, 1> Fmh = eval_F(tn + tmh);
+            Matrix<RealType, Dynamic, 1> Fm1 = eval_F(tn + tm1);
+            
+            // Taylor expansion de w au temps LOCAL tau
+            auto Taylor_w = [&](double tau) {
+                double tau2 = tau * tau;
+                double tau3 = tau * tau2;
+                return (w[0] + tau*w[1] + tau2/2.0*w[2] + tau3/6.0*w[3]).eval();
+            };
+            
+            // k1
+            erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, Fm, k[0]);
+            k[0] += Taylor_w(tm);
+            
+            // k2
+            Matrix<RealType, Dynamic, 1> x2 = x_dof_n + dtau/2.0 * k[0];
+            erk_an.erk_weight_LTS_fine(x2, assembler.Pfine, Fmh, k[1]);
+            k[1] += Taylor_w(tmh);
+            
+            // k3
+            Matrix<RealType, Dynamic, 1> x3 = x_dof_n + dtau/2.0 * k[1];
+            erk_an.erk_weight_LTS_fine(x3, assembler.Pfine, Fmh, k[2]);
+            k[2] += Taylor_w(tmh);
+            
+            // k4
+            Matrix<RealType, Dynamic, 1> x4 = x_dof_n + dtau * k[2];
+            erk_an.erk_weight_LTS_fine(x4, assembler.Pfine, Fm1, k[3]);
+            k[3] += Taylor_w(tm1);
+            
+            // FINAL UPDATE
+            x_dof_n += dtau * (k[0] + 2.0*k[1] + 2.0*k[2] + k[3]) / 6.0;
+        }
+        x_dof = x_dof_n;
+        t = tn + dt;
+        
+        if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
+            std::ostringstream filename;
+            filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
+            std::string silo_file_name = filename.str();
+            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
+        }
+        tcit.toc();
+        if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
+            std::cout << bold << yellow << "         Iteration completed in " << tcit << " seconds" << reset << std::endl;
+        }
+        
+        if(it == nt){
+            t = tn + dt;
+            auto v_fun      = functions.Evaluate_v(t);
+            auto flux_fun   = functions.Evaluate_sigma(t);
+            auto s_v_fun    = functions.Evaluate_s_v(t);
+            auto s_flux_fun = functions.Evaluate_s_q(t);
+            std::cout << std::endl;
+            postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic(msh, hho_di, assembler, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun, simulation_log);
+            postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic_energy_norm(msh, hho_di, assembler, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun, simulation_log);
+        }
+    }
+    
+    cpu.toc();
+    simulation_log << "TOTAL CPU TIME: " << cpu << std::endl;
+    std::cout << bold << red << std::endl << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
+    
+}
