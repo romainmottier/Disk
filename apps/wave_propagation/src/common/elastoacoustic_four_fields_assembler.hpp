@@ -1626,9 +1626,8 @@ public:
     
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////// LTS data structure
     
-    // INTERFACE COARSE/FINE ONLY IN FINE PROJECTION
-    void assemble_P(const Mesh& msh, T h_c)
-    {
+    void assemble_P(const Mesh& msh, T h_c) {
+        
         Pfine.setZero();
         Pcoarse.setZero();
         
@@ -1640,140 +1639,151 @@ public:
         const size_t n_e_cbs = get_e_cell_basis_data();
         const size_t n_a_cbs = get_a_cell_basis_data();
         
-        const size_t n_e_fbs = disk::vector_basis_size(
-            m_hho_di.face_degree(), Mesh::dimension - 1, Mesh::dimension);
-            const size_t n_a_fbs = disk::scalar_basis_size(
-                m_hho_di.face_degree(), Mesh::dimension - 1);
-                
-                // --------------------------------------------------
-                // TRIPLETS
-                // --------------------------------------------------
-                std::vector<Triplet<T>> Pfine_trips;
-                std::vector<Triplet<T>> Pcoarse_trips;
-                
-                Pfine_trips.reserve(LHS.rows());
-                Pcoarse_trips.reserve(LHS.rows());
-                
-                // --------------------------------------------------
-                // MARK FACES
-                // --------------------------------------------------
-                std::vector<bool> e_face_is_fine(n_e_edges, false);
-                std::vector<bool> a_face_is_fine(n_a_edges, false);
-                
-                auto storage = msh.backend_storage();
-                
-                // =======================
-                // ELASTIC CELLS
-                // =======================
-                for (auto& chunk : m_e_material)
-                {
-                    const size_t cell_id  = chunk.first;
-                    const size_t cell_ind = m_e_cell_index[cell_id];
-                    auto& cell = storage->surfaces[cell_id];
-                    
-                    const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
-                    const bool is_fine = (h < hc);
-                    
-                    const size_t glob_ofs = cell_ind * n_e_cbs;
-                    
-                    // ---- elastic cell dofs
-                    for (size_t i = 0; i < n_e_cbs; ++i) {
-                        const size_t dof = glob_ofs + i;
-                        if (is_fine)
-                        Pfine_trips.emplace_back(dof, dof, T(1));
-                        else
-                        Pcoarse_trips.emplace_back(dof, dof, T(1));
-                    }
-                    
-                    // ---- mark elastic faces
-                    auto fcs = faces(msh, cell);
-                    for (auto& fc : fcs) {
-                        const auto fc_id = msh.lookup(fc);
-                        if (m_e_bnd.is_dirichlet_face(fc_id)) continue;
-                        
-                        const size_t cf = m_e_compress_indexes.at(fc_id);
-                        if (is_fine) e_face_is_fine[cf] = true;
-                    }
-                }
-                
-                // =======================
-                // ACOUSTIC CELLS
-                // =======================
-                for (auto& chunk : m_a_material)
-                {
-                    const size_t cell_id  = chunk.first;
-                    const size_t cell_ind = m_a_cell_index[cell_id];
-                    auto& cell = storage->surfaces[cell_id];
-                    
-                    const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
-                    const bool is_fine = (h < hc);
-                    
-                    const size_t glob_ofs =
-                    m_n_elastic_cell_dof + cell_ind * n_a_cbs;
-                    
-                    // ---- acoustic cell dofs
-                    for (size_t i = 0; i < n_a_cbs; ++i) {
-                        const size_t dof = glob_ofs + i;
-                        if (is_fine)
-                        Pfine_trips.emplace_back(dof, dof, T(1));
-                        else
-                        Pcoarse_trips.emplace_back(dof, dof, T(1));
-                    }
-                    
-                    // ---- mark acoustic faces
-                    auto fcs = faces(msh, cell);
-                    for (auto& fc : fcs) {
-                        const auto fc_id = msh.lookup(fc);
-                        if (m_a_bnd.is_dirichlet_face(fc_id)) continue;
-                        
-                        const size_t cf = m_a_compress_indexes.at(fc_id);
-                        if (is_fine) a_face_is_fine[cf] = true;
-                    }
-                }
-                
-                // =======================
-                // ELASTIC FACES
-                // =======================
-                const size_t e_face_shift =
-                m_n_elastic_cell_dof + m_n_acoustic_cell_dof;
-                
-                for (size_t cf = 0; cf < n_e_edges; ++cf) {
-                    for (size_t i = 0; i < n_e_fbs; ++i) {
-                        const size_t dof = e_face_shift + cf * n_e_fbs + i;
-                        if (e_face_is_fine[cf])
-                        Pfine_trips.emplace_back(dof, dof, T(1));
-                        else
-                        Pcoarse_trips.emplace_back(dof, dof, T(1));
-                    }
-                }
-                
-                // =======================
-                // ACOUSTIC FACES
-                // =======================
-                const size_t a_face_shift =
-                e_face_shift + m_n_elastic_face_dof;
-                
-                for (size_t cf = 0; cf < n_a_edges; ++cf) {
-                    for (size_t i = 0; i < n_a_fbs; ++i) {
-                        const size_t dof = a_face_shift + cf * n_a_fbs + i;
-                        if (a_face_is_fine[cf])
-                        Pfine_trips.emplace_back(dof, dof, T(1));
-                        else
-                        Pcoarse_trips.emplace_back(dof, dof, T(1));
-                    }
-                }
-                
-                // =======================
-                // FINALIZE
-                // =======================
-                Pfine.setFromTriplets(Pfine_trips.begin(), Pfine_trips.end());
-                Pcoarse.setFromTriplets(Pcoarse_trips.begin(), Pcoarse_trips.end());
-                
-                Pfine.makeCompressed();
-                Pcoarse.makeCompressed();
-            }
-            
-            
-        };
+        const size_t n_e_fbs = disk::vector_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1, Mesh::dimension);
+        const size_t n_a_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
         
-        #endif /* elastoacoustic_four_fields_assembler_hpp */
+        // --------------------------------------------------
+        // TRIPLETS
+        // --------------------------------------------------
+        std::vector<Triplet<T>> Pfine_trips;
+        std::vector<Triplet<T>> Pcoarse_trips;
+        
+        Pfine_trips.reserve(LHS.rows());
+        Pcoarse_trips.reserve(LHS.rows());
+        
+        // --------------------------------------------------
+        // MARK FACES
+        // Une face est fine seulement si TOUTES ses cellules voisines sont fines
+        // (AND) — une face à l'interface fin/grossier tombe dans Pcoarse
+        // --------------------------------------------------
+        std::vector<int> e_face_fine_count(n_e_edges, 0);
+        std::vector<int> e_face_neighbor_count(n_e_edges, 0);
+        std::vector<int> a_face_fine_count(n_a_edges, 0);
+        std::vector<int> a_face_neighbor_count(n_a_edges, 0);
+        
+        auto storage = msh.backend_storage();
+        
+        // =======================
+        // ELASTIC CELLS — comptage des voisins fins par face
+        // =======================
+        for (auto& chunk : m_e_material) {
+            const size_t cell_id = chunk.first;
+            auto& cell = storage->surfaces[cell_id];
+            const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+            const bool is_fine = (h < hc);
+            auto fcs = faces(msh, cell);
+            for (auto& fc : fcs) {
+                const auto fc_id = msh.lookup(fc);
+                if (m_e_bnd.is_dirichlet_face(fc_id)) continue;
+                const size_t cf = m_e_compress_indexes.at(fc_id);
+                e_face_neighbor_count[cf]++;
+                if (is_fine) e_face_fine_count[cf]++;
+            }
+        }
+        
+        // =======================
+        // ACOUSTIC CELLS — comptage des voisins fins par face
+        // =======================
+        for (auto& chunk : m_a_material) {
+            const size_t cell_id = chunk.first;
+            auto& cell = storage->surfaces[cell_id];
+            const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+            const bool is_fine = (h < hc);
+            auto fcs = faces(msh, cell);
+            for (auto& fc : fcs) {
+                const auto fc_id = msh.lookup(fc);
+                if (m_a_bnd.is_dirichlet_face(fc_id)) continue;
+                const size_t cf = m_a_compress_indexes.at(fc_id);
+                a_face_neighbor_count[cf]++;
+                if (is_fine) a_face_fine_count[cf]++;
+            }
+        }
+        
+        // Une face est fine ssi toutes ses cellules voisines sont fines
+        std::vector<bool> e_face_is_fine(n_e_edges, false);
+        std::vector<bool> a_face_is_fine(n_a_edges, false);
+        for (size_t cf = 0; cf < n_e_edges; ++cf)
+        e_face_is_fine[cf] = (e_face_fine_count[cf] == e_face_neighbor_count[cf]);
+        for (size_t cf = 0; cf < n_a_edges; ++cf)
+        a_face_is_fine[cf] = (a_face_fine_count[cf] == a_face_neighbor_count[cf]);
+        
+        // =======================
+        // ELASTIC CELLS — remplissage des triplets
+        // =======================
+        for (auto& chunk : m_e_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_e_cell_index[cell_id];
+            auto& cell = storage->surfaces[cell_id];
+            const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+            const bool is_fine = (h < hc);
+            const size_t glob_ofs = cell_ind * n_e_cbs;
+            for (size_t i = 0; i < n_e_cbs; ++i) {
+                const size_t dof = glob_ofs + i;
+                if (is_fine)
+                Pfine_trips.emplace_back(dof, dof, T(1));
+                else
+                Pcoarse_trips.emplace_back(dof, dof, T(1));
+            }
+        }
+        
+        // =======================
+        // ACOUSTIC CELLS — remplissage des triplets
+        // =======================
+        for (auto& chunk : m_a_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_a_cell_index[cell_id];
+            auto& cell = storage->surfaces[cell_id];
+            const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+            const bool is_fine = (h < hc);
+            const size_t glob_ofs = m_n_elastic_cell_dof + cell_ind * n_a_cbs;
+            for (size_t i = 0; i < n_a_cbs; ++i) {
+                const size_t dof = glob_ofs + i;
+                if (is_fine)
+                Pfine_trips.emplace_back(dof, dof, T(1));
+                else
+                Pcoarse_trips.emplace_back(dof, dof, T(1));
+            }
+        }
+        
+        // =======================
+        // ELASTIC FACES
+        // =======================
+        const size_t e_face_shift = m_n_elastic_cell_dof + m_n_acoustic_cell_dof;
+        
+        for (size_t cf = 0; cf < n_e_edges; ++cf) {
+            for (size_t i = 0; i < n_e_fbs; ++i) {
+                const size_t dof = e_face_shift + cf * n_e_fbs + i;
+                if (e_face_is_fine[cf])
+                Pfine_trips.emplace_back(dof, dof, T(1));
+                else
+                Pcoarse_trips.emplace_back(dof, dof, T(1));
+            }
+        }
+        
+        // =======================
+        // ACOUSTIC FACES
+        // =======================
+        const size_t a_face_shift = e_face_shift + m_n_elastic_face_dof;
+        
+        for (size_t cf = 0; cf < n_a_edges; ++cf) {
+            for (size_t i = 0; i < n_a_fbs; ++i) {
+                const size_t dof = a_face_shift + cf * n_a_fbs + i;
+                if (a_face_is_fine[cf])
+                Pfine_trips.emplace_back(dof, dof, T(1));
+                else
+                Pcoarse_trips.emplace_back(dof, dof, T(1));
+            }
+        }
+        
+        // =======================
+        // FINALIZE
+        // =======================
+        Pfine.setFromTriplets(Pfine_trips.begin(), Pfine_trips.end());
+        Pcoarse.setFromTriplets(Pcoarse_trips.begin(), Pcoarse_trips.end());
+        
+        Pfine.makeCompressed();
+        Pcoarse.makeCompressed();
+    }
+};
+
+#endif /* elastoacoustic_four_fields_assembler_hpp */

@@ -108,10 +108,10 @@ void EHHOFirstOrder(int argc, char **argv){
     // ##################################################
     
     scal_vec_analytic_functions functions;
-    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial);
+    functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial);
     // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuadraticInTime);
     // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuadraticInSpace);
-    functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial_paper);
+    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial_paper);
     
     // Elastic analytical functions
     auto u_fun    = functions.Evaluate_u(t);

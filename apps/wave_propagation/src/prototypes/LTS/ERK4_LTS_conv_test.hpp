@@ -12,7 +12,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     // ############################## Simulation paramaters ######################################## 
     // #############################################################################################
     
-    std::cout << std::endl << bold << red << "   EXPLICIT CONV TEST" << reset << std::endl;
+    std::cout << std::endl << bold << red << "   ERK(4)-LTS CONV TEST" << reset << std::endl;
     
     using RealType = double;
     simulation_data sim_data = preprocessor::process_args(argc, argv);
@@ -29,6 +29,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     typedef disk::BoundaryConditions<mesh_type, false> e_boundary_type;
     typedef disk::BoundaryConditions<mesh_type, true> a_boundary_type;
     mesh_type msh;
+    bool local_refinement = true;
     
     if (sim_data.m_polygonal_mesh_Q) {       
         size_t l = sim_data.m_n_divs;
@@ -74,6 +75,26 @@ void ERK4_LTS_conv_test(int argc, char **argv){
         mesh_builder.set_translation_data(-1.0, 0.0);
         mesh_builder.build_mesh();
         mesh_builder.move_to_mesh_storage(msh);
+        if (local_refinement) {
+            RealType lx = 2.0;  
+            RealType ly = 1.0;          
+            size_t nx = 4;
+            size_t ny = 2;
+            cartesian_2d_mesh_builder<RealType> mesh_builder(lx,ly,nx,ny);
+            mesh_builder.refine_mesh(sim_data.m_n_divs);
+            mesh_builder.set_translation_data(-1.0, 0.0);
+            mesh_builder.build_mesh();
+            typename mesh_type::point_type pt1(-0.5,0.5);
+            typename mesh_type::point_type pt2(0.5,0.5);
+            std::set<size_t> cell_indexes1 = postprocessor<mesh_type>::find_cells(pt1, msh, true);
+            std::set<size_t> cell_indexes2 = postprocessor<mesh_type>::find_cells(pt2, msh, true);
+            std::vector<size_t> vec;
+            vec.insert(vec.end(), cell_indexes1.begin(), cell_indexes1.end());
+            vec.insert(vec.end(), cell_indexes2.begin(), cell_indexes2.end());
+            auto n_loc_ref_lvl = sim_data.m_substeps_Q;
+            mesh_builder.refine_cells(vec, n_loc_ref_lvl);
+            mesh_builder.move_to_mesh_storage(msh);
+        }
     }
     tc.toc();
     std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
@@ -91,10 +112,11 @@ void ERK4_LTS_conv_test(int argc, char **argv){
             h_max = h_l;
         }
     }
+    auto p = h_max/h_min;
     auto h_c = 0.75*h_max;
     std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
     std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
-    std::cout << bold << cyan << "      h_max/h_min = " << h_max/h_min << reset << std::endl << std::endl;
+    std::cout << bold << cyan << "      h_max/h_min = " << p << reset << std::endl << std::endl;
     
     // #############################################################################################
     // ################################ Time controls ##############################################
@@ -115,10 +137,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     // #############################################################################################
     
     scal_vec_analytic_functions functions;
-    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionCubicInTimeAcoustic);
-    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuarticInTimeAcoustic);
-    // functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionQuadraticInSpaceAcoustic);
-    functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial_paper);
+    functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial);
     
     // Elastic analytical functions
     auto u_fun    = functions.Evaluate_u(t);
@@ -225,10 +244,12 @@ void ERK4_LTS_conv_test(int argc, char **argv){
         auto fc_id = msh.lookup(face);      
         bool is_member_Q = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
         if (is_member_Q) {
-            if (bar.y() > 0) 
-            acoustic_internal_faces.insert(fc_id);
-            else 
-            elastic_internal_faces.insert(fc_id);
+            if (bar.y() > 0) {
+                acoustic_internal_faces.insert(fc_id);
+            }
+            else {
+                elastic_internal_faces.insert(fc_id);
+            }
         }
     }
     
@@ -325,8 +346,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     // ################################################## Time marching
     // ##################################################
     
-    // eval_F utilise t persistant pour éviter les dangling references
-    // (toutes les fonctions analytiques capturent t par référence)
+    // Compute source term
     auto eval_F = [&](RealType t_abs) -> Matrix<RealType, Dynamic, 1> {
         t = t_abs;
         auto v_fun   = functions.Evaluate_v(t);
@@ -343,90 +363,59 @@ void ERK4_LTS_conv_test(int argc, char **argv){
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
-    auto p    = std::pow(2, sim_data.m_substeps_Q);
     auto dtau = dt / p;
-    
-    for(size_t it = 1; it <= nt; it++) {
-        
+    for (size_t it = 1; it <= nt; it++) {
+
+        //////////////////////////////////////////////////////////////////////////
         tcit.tic();
-        RealType tn   = dt*(it-1)+ti;
-        RealType tn12 = tn + 0.5*dt;
-        RealType tn1  = tn + dt;
+        RealType tn   = dt*(it-1) + ti;
         if (it % step_interval == 0 || it == nt) {
             std::cout << bold << cyan << "      Time step number " << it << ": t = " << tn << reset << std::endl;
         }
-        
-        ////////////////////////////////////////////////////////////////////////// PRECOMPUTATIONS: ERK ON THE GLOBAL DOFS 
-        size_t n_dof = x_dof.rows();
-        std::vector<Matrix<RealType, Dynamic, 1>> w(4), k(4);
-        for (int i = 0; i < 4; ++i) {
-            w[i].resize(n_dof); w[i].setZero();
-            k[i].resize(n_dof); k[i].setZero();
-        }
         auto x_dof_n = x_dof;
         
-        // Terme source coarse aux 3 points d'interpolation de Lagrange
+        //////////////////////////////////////////////////////////////////////////
+        RealType tn12 = tn + 0.5*dt;
+        RealType tn1  = tn + dt;
         Matrix<RealType, Dynamic, 1> Fn   = eval_F(tn);
         Matrix<RealType, Dynamic, 1> Fn12 = eval_F(tn12);
         Matrix<RealType, Dynamic, 1> Fn1  = eval_F(tn1);
+        std::vector<Matrix<RealType, Dynamic, 1>> w(4);
+        for (int i = 0; i < 4; ++i) {
+            w[i].resize(x_dof.rows());
+        }
+        erk_an.ZeroFc();   
         erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, Fn, Fn12, Fn1, dt);
         
-        ////////////////////////////////////////////////////////////////////////// LOOP OVER THE SUBSTEPS
+        //////////////////////////////////////////////////////////////////////////
         for (int m = 0; m < p; m++) {
+            RealType tm  =  m      * dtau;
+            RealType tmh = (m+0.5) * dtau;
+            RealType tm1 = (m+1.0) * dtau;
             
-            double tm  = m * dtau;
-            double tmh = (m + 0.5) * dtau;
-            double tm1 = (m + 1.0) * dtau;
-            
-            // Terme source fin aux 3 temps du sous-pas (temps absolu = tn + tau_local)
             Matrix<RealType, Dynamic, 1> Fm  = eval_F(tn + tm);
             Matrix<RealType, Dynamic, 1> Fmh = eval_F(tn + tmh);
             Matrix<RealType, Dynamic, 1> Fm1 = eval_F(tn + tm1);
             
-            // Taylor expansion de w au temps LOCAL tau
-            auto Taylor_w = [&](double tau) {
-                double tau2 = tau * tau;
-                double tau3 = tau * tau2;
-                return (w[0] + tau*w[1] + tau2/2.0*w[2] + tau3/6.0*w[3]).eval();
-            };
-            
-            // k1
-            erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, Fm, k[0]);
-            k[0] += Taylor_w(tm);
-            
-            // k2
-            Matrix<RealType, Dynamic, 1> x2 = x_dof_n + dtau/2.0 * k[0];
-            erk_an.erk_weight_LTS_fine(x2, assembler.Pfine, Fmh, k[1]);
-            k[1] += Taylor_w(tmh);
-            
-            // k3
-            Matrix<RealType, Dynamic, 1> x3 = x_dof_n + dtau/2.0 * k[1];
-            erk_an.erk_weight_LTS_fine(x3, assembler.Pfine, Fmh, k[2]);
-            k[2] += Taylor_w(tmh);
-            
-            // k4
-            Matrix<RealType, Dynamic, 1> x4 = x_dof_n + dtau * k[2];
-            erk_an.erk_weight_LTS_fine(x4, assembler.Pfine, Fm1, k[3]);
-            k[3] += Taylor_w(tm1);
-            
-            // FINAL UPDATE
-            x_dof_n += dtau * (k[0] + 2.0*k[1] + 2.0*k[2] + k[3]) / 6.0;
+            erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, w, Fm, Fmh, Fm1, tm, dtau);
         }
+        
+        //////////////////////////////////////////////////////////////////////////
         x_dof = x_dof_n;
         t = tn + dt;
         
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
-            std::ostringstream filename;
-            filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
-            std::string silo_file_name = filename.str();
-            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
+            std::ostringstream fn;
+            fn << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs
+            << "_k_" << sim_data.m_k_degree << "_s_4_";
+            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(fn.str(), it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
         }
         tcit.toc();
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
             std::cout << bold << yellow << "         Iteration completed in " << tcit << " seconds" << reset << std::endl;
         }
         
-        if(it == nt){
+        if (it == nt) {
             t = tn + dt;
             auto v_fun      = functions.Evaluate_v(t);
             auto flux_fun   = functions.Evaluate_sigma(t);
@@ -437,9 +426,9 @@ void ERK4_LTS_conv_test(int argc, char **argv){
             postprocessor<mesh_type>::compute_errors_four_fields_elastoacoustic_energy_norm(msh, hho_di, assembler, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun, simulation_log);
         }
     }
-    
+        
     cpu.toc();
     simulation_log << "TOTAL CPU TIME: " << cpu << std::endl;
     std::cout << bold << red << std::endl << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
-    
+        
 }

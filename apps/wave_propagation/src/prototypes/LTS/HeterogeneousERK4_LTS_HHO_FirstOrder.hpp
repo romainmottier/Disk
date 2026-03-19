@@ -449,101 +449,56 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     // ################################################## Time marching
     // ##################################################
     
+    Matrix<RealType, Dynamic, 1> F_zero = Matrix<RealType, Dynamic, 1>::Zero(x_dof.rows());
     assembler.assemble_P(msh, h_c);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
     auto p = std::pow(2, sim_data.m_substeps_Q);
     auto dtau = dt / p;
-    for(size_t it = 1; it <= nt; it++) {
-
+    for (size_t it = 1; it <= nt; it++) {
+        
         //////////////////////////////////////////////////////////////////////////
         tcit.tic();
-        RealType tn = dt*(it-1)+ti;
+        RealType tn   = dt*(it-1) + ti;
         if (it % step_interval == 0 || it == nt) {
-            std::cout << bold << cyan << "      Time step number " << it << ": t = " << t << reset << std::endl;
-        }
-
-        ////////////////////////////////////////////////////////////////////////// PRECOMPUTATIONS: ERK ON THE GLOBAL DOFS 
-        size_t n_dof = x_dof.rows();
-        std::vector<Matrix<RealType, Dynamic, 1>> w(4), yn(4), k(4);
-        for (int i = 0; i < 4; ++i) {
-            w[i].resize(n_dof);  w[i].setZero();
-            yn[i].resize(n_dof); yn[i].setZero();
-            k[i].resize(n_dof);  k[i].setZero();
+            std::cout << bold << cyan << "      Time step number " << it << ": t = " << tn << reset << std::endl;
         }
         auto x_dof_n = x_dof;
-        erk_an.compute_wi(x_dof_n, assembler.Pcoarse, w);
-
-        ////////////////////////////////////////////////////////////////////////// LOOP OVER THE SUBSTEPS: ERK4 ON THE LOCAL DOFS WITH INJECTION OF THE GLOBAL DOFS
-        // Butcher tableau offsets for RK4: 0, 1/2, 1/2, 1
-        const std::array<double, 4> c = {0.0, 0.5, 0.5, 1.0};
-        // RK4 stage increments
-        const std::array<double, 4> a = {0.0, 0.5, 0.5, 1.0};
         
-        for (int m = 0; m < p; m++) {
-            for (int s = 0; s < 4; ++s) {
-                if (s == 0) {
-                    yn[s] = assembler.Pfine * x_dof_n;
-                }
-                else {
-                    yn[s] = assembler.Pfine * (x_dof_n + dtau * a[s] * k[s-1]);
-                }            
-                
-                erk_an.erk_weight(yn[s], k[s]);   // erk weight
-                double t  = (m + c[s]) * dtau;
-                double t2 = t * t;
-                double t3 = t * t2;
-                k[s] += w[0] + t*w[1] + t2*w[2]/2.0 + t3*w[3]/6.0;
-            }
-            // FINAL UPDATE
-            x_dof_n += dtau * (k[0] + 2.0*k[1] + 2.0*k[2] + k[3]) / 6.0;
+        //////////////////////////////////////////////////////////////////////////
+        std::vector<Matrix<RealType, Dynamic, 1>> w(4);
+        for (int i = 0; i < 4; ++i) {
+            w[i].resize(x_dof.rows());
         }
+        erk_an.ZeroFc();   
+        erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt);
+        
+        //////////////////////////////////////////////////////////////////////////
+        for (int m = 0; m < p; m++) {
+            RealType tm  =  m * dtau;            
+            erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau);
+        }
+        
+        //////////////////////////////////////////////////////////////////////////
         x_dof = x_dof_n;
-        t += dt;
+        t = tn + dt;
+        
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
-            std::ostringstream filename;
-            filename << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs << "_k_" << sim_data.m_k_degree << "_s_" << 4 << "_";
-            std::string silo_file_name = filename.str();
-            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(silo_file_name, it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
+            std::ostringstream fn;
+            fn << "silo_l_" << sim_data.m_n_divs << "_n_" << sim_data.m_nt_divs
+            << "_k_" << sim_data.m_k_degree << "_s_4_";
+            postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(fn.str(), it, msh, hho_di, x_dof, e_material, a_material, false, h_c);
         }
         tcit.toc();
         if (sim_data.m_render_silo_files_Q && (it % step_interval == 0 || it == nt)) {
             std::cout << bold << yellow << "         Iteration completed in " << tcit << " seconds" << reset << std::endl;
         }
+        
     }
     
     cpu.toc();
     simulation_log << "TOTAL CPU TIME: " << cpu << std::endl;
     std::cout << bold << red << std::endl << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
-
+    
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

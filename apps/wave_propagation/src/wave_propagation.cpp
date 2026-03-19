@@ -136,13 +136,15 @@ int main(int argc, char **argv){
    // BassinEHHOFirstOrder(argc, argv); Not working 
   
 // LOCAL TIME STEPPING 
-   ERK4_LTS_conv_test(argc, argv);
    // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
 
    // TEST LTS PULSE:
    // AcousticHeterogeneousPulse(argc, argv);
    // AcousticLTSEulerHeterogeneousPulse(argc, argv);
    // AcousticHeterogeneousPulse_LTS_RK4(argc, argv); 
+
+
+   ERK4_LTS_conv_test(argc, argv);
    // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
 
 }
