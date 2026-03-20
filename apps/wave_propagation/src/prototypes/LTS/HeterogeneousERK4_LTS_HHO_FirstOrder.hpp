@@ -1,7 +1,7 @@
 
 
 //  Created by Romain Mottier
-// ../wave_propagation -k 2 -s 0 -r 0 -c 0 -p 0 -l 6 -n 2500 -f 1 -e 0
+// ../wave_propagation -k3 -s0 -r0 -c0 -m1 -l0 -n4500 -p1 -f1 -e0
 // WITHOUT LOCAL REFINEMENT: ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n220 -p1 -f1 -e0
 // WITH LOCAL REFINEMENT LVL 3:../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n220 -p3 -f1 -e0
 void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv);
@@ -50,11 +50,11 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p2.txt");    // l = 1
         // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p3.txt");    // l = 2
         // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p4.txt");    // l = 3
-        // mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.txt");    // l = 4
-        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p1.txt");    // l = 0
-        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p2.txt");    // l = 1
-        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p3.txt");    // l = 2
-        mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p4.txt");    // l = 3
+        mesh_files.push_back("/home/mottie0000/Github/Diskpp/meshes/nonconform_square_coupling_p5.txt");    // l = 4
+        // mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p1.txt");    // l = 0
+        // mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p2.txt");    // l = 1
+        // mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p3.txt");    // l = 2
+        // mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p4.txt");    // l = 3
         mesh_files.push_back("/home/romain/GitHub/Disk/meshes/nonconform_square_coupling_p5.txt");    // l = 4
 
         // Reading the polygonal mesh
@@ -77,7 +77,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
                                                2461, 2462, 2463, 2464, 2465, 2466,
                                                2397, 2398, 2399, 2400, 2401, 2402,
                                                2333, 2334, 2335, 2336, 2337, 2338};
-        // mesh_builder.refine_cells(cells_to_refine, 7);
+        mesh_builder.refine_cells(cells_to_refine, 3);
         mesh_builder.move_to_mesh_storage(msh);
     }
     

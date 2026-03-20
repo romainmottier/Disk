@@ -144,8 +144,8 @@ int main(int argc, char **argv){
    // AcousticHeterogeneousPulse_LTS_RK4(argc, argv); 
 
 
-   ERK4_LTS_conv_test(argc, argv);
-   // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   // ERK4_LTS_conv_test(argc, argv);
+   HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
 
 }
 
