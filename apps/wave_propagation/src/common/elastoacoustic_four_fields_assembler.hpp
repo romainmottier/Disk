@@ -1,5 +1,5 @@
 //
-//  elastoacoustic_four_fields_assembler.hpp
+//  elastoacoustic_four_fields_hpp
 //  acoustics
 //
 //  Created by Omar Durán on 9/7/20.
@@ -1783,6 +1783,11 @@ public:
         
         Pfine.makeCompressed();
         Pcoarse.makeCompressed();
+        
+        // std::cout << bold << cyan << "      Pfine  nnz = " << Pfine.nonZeros()  << " / " << Pfine.rows()  << " diag" << reset << std::endl;
+        // std::cout << bold << cyan << "      Pcoarse nnz = " << Pcoarse.nonZeros() << " / " << Pcoarse.rows() << " diag" << reset << std::endl;
+        // std::cout << bold << cyan << "      Pfine + Pcoarse nnz = " << (Pfine.nonZeros() + Pcoarse.nonZeros()) << " (should = " << Pfine.rows() << ")" << reset << std::endl;
+        
     }
 };
 

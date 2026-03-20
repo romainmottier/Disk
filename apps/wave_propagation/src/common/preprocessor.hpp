@@ -120,6 +120,8 @@ public:
                       std::cout << "YES" << "       -m";
                   }
                   std::cout << "\n            " << "Mesh refinement level: " << m_n_divs << "  -l";
+                  std::cout << "\n            " << "Local refinement lvl:  " << m_substeps_Q << " -p";
+
                   if (m_nt_divs > 12) {
                       std::cout << "\n      " << bold << cyan << "Number of time steps: " << m_nt_divs << "      -n";
                       std::cout << "\n      " << bold << cyan << "Number of substeps: " << m_substeps_Q << "         -p";

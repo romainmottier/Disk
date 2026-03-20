@@ -33,7 +33,16 @@ class erk_coupling_hho_scheme {
     SparseMatrix<T> m_Kcf_fine;
     SparseMatrix<T> m_Kfc_fine;
     SparseMatrix<T> m_Sff_fine;
+    SparseMatrix<T> m_Sff_inv_fine;  
+    SparseMatrix<T> m_Mc_inv_fine;  
     
+    std::vector<size_t> m_fine_c_indices;
+    std::vector<size_t> m_fine_f_indices;
+    std::vector<size_t> m_coarse_c_indices;
+    std::vector<size_t> m_coarse_f_indices;
+    
+
+
     Matrix<T, Dynamic, 1> m_Fc;
     
     #ifdef HAVE_INTEL_MKL
@@ -371,36 +380,48 @@ class erk_coupling_hho_scheme {
     
     void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
         
+        // Coefficients Lagrange quadratique
         Matrix<T, Dynamic, 1> F0 =  Fn;
         Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
         Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
         
+        // (I-P)Fi pour les termes extérieurs des w
         Matrix<T, Dynamic, 1> IPF0 = Pcoarse * F0;
         Matrix<T, Dynamic, 1> IPF1 = Pcoarse * F1;
         Matrix<T, Dynamic, 1> IPF2 = Pcoarse * F2;
         
+        // F complet pour les chaînes B^i F
+        // (I-P)F pour les termes extérieurs des w
         Matrix<T, Dynamic, 1> zero = Matrix<T, Dynamic, 1>::Zero(y.rows());
         Matrix<T, Dynamic, 1> F0_full, F1_full, F2_full;
-        SetFg(IPF0); erk_weight(zero, F0_full); ZeroFc();
-        SetFg(IPF1); erk_weight(zero, F1_full); ZeroFc();
-        SetFg(IPF2); erk_weight(zero, F2_full); ZeroFc();
+        Matrix<T, Dynamic, 1> IPF0_full, IPF1_full, IPF2_full;
+        
+        SetFg(F0);   erk_weight(zero, F0_full);   ZeroFc();
+        SetFg(F1);   erk_weight(zero, F1_full);   ZeroFc();
+        SetFg(F2);   erk_weight(zero, F2_full);   ZeroFc();
+        SetFg(IPF0); erk_weight(zero, IPF0_full); ZeroFc();
+        SetFg(IPF1); erk_weight(zero, IPF1_full); ZeroFc();
+        SetFg(IPF2); erk_weight(zero, IPF2_full); ZeroFc();
         
         auto Pc = Pcoarse.block(0, 0, m_n_c_dof, m_n_c_dof);
-        Matrix<T, Dynamic, 1> MinvF0 = F0_full.block(0, 0, m_n_c_dof, 1);
-        Matrix<T, Dynamic, 1> MinvF1 = F1_full.block(0, 0, m_n_c_dof, 1);
-        Matrix<T, Dynamic, 1> MinvF2 = F2_full.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> MinvF0 = IPF0_full.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> MinvF1 = IPF1_full.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> MinvF2 = IPF2_full.block(0, 0, m_n_c_dof, 1);
         
+        // Chaînes B^i y (homogène, Fc = 0)
         Matrix<T, Dynamic, 1> B0y = y;
         Matrix<T, Dynamic, 1> B1y, B2y, B3y;
         erk_weight(B0y, B1y);
         erk_weight(B1y, B2y);
         erk_weight(B2y, B3y);
         
+        // Chaînes B^i F — F complet dans l'argument
         Matrix<T, Dynamic, 1> BF0, B2F0, BF1;
         erk_weight(F0_full, BF0);
         erk_weight(BF0,     B2F0);
         erk_weight(F1_full, BF1);
         
+        // Arguments de B(I-P)(·)
         Matrix<T, Dynamic, 1> arg0 = B0y;
         Matrix<T, Dynamic, 1> arg1 = B1y + F0_full;
         Matrix<T, Dynamic, 1> arg2 = B2y + BF0  + F1_full;
@@ -461,6 +482,236 @@ class erk_coupling_hho_scheme {
         x_dof_n += dtau * (k0 + 2*k1 + 2*k2 + k3) / 6;
     }
     
+    void build_fine_submatrices() {
+        
+        size_t nfc = m_fine_c_indices.size();
+        size_t nff = m_fine_f_indices.size();
+        
+        // Sous-matrices fines extraites depuis Kcc, Kcf, Kfc, Sff_inv, Mc_inv
+        // Kcc_ff : lignes et colonnes fines de Kcc
+        // Kcf_ff : lignes fines de Kcc, colonnes fines de Kcf
+        // etc.
+        
+        // Construction par triplets
+        std::vector<Triplet<T>> trips_Kcc, trips_Kcf, trips_Kfc, trips_Sff, trips_Mc;
+        
+        // Map global → local pour les indices fins
+        std::vector<int> c_global_to_local(m_n_c_dof, -1);
+        std::vector<int> f_global_to_local(m_n_f_dof, -1);
+        for (size_t li = 0; li < nfc; ++li) c_global_to_local[m_fine_c_indices[li]] = li;
+        for (size_t li = 0; li < nff; ++li) f_global_to_local[m_fine_f_indices[li] - m_n_c_dof] = li;
+        
+        // Kcc_fine : nfc × nfc
+        for (int k = 0; k < m_Kcc.outerSize(); ++k) {
+            for (typename SparseMatrix<T>::InnerIterator it(m_Kcc, k); it; ++it) {
+                int r = c_global_to_local[it.row()];
+                int c = c_global_to_local[it.col()];
+                if (r >= 0 && c >= 0)
+                trips_Kcc.emplace_back(r, c, it.value());
+            }
+        }
+        m_Kcc_fine.resize(nfc, nfc);
+        m_Kcc_fine.setFromTriplets(trips_Kcc.begin(), trips_Kcc.end());
+        
+        // Kcf_fine : nfc × nff
+        for (int k = 0; k < m_Kcf.outerSize(); ++k) {
+            for (typename SparseMatrix<T>::InnerIterator it(m_Kcf, k); it; ++it) {
+                int r = c_global_to_local[it.row()];
+                int c = f_global_to_local[it.col()];
+                if (r >= 0 && c >= 0)
+                trips_Kcf.emplace_back(r, c, it.value());
+            }
+        }
+        m_Kcf_fine.resize(nfc, nff);
+        m_Kcf_fine.setFromTriplets(trips_Kcf.begin(), trips_Kcf.end());
+        
+        // Kfc_fine : nff × nfc
+        for (int k = 0; k < m_Kfc.outerSize(); ++k) {
+            for (typename SparseMatrix<T>::InnerIterator it(m_Kfc, k); it; ++it) {
+                int r = f_global_to_local[it.row()];
+                int c = c_global_to_local[it.col()];
+                if (r >= 0 && c >= 0)
+                trips_Kfc.emplace_back(r, c, it.value());
+            }
+        }
+        m_Kfc_fine.resize(nff, nfc);
+        m_Kfc_fine.setFromTriplets(trips_Kfc.begin(), trips_Kfc.end());
+        
+        // Sff_inv_fine : nff × nff
+        for (int k = 0; k < m_Sff_inv.outerSize(); ++k) {
+            for (typename SparseMatrix<T>::InnerIterator it(m_Sff_inv, k); it; ++it) {
+                int r = f_global_to_local[it.row()];
+                int c = f_global_to_local[it.col()];
+                if (r >= 0 && c >= 0)
+                trips_Sff.emplace_back(r, c, it.value());
+            }
+        }
+        m_Sff_inv_fine.resize(nff, nff);
+        m_Sff_inv_fine.setFromTriplets(trips_Sff.begin(), trips_Sff.end());
+        
+        // Mc_inv_fine : nfc × nfc
+        for (int k = 0; k < m_Mc_inv.outerSize(); ++k) {
+            for (typename SparseMatrix<T>::InnerIterator it(m_Mc_inv, k); it; ++it) {
+                int r = c_global_to_local[it.row()];
+                int c = c_global_to_local[it.col()];
+                if (r >= 0 && c >= 0)
+                trips_Mc.emplace_back(r, c, it.value());
+            }
+        }
+        m_Mc_inv_fine.resize(nfc, nfc);
+        m_Mc_inv_fine.setFromTriplets(trips_Mc.begin(), trips_Mc.end());
+    }
+    
+    void erk_weight_LTS_coarse_optimised(
+        const Matrix<T, Dynamic, 1> &y,
+        const Eigen::SparseMatrix<double> &Pcoarse,
+        std::vector<Matrix<T, Dynamic, 1>> &w,
+        const Matrix<T, Dynamic, 1> &Fn,
+        const Matrix<T, Dynamic, 1> &Fn12,
+        const Matrix<T, Dynamic, 1> &Fn1,
+        const T dt) {
+
+    Matrix<T, Dynamic, 1> F0 =  Fn;
+    Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
+    Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
+
+    // apply_B_source : B(0) avec Fc=F — évite Kcc*0 et Kcf*0
+    auto apply_B_source = [&](const Matrix<T, Dynamic, 1> &F,
+                               Matrix<T, Dynamic, 1> &out) {
+        out.resize(y.rows());
+        out.setZero();
+        Matrix<T, Dynamic, 1> k_c = m_Mc_inv * F.block(0, 0, m_n_c_dof, 1);
+        out.block(0, 0, m_n_c_dof, 1) = k_c;
+        Matrix<T, Dynamic, 1> RHSf = Kfc() * k_c;
+        if (m_sff_is_block_diagonal_Q)
+            out.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_Sff_inv * RHSf;
+        else
+            out.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_inv_Sff * RHSf;
+    };
+
+    Matrix<T, Dynamic, 1> F0_full, F1_full, F2_full;
+    apply_B_source(F0, F0_full);
+    apply_B_source(F1, F1_full);
+    apply_B_source(F2, F2_full);
+
+    // (I-P)F via produit matriciel — nécessaire car Kcc couple fins et grossiers
+    Matrix<T, Dynamic, 1> MinvF0 = m_Mc_inv * (Pcoarse * F0).block(0, 0, m_n_c_dof, 1);
+    Matrix<T, Dynamic, 1> MinvF1 = m_Mc_inv * (Pcoarse * F1).block(0, 0, m_n_c_dof, 1);
+    Matrix<T, Dynamic, 1> MinvF2 = m_Mc_inv * (Pcoarse * F2).block(0, 0, m_n_c_dof, 1);
+
+    Matrix<T, Dynamic, 1> B0y = y;
+    Matrix<T, Dynamic, 1> B1y, B2y, B3y;
+    erk_weight(B0y, B1y);
+    erk_weight(B1y, B2y);
+    erk_weight(B2y, B3y);
+
+    Matrix<T, Dynamic, 1> BF0, B2F0, BF1;
+    erk_weight(F0_full, BF0);
+    erk_weight(BF0,     B2F0);
+    erk_weight(F1_full, BF1);
+
+    Matrix<T, Dynamic, 1> arg0 = B0y;
+    Matrix<T, Dynamic, 1> arg1 = B1y + F0_full;
+    Matrix<T, Dynamic, 1> arg2 = B2y + BF0  + F1_full;
+    Matrix<T, Dynamic, 1> arg3 = B3y + B2F0 + BF1 + F2_full;
+
+    auto compute_one_w = [&](const Matrix<T, Dynamic, 1> &arg,
+                              const Matrix<T, Dynamic, 1> *MinvFext,
+                              Matrix<T, Dynamic, 1> &wi) {
+
+        // Pcoarse * arg — produit matriciel obligatoire
+        Matrix<T, Dynamic, 1> Ptmp   = Pcoarse * arg;
+        Matrix<T, Dynamic, 1> Ptmp_c = Ptmp.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> Ptmp_f = Ptmp.block(m_n_c_dof, 0, m_n_f_dof, 1);
+
+        Matrix<T, Dynamic, 1> wi_c = m_Mc_inv * (-Kcc()*Ptmp_c - Kcf()*Ptmp_f);
+
+        if (MinvFext)
+            wi_c += *MinvFext;
+
+        wi = Ptmp;
+        wi.block(0, 0, m_n_c_dof, 1) = wi_c;
+        Matrix<T, Dynamic, 1> RHSf = Kfc() * wi_c;
+        if (m_sff_is_block_diagonal_Q)
+            wi.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_Sff_inv * RHSf;
+        else
+            wi.block(m_n_c_dof, 0, m_n_f_dof, 1) = -m_inv_Sff * RHSf;
+    };
+
+    compute_one_w(arg0, &MinvF0, w[0]);
+    compute_one_w(arg1, &MinvF1, w[1]);
+    compute_one_w(arg2, &MinvF2, w[2]);
+    compute_one_w(arg3, nullptr,  w[3]);
+}
+
+
+void erk_weight_LTS_fine_optimised(
+        Matrix<T, Dynamic, 1> &x_dof_n,
+        const std::vector<Matrix<T, Dynamic, 1>> &w,
+        const Matrix<T, Dynamic, 1> &Fm,
+        const Matrix<T, Dynamic, 1> &Fmh,
+        const Matrix<T, Dynamic, 1> &Fm1,
+        const T tm,
+        const T dtau) {
+
+    size_t nfc = m_fine_c_indices.size();
+    size_t nff = m_fine_f_indices.size();
+
+    // Extraction des composantes fines d'un vecteur global
+    auto extract_fine = [&](const Matrix<T, Dynamic, 1> &v)
+                         -> std::pair<Matrix<T,Dynamic,1>, Matrix<T,Dynamic,1>> {
+        Matrix<T, Dynamic, 1> vc(nfc), vf(nff);
+        for (size_t i = 0; i < nfc; ++i) vc(i) = v(m_fine_c_indices[i]);
+        for (size_t i = 0; i < nff; ++i) vf(i) = v(m_fine_f_indices[i]);
+        return {vc, vf};
+    };
+
+    // Taylor_w sur les indices fins seulement
+    auto Taylor_w_fine = [&](T tau) -> std::pair<Matrix<T,Dynamic,1>, Matrix<T,Dynamic,1>> {
+        T tau2 = tau*tau, tau3 = tau*tau2;
+        Matrix<T, Dynamic, 1> tw = w[0] + tau*w[1] + (tau2/2)*w[2] + (tau3/6)*w[3];
+        return extract_fine(tw);
+    };
+
+    // Un stage fin — tout en taille réduite nfc/nff
+    auto fine_stage = [&](const Matrix<T, Dynamic, 1> &y_global,
+                           T tau,
+                           const Matrix<T, Dynamic, 1> &F_tau)
+                       -> Matrix<T, Dynamic, 1> {
+
+        auto [yc, yf] = extract_fine(y_global);
+        auto [Fc, Ff] = extract_fine(F_tau);
+        auto [twc, twf] = Taylor_w_fine(tau);
+
+        // k_c = Mc_inv_fine * (Fc - Kcc_fine*yc - Kcf_fine*yf)
+        Matrix<T, Dynamic, 1> k_c = m_Mc_inv_fine * (Fc - m_Kcc_fine*yc - m_Kcf_fine*yf);
+
+        // k_f = -Sff_inv_fine * Kfc_fine * k_c
+        Matrix<T, Dynamic, 1> k_f = -m_Sff_inv_fine * (m_Kfc_fine * k_c);
+
+        // Taylor_w ajouté sur les composantes fines
+        k_c += twc;
+        k_f += twf;
+
+        // Reconstruction du vecteur global — DDL grossiers inchangés
+        Matrix<T, Dynamic, 1> k = Matrix<T, Dynamic, 1>::Zero(y_global.rows());
+        for (size_t i = 0; i < nfc; ++i) k(m_fine_c_indices[i]) = k_c(i);
+        for (size_t i = 0; i < nff; ++i) k(m_fine_f_indices[i]) = k_f(i);
+        return k;
+    };
+
+    T tmh = tm + 0.5*dtau;
+    T tm1 = tm +     dtau;
+
+    Matrix<T, Dynamic, 1> k0 = fine_stage(x_dof_n,                tm,  Fm);
+    Matrix<T, Dynamic, 1> k1 = fine_stage(x_dof_n + 0.5*dtau*k0, tmh, Fmh);
+    Matrix<T, Dynamic, 1> k2 = fine_stage(x_dof_n + 0.5*dtau*k1, tmh, Fmh);
+    Matrix<T, Dynamic, 1> k3 = fine_stage(x_dof_n +     dtau*k2, tm1, Fm1);
+
+    x_dof_n += dtau * (k0 + 2*k1 + 2*k2 + k3) / 6;
+}
+    
+
     #ifdef HAVE_INTEL_MKL
     PardisoLDLT<SparseMatrix<T>> & FacesAnalysis(){
         return m_analysis_f;

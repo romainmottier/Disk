@@ -77,7 +77,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
                                                2461, 2462, 2463, 2464, 2465, 2466,
                                                2397, 2398, 2399, 2400, 2401, 2402,
                                                2333, 2334, 2335, 2336, 2337, 2338};
-        mesh_builder.refine_cells(cells_to_refine, 3);
+        mesh_builder.refine_cells(cells_to_refine, sim_data.m_substeps_Q);
         mesh_builder.move_to_mesh_storage(msh);
     }
     

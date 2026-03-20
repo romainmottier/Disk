@@ -81,6 +81,7 @@ using namespace Eigen;
    
    // LTS
       // CONV TEST 
+      #include "prototypes/LTS/ERK4_LTS.hpp"     // COUPLING 
       #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"     // COUPLING 
       // PULSE
       #include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"            // ACOUSTIC ERK
@@ -144,8 +145,9 @@ int main(int argc, char **argv){
    // AcousticHeterogeneousPulse_LTS_RK4(argc, argv); 
 
 
-   // ERK4_LTS_conv_test(argc, argv);
-   HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   // ERK4_LTS(argc, argv);
+   ERK4_LTS_conv_test(argc, argv);
+   // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
 
 }
 
