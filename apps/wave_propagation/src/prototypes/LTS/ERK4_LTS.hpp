@@ -362,7 +362,7 @@ void ERK4_LTS(int argc, char **argv){
         return assembler.RHS;
     };
     
-    assembler.assemble_P(msh, h_c);
+    assembler.assemble_P(msh, h_c, 1);
     // erk_an.build_LTS_subspaces(assembler.Pcoarse, assembler.Pfine);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);

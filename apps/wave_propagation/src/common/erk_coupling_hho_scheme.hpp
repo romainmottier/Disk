@@ -489,21 +489,21 @@ class erk_coupling_hho_scheme {
 //         compute_one_w(arg3, nullptr,  w[3]);
 //     }
     
-//     void erk_weight_LTS_coarse_old(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
+    void erk_weight_LTS_coarse_old(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
         
-//         Matrix<T, Dynamic, 1> k = y;                 
-//         Matrix<T, Dynamic, 1> Biy = y; // i= 0   
-//         for(int i=0; i<4; i++) {
-//             // COMPUTATION OF B^iy
-//             if (i != 0) {
-//                 erk_weight(Biy, k);
-//                 Biy = k;
-//             }
-//             // COMPUTATION OF w_i
-//             k = Pcoarse * Biy;
-//             erk_weight(k, w[i]);
-//         }
-//     }
+        Matrix<T, Dynamic, 1> k = y;                 
+        Matrix<T, Dynamic, 1> Biy = y; // i= 0   
+        for(int i=0; i<4; i++) {
+            // COMPUTATION OF B^iy
+            if (i != 0) {
+                erk_weight(Biy, k);
+                Biy = k;
+            }
+            // COMPUTATION OF w_i
+            k = Pcoarse * Biy;
+            erk_weight(k, w[i]);
+        }
+    }
     
     
 // void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &x_dof_n, const Eigen::SparseMatrix<T> &Pfine, const std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fm, const Matrix<T, Dynamic, 1> &Fmh, const Matrix<T, Dynamic, 1> &Fm1, const T tm, const T dtau) {

@@ -474,34 +474,34 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
             w[i].setZero();
         }
         erk_an.ZeroFc();   
-        erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt);
-        // erk_an.erk_weight_LTS_coarse_old(x_dof_n, assembler.Pcoarse, w);
+        // erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt);
+        erk_an.erk_weight_LTS_coarse_old(x_dof_n, assembler.Pcoarse, w);
         
         //////////////////////////////////////////////////////////////////////////
         for (int m = 0; m < p; m++) {
             RealType tm  =  m * dtau;            
-            erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau);
-            // size_t n_dof = x_dof.rows();
-            // Matrix<RealType, Dynamic, 1> yn1(n_dof), yn2(n_dof), yn3(n_dof), yn4(n_dof);
-            // Matrix<RealType, Dynamic, 1> k1(n_dof),  k2(n_dof),  k3(n_dof),  k4(n_dof);
-            // // k1
-            // yn1 = assembler.Pfine * x_dof_n;
-            // erk_an.erk_weight(yn1, k1);
-            // k1 += w[0] + m*dtau*w[1] + m*m*dtau*dtau*w[2]/2.0 + m*m*m*dtau*dtau*dtau*w[3]/6.0;
-            // // k2
-            // yn2 = assembler.Pfine * (x_dof_n+dtau*k1/2.0);
-            // erk_an.erk_weight(yn2, k2);
-            // k2 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
-            // // k3
-            // yn3 = assembler.Pfine * (x_dof_n+dtau*k2/2.0);
-            // erk_an.erk_weight(yn3, k3);
-            // k3 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
-            // // k4
-            // yn4 = assembler.Pfine * (x_dof_n+dtau*k3);
-            // erk_an.erk_weight(yn4, k4);
-            // k4 += w[0] + (m+1.0)*dtau*w[1] + (m+1.0)*(m+1.0)*dtau*dtau*w[2]/2.0 + (m+1.0)*(m+1.0)*(m+1.0)*dtau*dtau*dtau*w[3]/6.0;
-            // // FINAL UPDATE
-            // x_dof_n += dtau*(k1 + 2.0*k2 + 2.0*k3 + k4)/6.0;
+            // erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau);
+            size_t n_dof = x_dof.rows();
+            Matrix<RealType, Dynamic, 1> yn1(n_dof), yn2(n_dof), yn3(n_dof), yn4(n_dof);
+            Matrix<RealType, Dynamic, 1> k1(n_dof),  k2(n_dof),  k3(n_dof),  k4(n_dof);
+            // k1
+            yn1 = assembler.Pfine * x_dof_n;
+            erk_an.erk_weight(yn1, k1);
+            k1 += w[0] + m*dtau*w[1] + m*m*dtau*dtau*w[2]/2.0 + m*m*m*dtau*dtau*dtau*w[3]/6.0;
+            // k2
+            yn2 = assembler.Pfine * (x_dof_n+dtau*k1/2.0);
+            erk_an.erk_weight(yn2, k2);
+            k2 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // k3
+            yn3 = assembler.Pfine * (x_dof_n+dtau*k2/2.0);
+            erk_an.erk_weight(yn3, k3);
+            k3 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // k4
+            yn4 = assembler.Pfine * (x_dof_n+dtau*k3);
+            erk_an.erk_weight(yn4, k4);
+            k4 += w[0] + (m+1.0)*dtau*w[1] + (m+1.0)*(m+1.0)*dtau*dtau*w[2]/2.0 + (m+1.0)*(m+1.0)*(m+1.0)*dtau*dtau*dtau*w[3]/6.0;
+            // FINAL UPDATE
+            x_dof_n += dtau*(k1 + 2.0*k2 + 2.0*k3 + k4)/6.0;
         }
         
         //////////////////////////////////////////////////////////////////////////
