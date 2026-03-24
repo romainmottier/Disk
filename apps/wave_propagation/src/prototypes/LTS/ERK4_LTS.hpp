@@ -22,6 +22,7 @@ void ERK4_LTS(int argc, char **argv){
     // ############################## Mesh generation ##############################################
     // #############################################################################################
     
+    tc.tic();
     cpu.tic();
     
     typedef disk::mesh<RealType, 2, disk::generic_mesh_storage<RealType, 2>>  mesh_type;
@@ -362,6 +363,7 @@ void ERK4_LTS(int argc, char **argv){
     };
     
     assembler.assemble_P(msh, h_c);
+    // erk_an.build_LTS_subspaces(assembler.Pcoarse, assembler.Pfine);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;

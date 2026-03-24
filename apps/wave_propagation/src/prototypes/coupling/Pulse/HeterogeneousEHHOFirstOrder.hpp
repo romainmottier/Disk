@@ -1,8 +1,8 @@
 
 
 //  Created by Romain Mottier
-// ../wave_propagation -k 2 -s 0 -r 0 -c 0 -p 0 -l 6 -n 2500 -f 1 -e 0
-
+// ../../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n219 -p0 -f1 -e0 
+// CPU: 19s
 void HeterogeneousEHHOFirstOrder(int argc, char **argv);
 
 void HeterogeneousEHHOFirstOrder(int argc, char **argv){

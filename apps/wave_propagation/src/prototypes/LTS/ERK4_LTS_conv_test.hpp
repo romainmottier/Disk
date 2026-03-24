@@ -113,10 +113,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
             auto p    = h_max / h_min;
             auto h_c  = 0.75 * h_max;
             if (p == 1) h_c = 1.25 * h_max;
-
-            // std::cout << bold << cyan << "         h_max = " << h_max << reset << std::endl;
-            // std::cout << bold << cyan << "         h_min = " << h_min << std::endl;
-            // std::cout << bold << cyan << "         h_max/h_min = " << p << reset << std::endl;
+            std::cout << bold << yellow << "            h_max/h_min = " << p << reset << std::endl;
 
             // ##################################################
             // ################################################## Time discretization

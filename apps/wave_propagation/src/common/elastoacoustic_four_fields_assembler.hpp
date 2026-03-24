@@ -1653,8 +1653,8 @@ public:
         
         // --------------------------------------------------
         // MARK FACES
-        // Une face est fine seulement si TOUTES ses cellules voisines sont fines
-        // (AND) — une face à l'interface fin/grossier tombe dans Pcoarse
+        // Une face est fine seulement si au moins une cellules voisine est fine
+        // (AND) — une face à l'interface fin/grossier tombe dans Pfine
         // --------------------------------------------------
         std::vector<int> e_face_fine_count(n_e_edges, 0);
         std::vector<int> e_face_neighbor_count(n_e_edges, 0);
@@ -1664,7 +1664,7 @@ public:
         auto storage = msh.backend_storage();
         
         // =======================
-        // ELASTIC CELLS — comptage des voisins fins par face
+        // ELASTIC CELLS 
         // =======================
         for (auto& chunk : m_e_material) {
             const size_t cell_id = chunk.first;
@@ -1682,7 +1682,7 @@ public:
         }
         
         // =======================
-        // ACOUSTIC CELLS — comptage des voisins fins par face
+        // ACOUSTIC CELLS 
         // =======================
         for (auto& chunk : m_a_material) {
             const size_t cell_id = chunk.first;
@@ -1699,16 +1699,17 @@ public:
             }
         }
         
-        // Une face est fine ssi toutes ses cellules voisines sont fines
         std::vector<bool> e_face_is_fine(n_e_edges, false);
         std::vector<bool> a_face_is_fine(n_a_edges, false);
-        for (size_t cf = 0; cf < n_e_edges; ++cf)
-        e_face_is_fine[cf] = (e_face_fine_count[cf] == e_face_neighbor_count[cf]);
-        for (size_t cf = 0; cf < n_a_edges; ++cf)
-        a_face_is_fine[cf] = (a_face_fine_count[cf] == a_face_neighbor_count[cf]);
+        for (size_t cf = 0; cf < n_e_edges; ++cf) {
+            e_face_is_fine[cf] = (e_face_fine_count[cf] > 0);
+        }
+        for (size_t cf = 0; cf < n_a_edges; ++cf) {
+            a_face_is_fine[cf] = (a_face_fine_count[cf] > 0);
+        }
         
         // =======================
-        // ELASTIC CELLS — remplissage des triplets
+        // ELASTIC CELLS 
         // =======================
         for (auto& chunk : m_e_material) {
             const size_t cell_id  = chunk.first;
@@ -1727,7 +1728,7 @@ public:
         }
         
         // =======================
-        // ACOUSTIC CELLS — remplissage des triplets
+        // ACOUSTIC CELLS 
         // =======================
         for (auto& chunk : m_a_material) {
             const size_t cell_id  = chunk.first;
@@ -1749,7 +1750,6 @@ public:
         // ELASTIC FACES
         // =======================
         const size_t e_face_shift = m_n_elastic_cell_dof + m_n_acoustic_cell_dof;
-        
         for (size_t cf = 0; cf < n_e_edges; ++cf) {
             for (size_t i = 0; i < n_e_fbs; ++i) {
                 const size_t dof = e_face_shift + cf * n_e_fbs + i;
@@ -1759,12 +1759,11 @@ public:
                 Pcoarse_trips.emplace_back(dof, dof, T(1));
             }
         }
-        
+                
         // =======================
         // ACOUSTIC FACES
         // =======================
         const size_t a_face_shift = e_face_shift + m_n_elastic_face_dof;
-        
         for (size_t cf = 0; cf < n_a_edges; ++cf) {
             for (size_t i = 0; i < n_a_fbs; ++i) {
                 const size_t dof = a_face_shift + cf * n_a_fbs + i;
@@ -1789,6 +1788,8 @@ public:
         // std::cout << bold << cyan << "      Pfine + Pcoarse nnz = " << (Pfine.nonZeros() + Pcoarse.nonZeros()) << " (should = " << Pfine.rows() << ")" << reset << std::endl;
         
     }
+
+
 };
 
 #endif /* elastoacoustic_four_fields_assembler_hpp */

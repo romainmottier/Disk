@@ -4,6 +4,7 @@
 // ../wave_propagation -k3 -s0 -r0 -c0 -m1 -l0 -n4500 -p1 -f1 -e0
 // WITHOUT LOCAL REFINEMENT: ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n220 -p1 -f1 -e0
 // WITH LOCAL REFINEMENT LVL 3:../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n220 -p3 -f1 -e0
+// ../../../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n225 -p5 -f1 -e0
 void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv);
 
 void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
@@ -98,9 +99,10 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         }
     }
     auto h_c = 0.75*h_max;
+    auto p = h_max/h_min;
     std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
     std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
-    std::cout << bold << cyan << "      h_max/h_min = " << h_max/h_min << reset << std::endl << std::endl;
+    std::cout << bold << cyan << "      h_max/h_min = " << p << reset << std::endl << std::endl;
 
     // ######################################################################
     // ###################################################################### Time controls 
@@ -454,7 +456,6 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
-    auto p = std::pow(2, sim_data.m_substeps_Q);
     auto dtau = dt / p;
     for (size_t it = 1; it <= nt; it++) {
         
@@ -470,14 +471,37 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         std::vector<Matrix<RealType, Dynamic, 1>> w(4);
         for (int i = 0; i < 4; ++i) {
             w[i].resize(x_dof.rows());
+            w[i].setZero();
         }
         erk_an.ZeroFc();   
         erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt);
+        // erk_an.erk_weight_LTS_coarse_old(x_dof_n, assembler.Pcoarse, w);
         
         //////////////////////////////////////////////////////////////////////////
         for (int m = 0; m < p; m++) {
             RealType tm  =  m * dtau;            
             erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau);
+            // size_t n_dof = x_dof.rows();
+            // Matrix<RealType, Dynamic, 1> yn1(n_dof), yn2(n_dof), yn3(n_dof), yn4(n_dof);
+            // Matrix<RealType, Dynamic, 1> k1(n_dof),  k2(n_dof),  k3(n_dof),  k4(n_dof);
+            // // k1
+            // yn1 = assembler.Pfine * x_dof_n;
+            // erk_an.erk_weight(yn1, k1);
+            // k1 += w[0] + m*dtau*w[1] + m*m*dtau*dtau*w[2]/2.0 + m*m*m*dtau*dtau*dtau*w[3]/6.0;
+            // // k2
+            // yn2 = assembler.Pfine * (x_dof_n+dtau*k1/2.0);
+            // erk_an.erk_weight(yn2, k2);
+            // k2 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // // k3
+            // yn3 = assembler.Pfine * (x_dof_n+dtau*k2/2.0);
+            // erk_an.erk_weight(yn3, k3);
+            // k3 += w[0] + (m+0.5)*dtau*w[1] + (m+0.5)*(m+0.5)*dtau*dtau*w[2]/2.0 + (m+0.5)*(m+0.5)*(m+0.5)*dtau*dtau*dtau*w[3]/6.0;
+            // // k4
+            // yn4 = assembler.Pfine * (x_dof_n+dtau*k3);
+            // erk_an.erk_weight(yn4, k4);
+            // k4 += w[0] + (m+1.0)*dtau*w[1] + (m+1.0)*(m+1.0)*dtau*dtau*w[2]/2.0 + (m+1.0)*(m+1.0)*(m+1.0)*dtau*dtau*dtau*w[3]/6.0;
+            // // FINAL UPDATE
+            // x_dof_n += dtau*(k1 + 2.0*k2 + 2.0*k3 + k4)/6.0;
         }
         
         //////////////////////////////////////////////////////////////////////////
