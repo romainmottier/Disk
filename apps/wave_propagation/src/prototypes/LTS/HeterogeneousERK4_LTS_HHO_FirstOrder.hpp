@@ -73,12 +73,12 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         mesh_builder.refine_mesh(sim_data.m_n_divs);
         mesh_builder.set_translation_data(-0.5, -0.5);
         mesh_builder.build_mesh();
-        std::vector<size_t> cells_to_refine = {2589, 2590, 2591, 2592, 2593, 2594,
-                                               2525, 2526, 2527, 2528, 2529, 2530,
-                                               2461, 2462, 2463, 2464, 2465, 2466,
-                                               2397, 2398, 2399, 2400, 2401, 2402,
-                                               2333, 2334, 2335, 2336, 2337, 2338};
-        mesh_builder.refine_cells(cells_to_refine, sim_data.m_substeps_Q);
+        // std::vector<size_t> cells_to_refine = {2589, 2590, 2591, 2592, 2593, 2594,
+        //                                        2525, 2526, 2527, 2528, 2529, 2530,
+        //                                        2461, 2462, 2463, 2464, 2465, 2466,
+        //                                        2397, 2398, 2399, 2400, 2401, 2402,
+        //                                        2333, 2334, 2335, 2336, 2337, 2338};
+        // mesh_builder.refine_cells(cells_to_refine, sim_data.m_substeps_Q);
         mesh_builder.move_to_mesh_storage(msh);
     }
     

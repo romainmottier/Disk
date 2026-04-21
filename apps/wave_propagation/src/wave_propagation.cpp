@@ -81,14 +81,14 @@ using namespace Eigen;
    
    // LTS
       // CONV TEST 
-      #include "prototypes/LTS/ERK4_LTS.hpp"     // COUPLING 
-      #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"     // COUPLING 
+      #include "prototypes/LTS/ERK4_LTS.hpp"     
+      #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"    
       // PULSE
-      #include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"            // ACOUSTIC ERK
-      #include "prototypes/LTS/AcousticLTSEulerHeterogeneousPulse.hpp"    // ACOUSTIC EULER-LTS
-      #include "prototypes/LTS/AcousticHeterogeneousPulse_LTS_RK4.hpp"    // ACOUSTIC ERK4-LTS
-      #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp"  // COUPLING ERK4-LTS
-      #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder_stab.hpp"  // COUPLING ERK4-LTS
+      #include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"           // ACOUSTIC ERK
+      #include "prototypes/LTS/AcousticLTSEulerHeterogeneousPulse.hpp"   // ACOUSTIC EULER-LTS
+      #include "prototypes/LTS/AcousticHeterogeneousPulse_LTS_RK4.hpp"   // ACOUSTIC ERK4-LTS
+      #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder.hpp" // COUPLING ERK4-LTS
+      #include "prototypes/LTS/HeterogeneousERK4_LTS_HHO_FirstOrder_stab.hpp" // COUPLING ERK4-LTS
       
 int main(int argc, char **argv){
 
@@ -151,6 +151,7 @@ int main(int argc, char **argv){
 
    // HeterogeneousEHHOFirstOrder(argc, argv); 
    HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   // HeterogeneousERK4_LTS_HHO_FirstOrder_stab(argc, argv);
 
 }
 
