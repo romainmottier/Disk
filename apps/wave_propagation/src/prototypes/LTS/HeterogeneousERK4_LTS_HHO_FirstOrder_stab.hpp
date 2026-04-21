@@ -4,7 +4,7 @@
 // ../wave_propagation -k3 -s0 -r0 -c0 -m1 -l0 -n4500 -p1 -f1 -e0
 // WITHOUT LOCAL REFINEMENT: ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n220 -p1 -f1 -e0
 // WITH LOCAL REFINEMENT LVL 3:../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n220 -p3 -f1 -e0
-// ../../../wave_propagation -k3 -s0 -r0 -c0 -m0 -l5 -n225 -p5 -f1 -e0
+// ../../../wave_propagation ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l4 -n107 -p1 -f1 -e0
 
 void HeterogeneousERK4_LTS_HHO_FirstOrder_stab(int argc, char **argv);
 
