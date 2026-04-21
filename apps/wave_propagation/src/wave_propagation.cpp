@@ -150,8 +150,8 @@ int main(int argc, char **argv){
    // ERK4_LTS_conv_test(argc, argv);
 
    // HeterogeneousEHHOFirstOrder(argc, argv); 
-   HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
-   // HeterogeneousERK4_LTS_HHO_FirstOrder_stab(argc, argv);
+   // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
+   HeterogeneousERK4_LTS_HHO_FirstOrder_stab(argc, argv);
 
 }
 
