@@ -351,11 +351,11 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder_stab(int argc, char **argv){
                    << std::setw(12) << "stable" << "\n";
 
     const double dt_stab_min  = 1e-3;
-    const double dt_stab_max  = 2.0 * dt;
-    const int    nb_dt_points = 60;
+    const double dt_stab_max  = 10.0 * dt;
+    const int    nb_dt_points = 100;
 
     const int    n_dof  = static_cast<int>(x_dof.rows());
-    const int    n_eigs = 10;
+    const int    n_eigs = 1;
     const int    n_cv   = std::min(n_dof, std::max(30, 20 * n_eigs));
 
     const double ddt = (dt_stab_max - dt_stab_min) / static_cast<double>(nb_dt_points - 1);
