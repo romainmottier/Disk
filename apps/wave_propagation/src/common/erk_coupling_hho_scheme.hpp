@@ -771,6 +771,10 @@ void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &x_dof_n,
         m_Fc.setZero();
     }
     
+    SparseMatrix<T> & SffInv(){
+        return m_Sff_inv;
+    }
+
     size_t n_c_dof() const { return m_n_c_dof; }
     size_t n_f_dof() const { return m_n_f_dof; }
     

@@ -474,7 +474,6 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
             w[i].setZero();
         }
         erk_an.ZeroFc();   
-        // erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt);
         erk_an.erk_weight_LTS_coarse_old(x_dof_n, assembler.Pcoarse, w);
         
         //////////////////////////////////////////////////////////////////////////

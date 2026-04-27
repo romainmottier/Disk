@@ -193,7 +193,7 @@ void ERK4_LTS_conv_test(int argc, char **argv){
                     bool is_member_Q = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
                     if (is_member_Q) {
                         if (bar.x() > 0) interface_cell_pair_indexes[fc_id].second = cell_ind;
-                        else             interface_cell_pair_indexes[fc_id].first  = cell_ind;
+                        else interface_cell_pair_indexes[fc_id].first  = cell_ind;
                     }
                 }
             }
