@@ -14,53 +14,98 @@ void ERK4_LTS_stab(int argc, char **argv){
     timecounter tc, cpu;
     cpu.tic();
 
-    // ##################################################
-    // ################################################## Mesh
-    // ##################################################
-
+    // #############################################################################################
+    // ############################## Mesh generation ##############################################
+    // #############################################################################################
+    
     tc.tic();
+    cpu.tic();
+    
     typedef disk::mesh<RealType, 2, disk::generic_mesh_storage<RealType, 2>>  mesh_type;
     typedef disk::BoundaryConditions<mesh_type, false> e_boundary_type;
-    typedef disk::BoundaryConditions<mesh_type, true>  a_boundary_type;
+    typedef disk::BoundaryConditions<mesh_type, true> a_boundary_type;
     mesh_type msh;
-
-    {
-        RealType lx = 1, ly = 1;
-        size_t nx = 2, ny = 2;
-        cartesian_2d_mesh_builder<RealType> mesh_builder(lx, ly, nx, ny);
+    bool local_refinement = true;
+    
+    if (sim_data.m_polygonal_mesh_Q) {       
+        size_t l = sim_data.m_n_divs;
+        polygon_2d_mesh_reader<RealType> mesh_builder;
+        std::vector<std::string> mesh_files;
+        {   // Simplicial meshes
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l0_conv_test_1.0.txt");    // l = 0
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l1_conv_test_0.35.txt");   // l = 1 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l2_conv_test_0.15.txt");   // l = 2
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l3_conv_test_0.07.txt");   // l = 3 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l4_conv_test_0.035.txt");  // l = 4
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l5_conv_test_0.026.txt");  // l = 5 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l6_conv_test_0.017.txt");  // l = 6
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l7_conv_test_0.0125.txt"); // l = 7 
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l8_conv_test_0.0085.txt"); // l = 8
+            // mesh_files.push_back("../../../../../meshes/conv_test/simplices/unstructured/l9_conv_test_0.005.txt");  // l = 9 
+        }  
+        {   // Polyhedral meshes
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_32.txt");     // -l 0
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_64.txt");     // -l 1
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_128.txt");    // -l 2
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_256.txt");    // -l 3
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_512.txt");    // -l 4
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_1024.txt");   // -l 5 
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_2048.txt");   // -l 6
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_4096.txt");   // -l 7 
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_8192.txt");   // -l 8
+            mesh_files.push_back("../../../../../meshes/conv_test/poly/poly_16384.txt");  // -l 9
+        }      
+        // Reading the polygonal mesh
+        mesh_builder.set_poly_mesh_file(mesh_files[l]);
+        mesh_builder.build_mesh();
+        mesh_builder.move_to_mesh_storage(msh);
+        mesh_builder.remove_duplicate_points();
+    }
+    else {
+        RealType lx = 2.0;  
+        RealType ly = 1.0;          
+        size_t nx = 6;
+        size_t ny = 3;
+        cartesian_2d_mesh_builder<RealType> mesh_builder(lx,ly,nx,ny);
         mesh_builder.refine_mesh(sim_data.m_n_divs);
         mesh_builder.set_translation_data(-0.5, -0.5);
         mesh_builder.build_mesh();
-        std::vector<size_t> cells_to_refine = {2589, 2590, 2591, 2592, 2593, 2594,
-                                               2525, 2526, 2527, 2528, 2529, 2530,
-                                               2461, 2462, 2463, 2464, 2465, 2466,
-                                               2397, 2398, 2399, 2400, 2401, 2402,
-                                               2333, 2334, 2335, 2336, 2337, 2338};
+        std::vector<size_t> cells_to_refine = {7,10};
         mesh_builder.refine_cells(cells_to_refine, sim_data.m_substeps_Q);
         mesh_builder.move_to_mesh_storage(msh);
     }
     tc.toc();
-    std::cout << bold << red << "   MESH GENERATION : " << tc << " seconds" << reset << std::endl;
-
-    RealType h_max = 1e-5, h_min = 10;
-    for (auto & cell : msh) {
+    std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
+    std::cout << tc << " seconds" << reset << std::endl;
+    RealType h_max = 1e-5;
+    RealType h_min = 10;
+    for (auto & cell : msh ) {
+        auto cell_ind = msh.lookup(cell);
+        mesh_type::point_type bar = barycenter(msh, cell);
         RealType h_l = diameter(msh, cell);
-        if (h_l < h_min)      h_min = h_l;
-        else if (h_l > h_max) h_max = h_l;
+        if (h_l < h_min) {
+            h_min = h_l;
+        }
+        else if (h_l > h_max) {
+            h_max = h_l;
+        }
     }
-    const int p = static_cast<int>(std::round(h_max / h_min));
-    RealType h_c = (p == 1) ? 1.1 * h_max : 0.75 * h_max;
-
-    std::cout << bold << cyan << "      h_max = " << h_max << "   h_min = " << h_min
-              << "   p = " << p << reset << std::endl << std::endl;
+    auto p = h_max/h_min;
+    auto h_c = 0.75*h_max;
+    if (p == 1) {
+        h_c = 1.25*h_max;
+    }
+    std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
+    std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
+    std::cout << bold << cyan << "      h_max/h_min = " << p << reset << std::endl << std::endl;
 
     // ##################################################
     // ################################################## Time
     // ##################################################
 
-    const size_t   nt = sim_data.m_nt_divs;
-    const RealType ti = 0.0, tf = 0.25;
-    const RealType dt = (tf - ti) / nt;
+    size_t   nt = sim_data.m_nt_divs;
+    RealType ti = 0.0, tf = 0.25;
+    RealType dt = (tf - ti) / nt;
 
     // ##################################################
     // ################################################## HHO
@@ -81,71 +126,111 @@ void ERK4_LTS_stab(int argc, char **argv){
         return acoustic_material_data<RealType>(1.0, 1.0);
     };
 
+    // #############################################################################################
+    // ############################## Manufactured solution ########################################
+    // #############################################################################################
+    
+    scal_vec_analytic_functions functions;
+    functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial);
+    
+    // Elastic analytical functions
+    auto u_fun    = functions.Evaluate_u(ti);
+    auto v_fun    = functions.Evaluate_v(ti);
+    auto a_fun    = functions.Evaluate_a(ti);
+    auto f_fun    = functions.Evaluate_f(ti);
+    auto flux_fun = functions.Evaluate_sigma(ti);
+    
+    // Acoustic analytical functions
+    auto s_u_fun    = functions.Evaluate_s_u(ti);
+    auto s_v_fun    = functions.Evaluate_s_v(ti);
+    auto s_a_fun    = functions.Evaluate_s_a(ti);
+    auto s_f_fun    = functions.Evaluate_s_f(ti);
+    auto s_flux_fun = functions.Evaluate_s_q(ti);
+
     // ##################################################
     // ################################################## Structure
     // ##################################################
-
-    std::map<size_t, elastic_material_data<RealType>>  e_material;
-    std::map<size_t, acoustic_material_data<RealType>> a_material;
+    
+    std::map<size_t,elastic_material_data<RealType>> e_material;
+    std::map<size_t,acoustic_material_data<RealType>> a_material;
     std::set<size_t> elastic_bc_face_indexes, acoustic_bc_face_indexes, interface_face_indexes;
-    std::map<size_t, std::pair<size_t,size_t>> interface_cell_pair_indexes;
-    std::set<size_t> elastic_internal_faces, acoustic_internal_faces;
-
-    const RealType eps = 1e-10, y_interface = 0.0;
-
-    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
-        auto fc_id = msh.lookup(*face_it);
-        if (std::fabs(barycenter(msh, *face_it).y() - y_interface) < eps)
+    std::map<size_t,std::pair<size_t,size_t>> interface_cell_pair_indexes;
+    RealType eps = 1.0e-10;
+    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++){
+        const auto face = *face_it;
+        mesh_type::point_type bar = barycenter(msh, face);
+        auto fc_id = msh.lookup(face);
+        if (std::fabs(bar.x()) < eps) {
             interface_face_indexes.insert(fc_id);
+            continue;
+        } 
     }
-    for (auto & cell : msh) {
+    for (auto & cell : msh ) {
         auto cell_ind = msh.lookup(cell);
-        auto bar = barycenter(msh, cell);
-        if (bar.y() > y_interface) a_material.insert({cell_ind, acoustic_mat_fun(bar)});
-        else                       e_material.insert({cell_ind, elastic_mat_fun(bar)});
-        for (auto face : faces(msh, cell)) {
+        mesh_type::point_type bar = barycenter(msh, cell);
+        // Assigning the material properties
+        if (bar.x() > 0) {
+            acoustic_material_data<RealType> material = acoustic_mat_fun(bar);
+            a_material.insert(std::make_pair(cell_ind,material));
+        }
+        else {
+            elastic_material_data<RealType> material = elastic_mat_fun(bar);
+            e_material.insert(std::make_pair(cell_ind,material));
+        }
+        // Detection of faces on the interfaces
+        auto cell_faces = faces(msh,cell);
+        for (auto face :cell_faces) {
             auto fc_id = msh.lookup(face);
-            if (interface_face_indexes.count(fc_id)) {
-                if (bar.y() > y_interface) interface_cell_pair_indexes[fc_id].second = cell_ind;
-                else                       interface_cell_pair_indexes[fc_id].first  = cell_ind;
+            bool is_member_Q = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
+            if (is_member_Q) {
+                if (bar.x() > 0) 
+                interface_cell_pair_indexes[fc_id].second = cell_ind;
+                else 
+                interface_cell_pair_indexes[fc_id].first = cell_ind;
             }
         }
     }
+    // Internal faces structure 
+    std::set<size_t> elastic_internal_faces;
+    std::set<size_t> acoustic_internal_faces;
     for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
-        auto fc_id = msh.lookup(*face_it);
-        if (!interface_face_indexes.count(fc_id)) {
-            if (barycenter(msh, *face_it).y() > y_interface) acoustic_internal_faces.insert(fc_id);
-            else                                              elastic_internal_faces.insert(fc_id);
+        const auto face = *face_it;
+        mesh_type::point_type bar = barycenter(msh, face);
+        auto fc_id = msh.lookup(face);      
+        bool is_member_Q = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
+        if (is_member_Q) {
+            if (bar.y() > 0) {
+                acoustic_internal_faces.insert(fc_id);
+            }
+            else {
+                elastic_internal_faces.insert(fc_id);
+            }
         }
     }
-
-    size_t bc_elastic_id = 0, bc_acoustic_id = 1;
-    for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++) {
-        auto fc_id = msh.lookup(*face_it);
-        auto bar   = barycenter(msh, *face_it);
-        if (bar.y() > y_interface) {
-            msh.backend_storage()->boundary_info.at(fc_id) = disk::boundary_descriptor{bc_acoustic_id, true};
+    
+    size_t bc_elastic_id  = 0;
+    size_t bc_acoustic_id = 1;
+    for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++){
+        auto face = *face_it;
+        mesh_type::point_type bar = barycenter(msh, face);
+        auto fc_id = msh.lookup(face);
+        if (bar.x() > 0) {
+            disk::boundary_descriptor bi{bc_acoustic_id, true};
+            msh.backend_storage()->boundary_info.at(fc_id) = bi;
             acoustic_bc_face_indexes.insert(fc_id);
-        } else {
-            msh.backend_storage()->boundary_info.at(fc_id) = disk::boundary_descriptor{bc_elastic_id, true};
-            elastic_bc_face_indexes.insert(fc_id);
         }
+        else {
+            disk::boundary_descriptor bi{bc_elastic_id, true};
+            msh.backend_storage()->boundary_info.at(fc_id) = bi;
+            elastic_bc_face_indexes.insert(fc_id);
+        }   
     }
-
-    auto null_s_fun = [](const disk::mesh<double,2,disk::generic_mesh_storage<double,2>>::point_type&) -> double {
-        return 0.0;
-    };
-    auto null_fun = [](const disk::mesh<double,2,disk::generic_mesh_storage<double,2>>::point_type&) -> disk::static_vector<double,2> {
-        return disk::static_vector<double,2>{0,0};
-    };
-    auto null_flux_fun = [](const disk::mesh<double,2,disk::generic_mesh_storage<double,2>>::point_type&) -> disk::static_matrix<double,2,2> {
-        return disk::static_matrix<double,2,2>::Zero();
-    };
-
+    // Detect interface elastic - acoustic
     e_boundary_type e_bnd(msh);
     a_boundary_type a_bnd(msh);
-    e_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_elastic_id,  null_fun);
-    a_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_acoustic_id, null_s_fun);
+    e_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_elastic_id, u_fun);
+    a_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_acoustic_id, s_u_fun);
+    
 
     // ##################################################
     // ################################################## Assembly
@@ -167,11 +252,16 @@ void ERK4_LTS_stab(int argc, char **argv){
         return disk::static_vector<double,2>{wave*(x-xc), wave*(y-yc)};
     };
 
+    // #############################################################################################
+    // ###################### Projecting initial data ##############################################
+    // #############################################################################################
+    
     Matrix<RealType, Dynamic, 1> x_dof;
-    assembler.project_over_cells(msh, x_dof, null_fun, null_flux_fun, null_s_fun, v_fun_adi_acoustic);
-    assembler.project_over_faces(msh, x_dof, null_fun, null_s_fun);
+    assembler.project_over_cells(msh, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun);
+    assembler.project_over_faces(msh, x_dof, v_fun, s_v_fun);
+    
 
-    assembler.assemble(msh, null_fun, null_s_fun, true);
+    assembler.assemble(msh, f_fun, s_f_fun, true);
     assembler.LHS += assembler.COUPLING;
 
     erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING,
@@ -189,8 +279,7 @@ void ERK4_LTS_stab(int argc, char **argv){
     if (sim_data.m_render_silo_files_Q) {
         std::ostringstream sn;
         sn << "silo_stab_l_" << sim_data.m_n_divs << "_k_" << sim_data.m_k_degree << "_p_" << p << "_";
-        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
-            sn.str(), 0, msh, hho_di, x_dof, e_material, a_material, false, h_c);
+        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(sn.str(), 0, msh, hho_di, x_dof, e_material, a_material, false, h_c);
     }
 
     // ##################################################
