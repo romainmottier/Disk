@@ -82,6 +82,7 @@ public:
     SparseMatrix<T>         Pfacecoarse;
     SparseMatrix<T>         Pfine;
     SparseMatrix<T>         Pcoarse;
+    std::vector<bool> cell_is_fine_silo;
 
     size_t nnz_Sff_fine;
 
@@ -1626,7 +1627,7 @@ public:
     
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////// LTS data structure
     
-    void assemble_P(const Mesh& msh, T h_c, size_t nb_layer = 0) {
+void assemble_P(const Mesh& msh, T h_c, size_t nb_layer = 1) {
         
         Pfine.setZero();
         Pcoarse.setZero();
@@ -1672,84 +1673,69 @@ public:
         
         // --------------------------------------------------
         // STEP 2 : extend fine region by nb_layer layers
-        // Each layer marks coarse cells sharing a face with a fine cell as fine
+        // A coarse cell is marked fine if it shares at least one
+        // point (vertex) with a fine cell — this captures diagonal
+        // neighbours (corners) that share only a vertex, not a face.
         // --------------------------------------------------
-        for (size_t layer = 0; layer < nb_layer; ++layer) {
-            
-            std::vector<bool> e_cell_is_fine_new = e_cell_is_fine;
-            std::vector<bool> a_cell_is_fine_new = a_cell_is_fine;
-            
-            // Build face-to-cell adjacency for elastic cells
-            // For each elastic face, collect the elastic cell indices sharing it
-            std::map<size_t, std::vector<size_t>> e_face_to_cells;
-            for (auto& chunk : m_e_material) {
+        for (size_t layer = 0; layer < nb_layer; ++layer)
+        {
+            // Collect all point ids belonging to currently fine elastic cells
+            std::set<size_t> e_fine_points;
+            for (auto& chunk : m_e_material)
+            {
+                const size_t cell_id  = chunk.first;
+                const size_t cell_ind = m_e_cell_index[cell_id];
+                if (!e_cell_is_fine[cell_ind]) continue;
+                auto& cell = storage->surfaces[cell_id];
+                for (auto pt_id : cell.point_ids())
+                    e_fine_points.insert(pt_id);
+            }
+
+            // Collect all point ids belonging to currently fine acoustic cells
+            std::set<size_t> a_fine_points;
+            for (auto& chunk : m_a_material)
+            {
+                const size_t cell_id  = chunk.first;
+                const size_t cell_ind = m_a_cell_index[cell_id];
+                if (!a_cell_is_fine[cell_ind]) continue;
+                auto& cell = storage->surfaces[cell_id];
+                for (auto pt_id : cell.point_ids())
+                    a_fine_points.insert(pt_id);
+            }
+
+            // Mark any elastic cell that shares a point with a fine cell
+            for (auto& chunk : m_e_material)
+            {
                 const size_t cell_id  = chunk.first;
                 const size_t cell_ind = m_e_cell_index[cell_id];
                 auto& cell = storage->surfaces[cell_id];
-                auto fcs = faces(msh, cell);
-                for (auto& fc : fcs) {
-                    const auto fc_id = msh.lookup(fc);
-                    if (m_e_bnd.is_dirichlet_face(fc_id)) {
-                        continue;
+                for (auto pt_id : cell.point_ids())
+                {
+                    if (e_fine_points.count(pt_id))
+                    {
+                        e_cell_is_fine[cell_ind] = true;
+                        break;
                     }
-                    const size_t cf = m_e_compress_indexes.at(fc_id);
-                    e_face_to_cells[cf].push_back(cell_ind);
                 }
             }
-            
-            // Build face-to-cell adjacency for acoustic cells
-            std::map<size_t, std::vector<size_t>> a_face_to_cells;
-            for (auto& chunk : m_a_material) {
+
+            // Mark any acoustic cell that shares a point with a fine cell
+            for (auto& chunk : m_a_material)
+            {
                 const size_t cell_id  = chunk.first;
                 const size_t cell_ind = m_a_cell_index[cell_id];
                 auto& cell = storage->surfaces[cell_id];
-                auto fcs = faces(msh, cell);
-                for (auto& fc : fcs) {
-                    const auto fc_id = msh.lookup(fc);
-                    if (m_a_bnd.is_dirichlet_face(fc_id)) {
-                        continue;
-                    }
-                    const size_t cf = m_a_compress_indexes.at(fc_id);
-                    a_face_to_cells[cf].push_back(cell_ind);
-                }
-            }
-            
-            // Elastic layer propagation — if any neighbor is fine, mark this cell fine
-            for (auto& [cf, cell_inds] : e_face_to_cells) {
-                bool any_fine = false;
-                for (size_t ci : cell_inds) {
-                    if (e_cell_is_fine[ci]) {
-                        any_fine = true;
+                for (auto pt_id : cell.point_ids())
+                {
+                    if (a_fine_points.count(pt_id))
+                    {
+                        a_cell_is_fine[cell_ind] = true;
                         break;
                     }
                 }
-                if (any_fine) {
-                    for (size_t ci : cell_inds) {
-                        e_cell_is_fine_new[ci] = true;
-                    }
-                }
             }
-            
-            // Acoustic layer propagation
-            for (auto& [cf, cell_inds] : a_face_to_cells) {
-                bool any_fine = false;
-                for (size_t ci : cell_inds) {
-                    if (a_cell_is_fine[ci]) {
-                        any_fine = true;
-                        break;
-                    }
-                }
-                if (any_fine) {
-                    for (size_t ci : cell_inds) {
-                        a_cell_is_fine_new[ci] = true;
-                    }
-                }
-            }
-            
-            e_cell_is_fine = e_cell_is_fine_new;
-            a_cell_is_fine = a_cell_is_fine_new;
         }
-        
+
         // --------------------------------------------------
         // STEP 3 : mark faces — fine if at least one neighbor cell is fine
         // --------------------------------------------------
@@ -1763,13 +1749,9 @@ public:
             auto fcs = faces(msh, cell);
             for (auto& fc : fcs) {
                 const auto fc_id = msh.lookup(fc);
-                if (m_e_bnd.is_dirichlet_face(fc_id)) {
-                    continue;
-                }
+                if (m_e_bnd.is_dirichlet_face(fc_id)) continue;
                 const size_t cf = m_e_compress_indexes.at(fc_id);
-                if (e_cell_is_fine[cell_ind]) {
-                    e_face_is_fine[cf] = true;
-                }
+                if (e_cell_is_fine[cell_ind]) e_face_is_fine[cf] = true;
             }
         }
         
@@ -1780,13 +1762,9 @@ public:
             auto fcs = faces(msh, cell);
             for (auto& fc : fcs) {
                 const auto fc_id = msh.lookup(fc);
-                if (m_a_bnd.is_dirichlet_face(fc_id)) {
-                    continue;
-                }
+                if (m_a_bnd.is_dirichlet_face(fc_id)) continue;
                 const size_t cf = m_a_compress_indexes.at(fc_id);
-                if (a_cell_is_fine[cell_ind]) {
-                    a_face_is_fine[cf] = true;
-                }
+                if (a_cell_is_fine[cell_ind]) a_face_is_fine[cf] = true;
             }
         }
         
@@ -1805,12 +1783,10 @@ public:
             const size_t glob_ofs = cell_ind * n_e_cbs;
             for (size_t i = 0; i < n_e_cbs; ++i) {
                 const size_t dof = glob_ofs + i;
-                if (e_cell_is_fine[cell_ind]) {
+                if (e_cell_is_fine[cell_ind])
                     Pfine_trips.emplace_back(dof, dof, T(1));
-                }
-                else {
+                else
                     Pcoarse_trips.emplace_back(dof, dof, T(1));
-                }
             }
         }
         
@@ -1821,12 +1797,10 @@ public:
             const size_t glob_ofs = m_n_elastic_cell_dof + cell_ind * n_a_cbs;
             for (size_t i = 0; i < n_a_cbs; ++i) {
                 const size_t dof = glob_ofs + i;
-                if (a_cell_is_fine[cell_ind]) {
+                if (a_cell_is_fine[cell_ind])
                     Pfine_trips.emplace_back(dof, dof, T(1));
-                }
-                else {
+                else
                     Pcoarse_trips.emplace_back(dof, dof, T(1));
-                }
             }
         }
         
@@ -1835,12 +1809,10 @@ public:
         for (size_t cf = 0; cf < n_e_edges; ++cf) {
             for (size_t i = 0; i < n_e_fbs; ++i) {
                 const size_t dof = e_face_shift + cf * n_e_fbs + i;
-                if (e_face_is_fine[cf]) {
+                if (e_face_is_fine[cf])
                     Pfine_trips.emplace_back(dof, dof, T(1));
-                }
-                else {
+                else
                     Pcoarse_trips.emplace_back(dof, dof, T(1));
-                }
             }
         }
         
@@ -1849,15 +1821,30 @@ public:
         for (size_t cf = 0; cf < n_a_edges; ++cf) {
             for (size_t i = 0; i < n_a_fbs; ++i) {
                 const size_t dof = a_face_shift + cf * n_a_fbs + i;
-                if (a_face_is_fine[cf]) {
+                if (a_face_is_fine[cf])
                     Pfine_trips.emplace_back(dof, dof, T(1));
-                }
-                else {
+                else
                     Pcoarse_trips.emplace_back(dof, dof, T(1));
-                }
             }
         }
         
+        // --------------------------------------------------
+        // STEP 5 : expose fine/coarse flag for Silo post-processing
+        // Indexed by global cell_id (msh order), consistent with Pfine/Pcoarse
+        // including protection layers.
+        // --------------------------------------------------
+        cell_is_fine_silo.assign(storage->surfaces.size(), false);
+        for (auto& chunk : m_e_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_e_cell_index[cell_id];
+            cell_is_fine_silo[cell_id] = e_cell_is_fine[cell_ind];
+        }
+        for (auto& chunk : m_a_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_a_cell_index[cell_id];
+            cell_is_fine_silo[cell_id] = a_cell_is_fine[cell_ind];
+        }
+
         // --------------------------------------------------
         // FINALIZE
         // --------------------------------------------------
@@ -1866,6 +1853,7 @@ public:
         Pfine.makeCompressed();
         Pcoarse.makeCompressed();
     }
+
 };
 
 #endif /* elastoacoustic_four_fields_assembler_hpp */

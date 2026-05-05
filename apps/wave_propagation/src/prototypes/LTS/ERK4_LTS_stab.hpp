@@ -27,7 +27,8 @@ void ERK4_LTS_stab(int argc, char **argv)
 
     mesh_type msh;
 
-    if (sim_data.m_polygonal_mesh_Q) {
+    if (sim_data.m_polygonal_mesh_Q)
+    {
         size_t l = sim_data.m_n_divs;
         polygon_2d_mesh_reader<RealType> mesh_builder;
         std::vector<std::string> mesh_files;
@@ -52,15 +53,15 @@ void ERK4_LTS_stab(int argc, char **argv)
     else {
         RealType lx = 2.0;
         RealType ly = 1.0;
-        size_t   nx = 6;
-        size_t   ny = 3;
+        size_t   nx = 10;
+        size_t   ny = 5;
 
         cartesian_2d_mesh_builder<RealType> mesh_builder(lx, ly, nx, ny);
         mesh_builder.refine_mesh(sim_data.m_n_divs);
-        mesh_builder.set_translation_data(-0.5, -0.5);
+        mesh_builder.set_translation_data(-1.0, 0.0);
         mesh_builder.build_mesh();
 
-        std::vector<size_t> cells_to_refine = {7, 10};
+        std::vector<size_t> cells_to_refine = {22, 27};
         mesh_builder.refine_cells(cells_to_refine, sim_data.m_substeps_Q);
         mesh_builder.move_to_mesh_storage(msh);
     }
@@ -72,7 +73,8 @@ void ERK4_LTS_stab(int argc, char **argv)
     // Compute mesh size extrema and refinement ratio p = h_max / h_min
     RealType h_max = 1.0e-5;
     RealType h_min = 10.0;
-    for (auto & cell : msh) {
+    for (auto & cell : msh)
+    {
         RealType h_l = diameter(msh, cell);
         if (h_l < h_min) h_min = h_l;
         else if (h_l > h_max) h_max = h_l;
@@ -82,9 +84,9 @@ void ERK4_LTS_stab(int argc, char **argv)
     auto p   = h_max / h_min;
     auto h_c = (p == 1) ? 1.25 * h_max : 0.75 * h_max;
 
-    std::cout << bold << cyan << "      h_max       = " << h_max         << reset << std::endl;
-    std::cout << bold << cyan << "      h_min       = " << h_min                  << std::endl;
-    std::cout << bold << cyan << "      h_max/h_min = " << p              << reset << std::endl << std::endl;
+    std::cout << bold << cyan << "      h_max       = " << h_max << reset << std::endl;
+    std::cout << bold << cyan << "      h_min       = " << h_min           << std::endl;
+    std::cout << bold << cyan << "      h_max/h_min = " << p     << reset << std::endl << std::endl;
 
     // =========================================================================
     // Time parameters
@@ -147,31 +149,38 @@ void ERK4_LTS_stab(int argc, char **argv)
 
     const RealType eps = 1.0e-10;
 
-    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
+    // Identify interface faces (x ~ 0)
+    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++)
+    {
         const auto face = *face_it;
         mesh_type::point_type bar = barycenter(msh, face);
         auto fc_id = msh.lookup(face);
-        if (std::fabs(bar.x()) < eps) {
+        if (std::fabs(bar.x()) < eps)
+        {
             interface_face_indexes.insert(fc_id);
             continue;
         }
     }
 
-    for (auto & cell : msh) {
+    // Assign material to each cell; detect interface cell pairs
+    for (auto & cell : msh)
+    {
         auto cell_ind = msh.lookup(cell);
         mesh_type::point_type bar = barycenter(msh, cell);
-        if (bar.x() > 0) {
+
+        if (bar.x() > 0)
             a_material.insert(std::make_pair(cell_ind, acoustic_mat_fun(bar)));
-        }
-        else {
+        else
             e_material.insert(std::make_pair(cell_ind, elastic_mat_fun(bar)));
-        }
+
         // For each face of this cell, check if it lies on the interface
         auto cell_faces = faces(msh, cell);
-        for (auto face : cell_faces) {
-            auto fc_id     = msh.lookup(face);
-            bool is_iface  = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
-            if (is_iface) {
+        for (auto face : cell_faces)
+        {
+            auto fc_id    = msh.lookup(face);
+            bool is_iface = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
+            if (is_iface)
+            {
                 if (bar.x() > 0)
                     interface_cell_pair_indexes[fc_id].second = cell_ind;
                 else
@@ -183,12 +192,14 @@ void ERK4_LTS_stab(int argc, char **argv)
     // Classify internal interface faces as elastic-side or acoustic-side
     std::set<size_t> elastic_internal_faces;
     std::set<size_t> acoustic_internal_faces;
-    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
+    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++)
+    {
         const auto face = *face_it;
         mesh_type::point_type bar = barycenter(msh, face);
-        auto fc_id   = msh.lookup(face);
+        auto fc_id    = msh.lookup(face);
         bool is_iface = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
-        if (is_iface) {
+        if (is_iface)
+        {
             if (bar.y() > 0)
                 acoustic_internal_faces.insert(fc_id);
             else
@@ -199,16 +210,19 @@ void ERK4_LTS_stab(int argc, char **argv)
     // Assign Dirichlet boundary conditions
     size_t bc_elastic_id  = 0;
     size_t bc_acoustic_id = 1;
-    for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++) {
+    for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++)
+    {
         auto face = *face_it;
         mesh_type::point_type bar = barycenter(msh, face);
         auto fc_id = msh.lookup(face);
-        if (bar.x() > 0) {
+        if (bar.x() > 0)
+        {
             disk::boundary_descriptor bi{bc_acoustic_id, true};
             msh.backend_storage()->boundary_info.at(fc_id) = bi;
             acoustic_bc_face_indexes.insert(fc_id);
         }
-        else {
+        else
+        {
             disk::boundary_descriptor bi{bc_elastic_id, true};
             msh.backend_storage()->boundary_info.at(fc_id) = bi;
             elastic_bc_face_indexes.insert(fc_id);
@@ -224,13 +238,12 @@ void ERK4_LTS_stab(int argc, char **argv)
     // HHO assembly
     // =========================================================================
 
-    auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
+    auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(
+        msh, hho_di, e_bnd, a_bnd, e_material, a_material);
 
     assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
     assembler.set_hdg_stabilization();
-    if (sim_data.m_scaled_stabilization_Q) {
-        assembler.set_scaled_stabilization();
-    }
+    if (sim_data.m_scaled_stabilization_Q) assembler.set_scaled_stabilization();
     assembler.assemble_mass(msh);
     assembler.assemble_coupling_terms(msh);
 
@@ -250,28 +263,30 @@ void ERK4_LTS_stab(int argc, char **argv)
         assembler.get_e_face_dof(),    assembler.get_a_face_dof());
 
     erk_an.Mcc_inverse(
-        assembler.get_elastic_cells(),  assembler.get_acoustic_cells(),
+        assembler.get_elastic_cells(),     assembler.get_acoustic_cells(),
         assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
 
     erk_an.Sff_inverse(
-        assembler.get_elastic_faces(),  assembler.get_acoustic_faces(),
+        assembler.get_elastic_faces(),     assembler.get_acoustic_faces(),
         assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(),
-        assembler.get_e_compress(),     assembler.get_a_compress(),
+        assembler.get_e_compress(),        assembler.get_a_compress(),
         elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
 
     erk_an.refresh_faces_unknowns(x_dof);
 
-    // Build the coarse/fine projection matrices P (threshold h_c)
     assembler.assemble_P(msh, h_c);
 
     // Optional: dump initial state to Silo for visualisation
-    if (sim_data.m_render_silo_files_Q) {
+    if (sim_data.m_render_silo_files_Q)
+    {
         std::ostringstream sn;
         sn << "silo_stab_l_" << sim_data.m_n_divs
            << "_k_" << sim_data.m_k_degree
            << "_p_" << p << "_";
-        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
-            sn.str(), 0, msh, hho_di, x_dof, e_material, a_material, false, h_c);
+postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
+    sn.str(), 0, msh, hho_di, x_dof,
+    e_material, a_material, false, h_c,
+    assembler.cell_is_fine_silo);  // <-- ce paramètre est-il bien là ?
     }
 
     // =========================================================================
@@ -305,158 +320,153 @@ void ERK4_LTS_stab(int argc, char **argv)
     //      with source term f = 0 (valid for stability analysis).
     //   3. Extracting the first n_c components (cell part) of the result.
     //
-    // The scheme is stable for a given dt iff the spectral radius rho(C) <= 1.
-    // We sweep dt from dt_min to dt_max and stop as soon as rho > 1.25.
+    // The scheme is stable for a given dt iff rho(C) <= 1.
+    // The sweep scans dt in [dt_min, dt_max] with n_pts points and stops
+    // as soon as rho > rho_stop. Eigenvalue files are saved at each step
+    // for post-processing (complex plane plots).
 
-    const int n_dof = static_cast<int>(x_dof.rows());
-    const int n_c   = static_cast<int>(erk_an.n_c_dof());
-    const int n_f   = n_dof - n_c;
+    const int    n_dof = static_cast<int>(x_dof.rows());
+    const int    n_c   = static_cast<int>(erk_an.n_c_dof());
+    const int    n_f   = n_dof - n_c;
 
+    // Display tolerance: rho in (1, 1+rho_eps] is shown in blue (boundary noise)
+    const double rho_eps  = 1.0e-5;
+
+    // Sweep hard stop threshold
+    const double rho_stop = 1.05;
+
+    std::cout << bold << red << "   DISCRETIZATION" << reset << std::endl;
     std::cout << bold << cyan
               << "      n_dof=" << n_dof << "  n_c=" << n_c << "  n_f=" << n_f
-              << "  dt=" << dt << reset << std::endl;
+              << reset << std::endl;
+    std::cout << bold << cyan
+              << "      rho_eps=" << rho_eps << "  rho_stop=" << rho_stop
+              << reset << std::endl;
 
     const double dt_min = dt;
-    const double dt_max = 10.0 * dt;
-    const int    n_pts  = 100;
+    const double dt_max = 2.0 * dt;
+    const int    n_pts  = 50;
     const double ddt    = (dt_max - dt_min) / static_cast<double>(n_pts - 1);
-
-    std::cout << bold << red << "\n   STABILITY SWEEP (p=" << p << ")" << reset << std::endl;
-    log << std::setw(20) << "dt" << std::setw(22) << "rho" << std::setw(10) << "stable\n";
 
     // Zero the face correction accumulator (no source term for stability analysis)
     erk_an.ZeroFc();
+
+    std::cout << bold << red
+              << "\n   STABILITY SWEEP (p=" << p << ")"
+              << reset << std::endl;
+    log << std::setw(20) << "dt" << std::setw(22) << "rho" << std::setw(10) << "stable\n";
+
     double dt_max_stable = -1.0;
 
-    for (int s = 0; s < n_pts; ++s) {
+    for (int s = 0; s < n_pts; ++s)
+    {
         const double dt_s   = dt_min + s * ddt;
         const double dtau_s = dt_s / static_cast<double>(p);
 
         // -----------------------------------------------------------------
         // Build the amplification matrix C column by column
         // -----------------------------------------------------------------
-        tc.tic();
         Eigen::MatrixXd C = Eigen::MatrixXd::Zero(n_c, n_c);
 
-        for (int i = 0; i < n_c; ++i) {
+        for (int i = 0; i < n_c; ++i)
+        {
             // Canonical basis vector: cell i = 1, all faces = 0
             Matrix<RealType, Dynamic, 1> e_i = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             e_i(i) = 1.0;
 
-            // --- Coarse predictor (no source term) ---
-            // Computes the Taylor coefficients w[0..3] used to interpolate
-            // the coarse-grid right-hand side across the fine substeps.
-            // The "_old" variant is used because there is no source term (f=0),
-            // which makes it faster than the general version.
+            // Coarse predictor: Taylor coefficients w[0..3], no source term (f=0)
             std::vector<Matrix<RealType, Dynamic, 1>> w(4);
             for (int j = 0; j < 4; ++j) { w[j].resize(n_dof); w[j].setZero(); }
             erk_an.erk_weight_LTS_coarse_old(e_i, assembler.Pcoarse, w);
 
-            // --- Fine substeps: p RK4 steps of size dtau_s ---
-            // At each substep m, the coarse contribution is reconstructed
-            // from the Taylor polynomial w(tau) = w0 + tau*w1 + tau^2/2*w2 + tau^3/6*w3
+            // Fine substeps: p RK4 steps of size dtau_s
+            // Coarse contribution reconstructed via Taylor: w(tau) = sum_j w[j]*tau^j/j!
             Matrix<RealType, Dynamic, 1> x = e_i;
-            for (int m = 0; m < p; ++m) {
+            for (int m = 0; m < p; ++m)
+            {
                 const double tm   =  m        * dtau_s;
                 const double tm12 = (m + 0.5) * dtau_s;
                 const double tm1  = (m + 1.0) * dtau_s;
 
-                // Taylor interpolation of the coarse predictor at time tau
                 auto Taylor = [&](double tau) {
                     return w[0] + tau * w[1]
                                 + (tau * tau / 2.0)       * w[2]
                                 + (tau * tau * tau / 6.0) * w[3];
                 };
 
-                Matrix<RealType, Dynamic, 1> k1, k2, k3, k4;
-                Matrix<RealType, Dynamic, 1> yn;
+                Matrix<RealType, Dynamic, 1> k1, k2, k3, k4, yn;
 
-                // RK4 stage 1
                 yn = assembler.Pfine * x;
                 erk_an.erk_weight(yn, k1);
                 k1 += Taylor(tm);
 
-                // RK4 stage 2
                 yn = assembler.Pfine * (x + dtau_s / 2.0 * k1);
                 erk_an.erk_weight(yn, k2);
                 k2 += Taylor(tm12);
 
-                // RK4 stage 3
                 yn = assembler.Pfine * (x + dtau_s / 2.0 * k2);
                 erk_an.erk_weight(yn, k3);
                 k3 += Taylor(tm12);
 
-                // RK4 stage 4
                 yn = assembler.Pfine * (x + dtau_s * k3);
                 erk_an.erk_weight(yn, k4);
                 k4 += Taylor(tm1);
 
-                // Update solution
                 x += dtau_s / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
             }
 
-            // Column i = cell part of the output vector
             C.col(i) = x.head(n_c);
         }
-        tc.toc();
-
-        std::cout << bold << cyan
-                  << "      C(" << n_c << "x" << n_c << ") built in " << tc
-                  << "   norm=" << std::setprecision(6) << C.norm()
-                  << reset << std::endl;
 
         // -----------------------------------------------------------------
         // Compute spectral radius rho(C) = max |lambda_i(C)|
-        // The scheme is stable iff rho(C) <= 1.
         // -----------------------------------------------------------------
         Eigen::EigenSolver<Eigen::MatrixXd> es(C);
         double rho = -1.0;
 
-        if (es.info() == Eigen::Success) {
+        if (es.info() == Eigen::Success)
+        {
             rho = es.eigenvalues().cwiseAbs().maxCoeff();
-            if (rho <= 1.0) {
-                dt_max_stable = dt_s;
-                std::cout << "   --> dt_max_stable updated = " << dt_max_stable << std::endl;
-            }
-        }
-        else {
-            std::cout << bold << red
-                      << "   --> EigenSolver FAILED at dt=" << dt_s
-                      << reset << std::endl;
-        }
 
-        std::cout << bold << cyan
-                  << "      dt=" << std::setw(14) << std::setprecision(8)  << dt_s
-                  << "   rho=" << std::setw(22) << std::setprecision(15) << rho
-                  << (rho >= 0 && rho <= 1.0 ? "  [stable]" : "  [UNSTABLE]")
-                  << reset << std::endl;
-
-        log << std::setw(20) << std::setprecision(10) << dt_s
-            << std::setw(22) << std::setprecision(15) << rho
-            << std::setw(10) << (rho >= 0 && rho <= 1.0 ? "yes" : "no") << "\n";
-        log.flush();
-
-        // Save all eigenvalues (real + imag parts) to a separate file for
-        // post-processing and visualisation in the complex plane
-        if (es.info() == Eigen::Success) {
+            // Save eigenvalues (real + imag) for complex plane post-processing
             std::ostringstream ev_fname;
             ev_fname << "eigenvalues_dt_" << std::setprecision(6) << dt_s << ".txt";
             std::ofstream ev_file(ev_fname.str());
             ev_file << "# dt=" << dt_s << "  rho=" << rho << "\n";
             ev_file << "# real  imag\n";
-            for (int j = 0; j < es.eigenvalues().size(); ++j) {
+            for (int j = 0; j < es.eigenvalues().size(); ++j)
+            {
                 ev_file << std::setprecision(15)
                         << es.eigenvalues()(j).real() << "  "
                         << es.eigenvalues()(j).imag() << "\n";
             }
             ev_file.close();
         }
-
-        // Stop the sweep as soon as the scheme becomes significantly unstable
-        if (rho > 1.25) {
+        else
+        {
             std::cout << bold << red
-                      << "   --> rho > 1.25, stopping sweep."
+                      << "   --> EigenSolver FAILED at dt=" << dt_s
                       << reset << std::endl;
+        }
+
+        // Display: blue = stable (rho <= 1 + rho_eps), red = unstable
+        bool is_stable = (rho >= 0.0 && rho <= 1.0 + rho_eps);
+        if (is_stable)
+        {
+            std::cout << bold << cyan;
+            dt_max_stable = dt_s;
+        }
+        else
+        {
+            std::cout << bold << red;
+        }
+
+        std::cout << "      dt =" << std::setw(14) << std::setprecision(5) << dt_s << "   rho = "   << std::setprecision(10) << rho << reset << std::endl;
+
+        log << std::setw(20) << std::setprecision(10) << dt_s << std::setw(22) << std::setprecision(15) << rho << std::setw(10) << (is_stable ? "yes" : "no") << "\n";
+        log.flush();
+
+        if (rho > rho_stop) {
             break;
         }
 
@@ -468,7 +478,7 @@ void ERK4_LTS_stab(int argc, char **argv)
 
     std::cout << bold << red
               << "\n   dt_max_stable (p=" << p << ") = "
-              << std::setprecision(10) << dt_max_stable
+              << std::setprecision(12) << dt_max_stable
               << reset << std::endl;
 
     log << "dt_max_stable=" << dt_max_stable << "\n";
