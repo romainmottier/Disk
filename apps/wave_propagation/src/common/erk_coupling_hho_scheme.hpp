@@ -504,36 +504,7 @@ class erk_coupling_hho_scheme {
         }
     }
     
-    
-// void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &x_dof_n, const Eigen::SparseMatrix<T> &Pfine, const std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fm, const Matrix<T, Dynamic, 1> &Fmh, const Matrix<T, Dynamic, 1> &Fm1, const T tm, const T dtau) {
-    
-//     auto Taylor_w = [&](T tau) -> Matrix<T, Dynamic, 1> {
-//         T tau2 = tau*tau, tau3 = tau*tau2;
-//         return w[0] + tau*w[1] + (tau2/2)*w[2] + (tau3/6)*w[3];
-//     };
-    
-//     auto fine_stage = [&](const Matrix<T, Dynamic, 1> &y_stage, T tau, const Matrix<T, Dynamic, 1> &F_tau) -> Matrix<T, Dynamic, 1> {
-//         Matrix<T, Dynamic, 1> Py = Pfine * y_stage;
-//         Matrix<T, Dynamic, 1> PF = Pfine * F_tau;
-//         SetFg(PF);
-//         Matrix<T, Dynamic, 1> k;
-//         erk_weight(Py, k);
-//         ZeroFc();
-//         k += Taylor_w(tau);
-//         return k;
-//     };
-    
-//     T tmh = tm + 0.5*dtau;
-//     T tm1 = tm +     dtau;
-    
-//     Matrix<T, Dynamic, 1> k0 = fine_stage(x_dof_n,                tm,  Fm);
-//     Matrix<T, Dynamic, 1> k1 = fine_stage(x_dof_n + 0.5*dtau*k0, tmh, Fmh);
-//     Matrix<T, Dynamic, 1> k2 = fine_stage(x_dof_n + 0.5*dtau*k1, tmh, Fmh);
-//     Matrix<T, Dynamic, 1> k3 = fine_stage(x_dof_n +     dtau*k2, tm1, Fm1);
-    
-//     x_dof_n += dtau * (k0 + 2*k1 + 2*k2 + k3) / 6;
-// }
-    
+
     
 void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
                             const Eigen::SparseMatrix<double> &Pcoarse,

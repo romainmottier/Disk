@@ -357,65 +357,44 @@ postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
     log << std::setw(20) << "dt" << std::setw(22) << "rho" << std::setw(10) << "stable\n";
 
     double dt_max_stable = -1.0;
+    Matrix<RealType, Dynamic, 1> F_zero = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
+    
+    for (int s = 0; s < n_pts; ++s) {
 
-    for (int s = 0; s < n_pts; ++s)
-    {
         const double dt_s   = dt_min + s * ddt;
-        const double dtau_s = dt_s / static_cast<double>(p);
+        const double dtau_s = dt_s / p;
 
         // -----------------------------------------------------------------
         // Build the amplification matrix C column by column
         // -----------------------------------------------------------------
         Eigen::MatrixXd C = Eigen::MatrixXd::Zero(n_c, n_c);
 
-        for (int i = 0; i < n_c; ++i)
-        {
+        for (int i = 0; i < n_c; ++i) {
+
             // Canonical basis vector: cell i = 1, all faces = 0
             Matrix<RealType, Dynamic, 1> e_i = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             e_i(i) = 1.0;
 
-            // Coarse predictor: Taylor coefficients w[0..3], no source term (f=0)
             std::vector<Matrix<RealType, Dynamic, 1>> w(4);
-            for (int j = 0; j < 4; ++j) { w[j].resize(n_dof); w[j].setZero(); }
-            erk_an.erk_weight_LTS_coarse_old(e_i, assembler.Pcoarse, w);
-
-            // Fine substeps: p RK4 steps of size dtau_s
-            // Coarse contribution reconstructed via Taylor: w(tau) = sum_j w[j]*tau^j/j!
-            Matrix<RealType, Dynamic, 1> x = e_i;
-            for (int m = 0; m < p; ++m)
-            {
-                const double tm   =  m        * dtau_s;
-                const double tm12 = (m + 0.5) * dtau_s;
-                const double tm1  = (m + 1.0) * dtau_s;
-
-                auto Taylor = [&](double tau) {
-                    return w[0] + tau * w[1]
-                                + (tau * tau / 2.0)       * w[2]
-                                + (tau * tau * tau / 6.0) * w[3];
-                };
-
-                Matrix<RealType, Dynamic, 1> k1, k2, k3, k4, yn;
-
-                yn = assembler.Pfine * x;
-                erk_an.erk_weight(yn, k1);
-                k1 += Taylor(tm);
-
-                yn = assembler.Pfine * (x + dtau_s / 2.0 * k1);
-                erk_an.erk_weight(yn, k2);
-                k2 += Taylor(tm12);
-
-                yn = assembler.Pfine * (x + dtau_s / 2.0 * k2);
-                erk_an.erk_weight(yn, k3);
-                k3 += Taylor(tm12);
-
-                yn = assembler.Pfine * (x + dtau_s * k3);
-                erk_an.erk_weight(yn, k4);
-                k4 += Taylor(tm1);
-
-                x += dtau_s / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
+            for (int i = 0; i < 4; ++i) {
+                w[i].resize(x_dof.rows());
+                w[i].setZero();
             }
-
-            C.col(i) = x.head(n_c);
+            erk_an.ZeroFc();
+            if (p != 1) {
+                erk_an.ZeroFc();
+                erk_an.erk_weight_LTS_coarse(e_i, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt);
+            }
+            
+            // Fine sub-steps
+            for (int m = 0; m < p; m++) {
+                RealType tm  =  m      * dtau_s;
+                RealType tmh = (m+0.5) * dtau_s;
+                RealType tm1 = (m+1.0) * dtau_s;
+                erk_an.erk_weight_LTS_fine(e_i, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau_s);
+            }
+            
+            C.col(i) = e_i.head(n_c);
         }
 
         // -----------------------------------------------------------------
