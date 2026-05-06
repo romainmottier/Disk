@@ -163,8 +163,7 @@ void ERK4_LTS_stab(int argc, char **argv)
     }
 
     // Assign material to each cell; detect interface cell pairs
-    for (auto & cell : msh)
-    {
+    for (auto & cell : msh) {
         auto cell_ind = msh.lookup(cell);
         mesh_type::point_type bar = barycenter(msh, cell);
 
@@ -175,12 +174,10 @@ void ERK4_LTS_stab(int argc, char **argv)
 
         // For each face of this cell, check if it lies on the interface
         auto cell_faces = faces(msh, cell);
-        for (auto face : cell_faces)
-        {
+        for (auto face : cell_faces) {
             auto fc_id    = msh.lookup(face);
             bool is_iface = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
-            if (is_iface)
-            {
+            if (is_iface) {
                 if (bar.x() > 0)
                     interface_cell_pair_indexes[fc_id].second = cell_ind;
                 else
@@ -192,14 +189,12 @@ void ERK4_LTS_stab(int argc, char **argv)
     // Classify internal interface faces as elastic-side or acoustic-side
     std::set<size_t> elastic_internal_faces;
     std::set<size_t> acoustic_internal_faces;
-    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++)
-    {
+    for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
         const auto face = *face_it;
         mesh_type::point_type bar = barycenter(msh, face);
         auto fc_id    = msh.lookup(face);
         bool is_iface = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
-        if (is_iface)
-        {
+        if (is_iface) {
             if (bar.y() > 0)
                 acoustic_internal_faces.insert(fc_id);
             else
@@ -210,19 +205,16 @@ void ERK4_LTS_stab(int argc, char **argv)
     // Assign Dirichlet boundary conditions
     size_t bc_elastic_id  = 0;
     size_t bc_acoustic_id = 1;
-    for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++)
-    {
+    for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++) {
         auto face = *face_it;
         mesh_type::point_type bar = barycenter(msh, face);
         auto fc_id = msh.lookup(face);
-        if (bar.x() > 0)
-        {
+        if (bar.x() > 0) {
             disk::boundary_descriptor bi{bc_acoustic_id, true};
             msh.backend_storage()->boundary_info.at(fc_id) = bi;
             acoustic_bc_face_indexes.insert(fc_id);
         }
-        else
-        {
+        else {
             disk::boundary_descriptor bi{bc_elastic_id, true};
             msh.backend_storage()->boundary_info.at(fc_id) = bi;
             elastic_bc_face_indexes.insert(fc_id);
@@ -238,12 +230,12 @@ void ERK4_LTS_stab(int argc, char **argv)
     // HHO assembly
     // =========================================================================
 
-    auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(
-        msh, hho_di, e_bnd, a_bnd, e_material, a_material);
+    auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
 
     assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
     assembler.set_hdg_stabilization();
-    if (sim_data.m_scaled_stabilization_Q) assembler.set_scaled_stabilization();
+    if (sim_data.m_scaled_stabilization_Q) 
+        assembler.set_scaled_stabilization();
     assembler.assemble_mass(msh);
     assembler.assemble_coupling_terms(msh);
 
@@ -257,51 +249,26 @@ void ERK4_LTS_stab(int argc, char **argv)
     assembler.LHS += assembler.COUPLING;
 
     // Build the ERK scheme object and invert mass / Schur complement on cell/face blocks
-    erk_coupling_hho_scheme<RealType> erk_an(
-        assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING,
-        assembler.get_e_n_cells_dof(), assembler.get_a_n_cells_dof(),
-        assembler.get_e_face_dof(),    assembler.get_a_face_dof());
+    erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING,assembler.get_e_n_cells_dof(), assembler.get_a_n_cells_dof(),assembler.get_e_face_dof(),    assembler.get_a_face_dof());
 
-    erk_an.Mcc_inverse(
-        assembler.get_elastic_cells(),     assembler.get_acoustic_cells(),
-        assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
-
-    erk_an.Sff_inverse(
-        assembler.get_elastic_faces(),     assembler.get_acoustic_faces(),
-        assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(),
-        assembler.get_e_compress(),        assembler.get_a_compress(),
-        elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
-
+    erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(), assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
+    erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(),assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(),assembler.get_e_compress(), assembler.get_a_compress(), elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
     erk_an.refresh_faces_unknowns(x_dof);
-
     assembler.assemble_P(msh, h_c);
-
-    // Optional: dump initial state to Silo for visualisation
-    if (sim_data.m_render_silo_files_Q)
-    {
+    if (sim_data.m_render_silo_files_Q) {
         std::ostringstream sn;
-        sn << "silo_stab_l_" << sim_data.m_n_divs
-           << "_k_" << sim_data.m_k_degree
-           << "_p_" << p << "_";
-postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
-    sn.str(), 0, msh, hho_di, x_dof,
-    e_material, a_material, false, h_c,
-    assembler.cell_is_fine_silo);  // <-- ce paramètre est-il bien là ?
+        sn << "silo_stab_l_" << sim_data.m_n_divs << "_k_" << sim_data.m_k_degree << "_p_" << p << "_";
+        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(sn.str(), 0, msh, hho_di, x_dof, e_material, a_material, false, h_c, assembler.cell_is_fine_silo);  // <-- ce paramètre est-il bien là ?
     }
 
     // =========================================================================
     // Log file
     // =========================================================================
-
     std::ostringstream fname;
-    fname << "stab_l_" << sim_data.m_n_divs
-          << "_n_"     << nt
-          << "_k_"     << sim_data.m_k_degree
-          << "_p_"     << p << ".txt";
+    fname << "stab_l_" << sim_data.m_n_divs << "_n_"     << nt << "_k_"     << sim_data.m_k_degree << "_p_"     << p << ".txt";
     std::ofstream log(fname.str());
     sim_data.write_simulation_data(log);
-    log << "nt=" << nt << " dt=" << dt << " p=" << p
-        << " n_dof=" << x_dof.rows() << "\n";
+    log << "nt=" << nt << " dt=" << dt << " p=" << p << " n_dof=" << x_dof.rows() << "\n";
     log.flush();
 
     // =========================================================================
@@ -336,12 +303,8 @@ postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
     const double rho_stop = 1.05;
 
     std::cout << bold << red << "   DISCRETIZATION" << reset << std::endl;
-    std::cout << bold << cyan
-              << "      n_dof=" << n_dof << "  n_c=" << n_c << "  n_f=" << n_f
-              << reset << std::endl;
-    std::cout << bold << cyan
-              << "      rho_eps=" << rho_eps << "  rho_stop=" << rho_stop
-              << reset << std::endl;
+    std::cout << bold << cyan << "      n_dof=" << n_dof << "  n_c=" << n_c << "  n_f=" << n_f << reset << std::endl;
+    std::cout << bold << cyan << "      rho_eps=" << rho_eps << "  rho_stop=" << rho_stop << reset << std::endl;
 
     const double dt_min = dt;
     const double dt_max = 2.0 * dt;
@@ -351,9 +314,7 @@ postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
     // Zero the face correction accumulator (no source term for stability analysis)
     erk_an.ZeroFc();
 
-    std::cout << bold << red
-              << "\n   STABILITY SWEEP (p=" << p << ")"
-              << reset << std::endl;
+    std::cout << bold << red << "\n   STABILITY SWEEP (p=" << p << ")" << reset << std::endl;
     log << std::setw(20) << "dt" << std::setw(22) << "rho" << std::setw(10) << "stable\n";
 
     double dt_max_stable = -1.0;
@@ -403,8 +364,7 @@ postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(
         Eigen::EigenSolver<Eigen::MatrixXd> es(C);
         double rho = -1.0;
 
-        if (es.info() == Eigen::Success)
-        {
+        if (es.info() == Eigen::Success) {
             rho = es.eigenvalues().cwiseAbs().maxCoeff();
 
             // Save eigenvalues (real + imag) for complex plane post-processing
