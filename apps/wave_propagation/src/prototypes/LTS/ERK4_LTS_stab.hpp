@@ -254,7 +254,7 @@ void ERK4_LTS_stab(int argc, char **argv)
     erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(), assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
     erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(),assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(),assembler.get_e_compress(), assembler.get_a_compress(), elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
     erk_an.refresh_faces_unknowns(x_dof);
-    assembler.assemble_P(msh, h_c);
+    assembler.assemble_P(msh, h_c, 1);
     if (sim_data.m_render_silo_files_Q) {
         std::ostringstream sn;
         sn << "silo_stab_l_" << sim_data.m_n_divs << "_k_" << sim_data.m_k_degree << "_p_" << p << "_";
@@ -344,7 +344,7 @@ void ERK4_LTS_stab(int argc, char **argv)
             erk_an.ZeroFc();
             if (p != 1) {
                 erk_an.ZeroFc();
-                erk_an.erk_weight_LTS_coarse(e_i, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt);
+                erk_an.erk_weight_LTS_coarse(e_i, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt_s);
             }
             
             // Fine sub-steps
