@@ -233,7 +233,7 @@ void ERK4_LTS_stab(int argc, char **argv)
     auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
 
     assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
-    assembler.set_hdg_stabilization();
+    assembler.set_coupling_stabilization();
     if (sim_data.m_scaled_stabilization_Q) 
         assembler.set_scaled_stabilization();
     assembler.assemble_mass(msh);
@@ -325,6 +325,8 @@ void ERK4_LTS_stab(int argc, char **argv)
         const double dt_s   = dt_min + s * ddt;
         const double dtau_s = dt_s / p;
 
+        std::cout << bold << cyan << "      dt = " << std::setprecision(5) << dt_s << ":" << reset;
+
         // -----------------------------------------------------------------
         // Build the amplification matrix C column by column
         // -----------------------------------------------------------------
@@ -335,7 +337,7 @@ void ERK4_LTS_stab(int argc, char **argv)
             // Canonical basis vector: cell i = 1, all faces = 0
             Matrix<RealType, Dynamic, 1> e_i = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             e_i(i) = 1.0;
-            erk_an.refresh_faces_unknowns(e_i);
+            // erk_an.refresh_faces_unknowns(e_i);
     
             std::vector<Matrix<RealType, Dynamic, 1>> w(4);
             for (int i = 0; i < 4; ++i) {
@@ -356,72 +358,125 @@ void ERK4_LTS_stab(int argc, char **argv)
             
             C.col(i) = e_i.head(n_c);
         }
+        
+        
+        // =========================================================================
+        // TEST 1 : C * x_rand doit égaler un vrai pas LTS sur x_rand
+        // =========================================================================
+        {
+            Matrix<RealType, Dynamic, 1> x_rand_c = Matrix<RealType, Dynamic, 1>::Random(n_c);
+            Matrix<RealType, Dynamic, 1> Cx = C * x_rand_c;
+            Matrix<RealType, Dynamic, 1> x_rand = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
+            x_rand.head(n_c) = x_rand_c;
+            
+            std::vector<Matrix<RealType, Dynamic, 1>> w_test(4);
+            for (int j = 0; j < 4; ++j) { 
+                w_test[j].resize(n_dof); w_test[j].setZero(); 
+            }
+            erk_an.ZeroFc();
+            if (p != 1) {
+                erk_an.erk_weight_LTS_coarse(x_rand, assembler.Pcoarse, w_test, F_zero, F_zero, F_zero, dt_s);
+            }
+            for (int m = 0; m < p; ++m) {
+                RealType tm = m * dtau_s;
+                erk_an.erk_weight_LTS_fine(x_rand, assembler.Pfine, w_test, F_zero, F_zero, F_zero, tm, dtau_s);
+            }
+            Matrix<RealType, Dynamic, 1> x_step = x_rand.head(n_c); 
+            
+            double err1 = (Cx - x_step).norm();
+            std::cout << bold << yellow << " ||C*x - step(x)|| = " << err1 << reset << std::endl;
+        }
+
 
         // -----------------------------------------------------------------
         // Compute spectral radius rho(C) = max |lambda_i(C)|
         // -----------------------------------------------------------------
         Eigen::EigenSolver<Eigen::MatrixXd> es(C);
         double rho = -1.0;
-
         if (es.info() == Eigen::Success) {
             rho = es.eigenvalues().cwiseAbs().maxCoeff();
-
             // Save eigenvalues (real + imag) for complex plane post-processing
             std::ostringstream ev_fname;
             ev_fname << "eigenvalues_dt_" << std::setprecision(6) << dt_s << ".txt";
             std::ofstream ev_file(ev_fname.str());
             ev_file << "# dt=" << dt_s << "  rho=" << rho << "\n";
             ev_file << "# real  imag\n";
-            for (int j = 0; j < es.eigenvalues().size(); ++j)
-            {
-                ev_file << std::setprecision(15)
-                        << es.eigenvalues()(j).real() << "  "
-                        << es.eigenvalues()(j).imag() << "\n";
+            for (int j = 0; j < es.eigenvalues().size(); ++j) {
+                ev_file << std::setprecision(15) << es.eigenvalues()(j).real() << "  " << es.eigenvalues()(j).imag() << "\n";
             }
             ev_file.close();
         }
-        else
-        {
-            std::cout << bold << red
-                      << "   --> EigenSolver FAILED at dt=" << dt_s
-                      << reset << std::endl;
+        else {
+            std::cout << bold << red << "   --> EigenSolver FAILED at dt=" << dt_s << reset << std::endl;
         }
 
         // Display: blue = stable (rho <= 1 + rho_eps), red = unstable
         bool is_stable = (rho >= 0.0 && rho <= 1.0 + rho_eps);
-        if (is_stable)
-        {
+        if (is_stable) {
             std::cout << bold << cyan;
             dt_max_stable = dt_s;
         }
-        else
-        {
+        else {
             std::cout << bold << red;
         }
 
-        std::cout << "      dt =" << std::setw(14) << std::setprecision(5) << dt_s << "   rho = "   << std::setprecision(10) << rho << reset << std::endl;
+        std::cout << bold << yellow << "                      rho = "   << std::setprecision(10) << rho << reset << std::endl;
 
         log << std::setw(20) << std::setprecision(10) << dt_s << std::setw(22) << std::setprecision(15) << rho << std::setw(10) << (is_stable ? "yes" : "no") << "\n";
         log.flush();
-
+        
         if (rho > rho_stop) {
+            // Trouver le vecteur propre correspondant à la valeur propre de module max
+            int idx_max = 0;
+            es.eigenvalues().cwiseAbs().maxCoeff(&idx_max);
+            
+            // Prendre la partie réelle du vecteur propre dominant
+            Matrix<RealType, Dynamic, 1> v_unstable = es.eigenvectors().col(idx_max).real();
+            v_unstable.normalize();
+            
+            // Reconstruire l'état complet (faces à zéro, cohérent avec construction de C)
+            Matrix<RealType, Dynamic, 1> x_eig = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
+            x_eig.head(n_c) = v_unstable;
+            
+            // Appliquer N_check pas successifs et surveiller la norme
+            const int N_check = 200;
+            std::cout << bold << red << "\n   TEST 2 : propagation du vecteur propre instable\n" << reset;
+            for (int step = 0; step < N_check; ++step) {
+                std::vector<Matrix<RealType, Dynamic, 1>> w_eig(4);
+                for (int j = 0; j < 4; ++j) { w_eig[j].resize(n_dof); w_eig[j].setZero(); }
+                erk_an.ZeroFc();
+                if (p != 1) {
+                    erk_an.erk_weight_LTS_coarse(x_eig, assembler.Pcoarse, w_eig, F_zero, F_zero, F_zero, dt_s);
+                }
+                for (int m = 0; m < p; ++m) {
+                    RealType tm = m * dtau_s;
+                    erk_an.erk_weight_LTS_fine(x_eig, assembler.Pfine, w_eig, F_zero, F_zero, F_zero, tm, dtau_s);
+                }
+                double norm_eig = x_eig.head(n_c).norm();
+                if (step%20 == 0) {
+                    std::cout << bold << cyan << "      step " << std::setw(3) << step << "   ||x_c|| = " << std::setprecision(8) << norm_eig << reset << std::endl;
+                }
+                if ((norm_eig > 1e10 || std::isnan(norm_eig))) {
+                    std::cout << bold << red << "      --> DIVERGENCE confirmée" << reset << std::endl;
+                }
+            }
             break;
         }
-
+        
     } // end stability sweep
-
+    
     // =========================================================================
     // Summary
     // =========================================================================
-
+    
     std::cout << bold << red
-              << "\n   dt_max_stable (p=" << p << ") = "
-              << std::setprecision(12) << dt_max_stable
-              << reset << std::endl;
-
+    << "\n   dt_max_stable (p=" << p << ") = "
+    << std::setprecision(12) << dt_max_stable
+    << reset << std::endl;
+    
     log << "dt_max_stable=" << dt_max_stable << "\n";
     log.flush();
-
+    
     cpu.toc();
     log << "CPU=" << cpu << "\n";
     std::cout << bold << red << "   CPU: " << cpu << reset << std::endl << std::endl;

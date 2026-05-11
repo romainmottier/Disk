@@ -401,7 +401,6 @@ void ERK4_LTS(int argc, char **argv){
             RealType tm  =  m      * dtau; 
             RealType tmh = (m+0.5) * dtau;
             RealType tm1 = (m+1.0) * dtau;
-            
             Matrix<RealType, Dynamic, 1> Fm  = eval_F(tn + tm);
             Matrix<RealType, Dynamic, 1> Fmh = eval_F(tn + tmh);
             Matrix<RealType, Dynamic, 1> Fm1 = eval_F(tn + tm1);
