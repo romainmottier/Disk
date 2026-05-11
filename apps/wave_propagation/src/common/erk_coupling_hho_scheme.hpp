@@ -667,7 +667,7 @@ void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &x_dof_n,
     };
 
     T tmh = tm + 0.5*dtau;
-    T tm1 = tm +     dtau;
+    T tm1 = tm + dtau;
 
     // One RK4 stage — matches Algorithm 3 step 3:
     // ki = Taylor_w(tau) + B*P*ỹ_stage + P*F_{n,tau}

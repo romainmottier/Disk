@@ -335,7 +335,8 @@ void ERK4_LTS_stab(int argc, char **argv)
             // Canonical basis vector: cell i = 1, all faces = 0
             Matrix<RealType, Dynamic, 1> e_i = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             e_i(i) = 1.0;
-
+            erk_an.refresh_faces_unknowns(e_i);
+    
             std::vector<Matrix<RealType, Dynamic, 1>> w(4);
             for (int i = 0; i < 4; ++i) {
                 w[i].resize(x_dof.rows());
@@ -349,9 +350,7 @@ void ERK4_LTS_stab(int argc, char **argv)
             
             // Fine sub-steps
             for (int m = 0; m < p; m++) {
-                RealType tm  =  m      * dtau_s;
-                RealType tmh = (m+0.5) * dtau_s;
-                RealType tm1 = (m+1.0) * dtau_s;
+                RealType tm =  m * dtau_s;
                 erk_an.erk_weight_LTS_fine(e_i, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau_s);
             }
             
