@@ -535,6 +535,14 @@ void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
         return out;
     };
 
+    // auto IP = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
+    //     Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(v.rows());
+    //     for (int i : m_coarse_active_dofs) {
+    //         out(i) = v(i);
+    //     }
+    //     return out;
+    // };
+    
     // (I-P) restricted to cell dofs — for the Pc * MinvF term
     auto IP_c = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
         Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(m_n_c_dof);
@@ -683,6 +691,7 @@ void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &x_dof_n,
         ZeroFc();
         k += Taylor_w(tau);                            // + coarse Taylor term
         return k;
+        
     };
 
     // Algorithm 3 step 3 — RK4 loop for m-th fine sub-step

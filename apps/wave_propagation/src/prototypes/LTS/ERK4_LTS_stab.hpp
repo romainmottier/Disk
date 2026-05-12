@@ -14,6 +14,7 @@ void ERK4_LTS_stab(int argc, char **argv)
     sim_data.print_simulation_data();
     timecounter tc, cpu;
     cpu.tic();
+    const bool save_eigenvalues_Q = false;
 
     // =========================================================================
     // Mesh generation
@@ -155,8 +156,7 @@ void ERK4_LTS_stab(int argc, char **argv)
         const auto face = *face_it;
         mesh_type::point_type bar = barycenter(msh, face);
         auto fc_id = msh.lookup(face);
-        if (std::fabs(bar.x()) < eps)
-        {
+        if (std::fabs(bar.x()) < eps) {
             interface_face_indexes.insert(fc_id);
             continue;
         }
@@ -234,7 +234,7 @@ void ERK4_LTS_stab(int argc, char **argv)
 
     assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
     assembler.set_coupling_stabilization();
-    if (sim_data.m_scaled_stabilization_Q) 
+    if (sim_data.m_scaled_stabilization_Q)
         assembler.set_scaled_stabilization();
     assembler.assemble_mass(msh);
     assembler.assemble_coupling_terms(msh);
@@ -249,23 +249,32 @@ void ERK4_LTS_stab(int argc, char **argv)
     assembler.LHS += assembler.COUPLING;
 
     // Build the ERK scheme object and invert mass / Schur complement on cell/face blocks
-    erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING,assembler.get_e_n_cells_dof(), assembler.get_a_n_cells_dof(),assembler.get_e_face_dof(),    assembler.get_a_face_dof());
+    erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING,
+                                              assembler.get_e_n_cells_dof(), assembler.get_a_n_cells_dof(),
+                                              assembler.get_e_face_dof(),    assembler.get_a_face_dof());
 
-    erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(), assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
-    erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(),assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(),assembler.get_e_compress(), assembler.get_a_compress(), elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
+    erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(),
+                       assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
+    erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(),
+                       assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(),
+                       assembler.get_e_compress(), assembler.get_a_compress(),
+                       elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
     erk_an.refresh_faces_unknowns(x_dof);
     assembler.assemble_P(msh, h_c, 1);
+
     if (sim_data.m_render_silo_files_Q) {
         std::ostringstream sn;
         sn << "silo_stab_l_" << sim_data.m_n_divs << "_k_" << sim_data.m_k_degree << "_p_" << p << "_";
-        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(sn.str(), 0, msh, hho_di, x_dof, e_material, a_material, false, h_c, assembler.cell_is_fine_silo);  // <-- ce paramètre est-il bien là ?
+        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(sn.str(), 0, msh, hho_di, x_dof,
+                                                                             e_material, a_material, false, h_c,
+                                                                             assembler.cell_is_fine_silo);
     }
 
     // =========================================================================
     // Log file
     // =========================================================================
     std::ostringstream fname;
-    fname << "stab_l_" << sim_data.m_n_divs << "_n_"     << nt << "_k_"     << sim_data.m_k_degree << "_p_"     << p << ".txt";
+    fname << "stab_l_" << sim_data.m_n_divs << "_n_" << nt << "_k_" << sim_data.m_k_degree << "_p_" << p << ".txt";
     std::ofstream log(fname.str());
     sim_data.write_simulation_data(log);
     log << "nt=" << nt << " dt=" << dt << " p=" << p << " n_dof=" << x_dof.rows() << "\n";
@@ -277,49 +286,54 @@ void ERK4_LTS_stab(int argc, char **argv)
     //
     // We build the amplification matrix C of size (n_c x n_c), where n_c is
     // the number of cell DOFs. Face unknowns are NOT independent — they are
-    // eliminated via static condensation inside erk_weight, so they do not
-    // appear as columns of C.
-    //
-    // Column i of C is obtained by:
-    //   1. Setting e_i = canonical basis vector of size n_dof (zero everywhere
-    //      except at cell position i); face entries are left at zero.
+    // determined by static condensation (18b): K_F U_F = -K_FT U_T.
+    // Each column i of C is obtained by:
+    //   1. Setting e_i = canonical basis vector on cell dofs; faces are set
+    //      to their condensed values via refresh_faces_unknowns (admissible state).
     //   2. Applying one full LTS-RK4 step (coarse predictor + p fine substeps)
     //      with source term f = 0 (valid for stability analysis).
     //   3. Extracting the first n_c components (cell part) of the result.
     //
     // The scheme is stable for a given dt iff rho(C) <= 1.
     // The sweep scans dt in [dt_min, dt_max] with n_pts points and stops
-    // as soon as rho > rho_stop. Eigenvalue files are saved at each step
-    // for post-processing (complex plane plots).
+    // as soon as rho > rho_stop.
+    //
+    // TEST 1 is run once at the first dt point to validate that C*x matches
+    // a direct LTS step on a random admissible state (should be ~machine epsilon).
+    //
+    // If save_eigenvalues_Q is true, eigenvalue files are written for each dt
+    // near the stability boundary for complex-plane post-processing.
 
     const int    n_dof = static_cast<int>(x_dof.rows());
     const int    n_c   = static_cast<int>(erk_an.n_c_dof());
     const int    n_f   = n_dof - n_c;
 
-    // Display tolerance: rho in (1, 1+rho_eps] is shown in blue (boundary noise)
+    // Display tolerance: rho in (1, 1+rho_eps] is shown as boundary noise
     const double rho_eps  = 1.0e-5;
 
     // Sweep hard stop threshold
-    const double rho_stop = 1.05;
+    const double rho_stop = 1.01;
 
     std::cout << bold << red << "   DISCRETIZATION" << reset << std::endl;
     std::cout << bold << cyan << "      n_dof=" << n_dof << "  n_c=" << n_c << "  n_f=" << n_f << reset << std::endl;
     std::cout << bold << cyan << "      rho_eps=" << rho_eps << "  rho_stop=" << rho_stop << reset << std::endl;
+    std::cout << bold << cyan << "      save_eigenvalues_Q=" << (save_eigenvalues_Q ? "true" : "false") << reset << std::endl;
 
     const double dt_min = dt;
     const double dt_max = 2.0 * dt;
     const int    n_pts  = 50;
     const double ddt    = (dt_max - dt_min) / static_cast<double>(n_pts - 1);
 
-    // Zero the face correction accumulator (no source term for stability analysis)
     erk_an.ZeroFc();
 
     std::cout << bold << red << "\n   STABILITY SWEEP (p=" << p << ")" << reset << std::endl;
     log << std::setw(20) << "dt" << std::setw(22) << "rho" << std::setw(10) << "stable\n";
 
-    double dt_max_stable = -1.0;
+    double dt_max_stable  = -1.0;
+    bool   test1_done_Q   = false;   // TEST 1 is run only once (first point)
+
     Matrix<RealType, Dynamic, 1> F_zero = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
-    
+
     for (int s = 0; s < n_pts; ++s) {
 
         const double dt_s   = dt_min + s * ddt;
@@ -334,45 +348,45 @@ void ERK4_LTS_stab(int argc, char **argv)
 
         for (int i = 0; i < n_c; ++i) {
 
-            // Canonical basis vector: cell i = 1, all faces = 0
+            // Canonical basis vector: cell i = 1; faces set by static condensation
             Matrix<RealType, Dynamic, 1> e_i = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             e_i(i) = 1.0;
-            // erk_an.refresh_faces_unknowns(e_i);
-    
+            erk_an.refresh_faces_unknowns(e_i);
+
             std::vector<Matrix<RealType, Dynamic, 1>> w(4);
-            for (int i = 0; i < 4; ++i) {
-                w[i].resize(x_dof.rows());
-                w[i].setZero();
+            for (int j = 0; j < 4; ++j) {
+                w[j].resize(n_dof);
+                w[j].setZero();
             }
+
             erk_an.ZeroFc();
             if (p != 1) {
-                erk_an.ZeroFc();
                 erk_an.erk_weight_LTS_coarse(e_i, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt_s);
             }
-            
-            // Fine sub-steps
+
             for (int m = 0; m < p; m++) {
-                RealType tm =  m * dtau_s;
+                RealType tm = m * dtau_s;
                 erk_an.erk_weight_LTS_fine(e_i, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau_s);
             }
-            
+
+            // erk_an.refresh_faces_unknowns(e_i);
             C.col(i) = e_i.head(n_c);
         }
-        
-        
-        // =========================================================================
-        // TEST 1 : C * x_rand doit égaler un vrai pas LTS sur x_rand
-        // =========================================================================
-        {
+
+        // -----------------------------------------------------------------
+        // TEST 1 : run once at the first sweep point to validate C
+        // C * x_rand must equal a direct LTS step on the same admissible x_rand
+        // -----------------------------------------------------------------
+        if (!test1_done_Q) {
             Matrix<RealType, Dynamic, 1> x_rand_c = Matrix<RealType, Dynamic, 1>::Random(n_c);
-            Matrix<RealType, Dynamic, 1> Cx = C * x_rand_c;
+            Matrix<RealType, Dynamic, 1> Cx        = C * x_rand_c;
+
             Matrix<RealType, Dynamic, 1> x_rand = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             x_rand.head(n_c) = x_rand_c;
-            
+            erk_an.refresh_faces_unknowns(x_rand);   // admissible state
+
             std::vector<Matrix<RealType, Dynamic, 1>> w_test(4);
-            for (int j = 0; j < 4; ++j) { 
-                w_test[j].resize(n_dof); w_test[j].setZero(); 
-            }
+            for (int j = 0; j < 4; ++j) { w_test[j].resize(n_dof); w_test[j].setZero(); }
             erk_an.ZeroFc();
             if (p != 1) {
                 erk_an.erk_weight_LTS_coarse(x_rand, assembler.Pcoarse, w_test, F_zero, F_zero, F_zero, dt_s);
@@ -381,36 +395,42 @@ void ERK4_LTS_stab(int argc, char **argv)
                 RealType tm = m * dtau_s;
                 erk_an.erk_weight_LTS_fine(x_rand, assembler.Pfine, w_test, F_zero, F_zero, F_zero, tm, dtau_s);
             }
-            Matrix<RealType, Dynamic, 1> x_step = x_rand.head(n_c); 
-            
-            double err1 = (Cx - x_step).norm();
-            std::cout << bold << yellow << " ||C*x - step(x)|| = " << err1 << reset << std::endl;
-        }
 
+            // double err1 = (Cx - x_rand.head(n_c)).norm() / x_rand.head(n_c).norm();
+            double err1 = (Cx - x_rand.head(n_c)).norm();
+            std::cout << bold << yellow << "   ||C*x - step(x)|| = " << std::setprecision(6) << err1 << reset;
+            test1_done_Q = true;
+        }
 
         // -----------------------------------------------------------------
         // Compute spectral radius rho(C) = max |lambda_i(C)|
         // -----------------------------------------------------------------
         Eigen::EigenSolver<Eigen::MatrixXd> es(C);
         double rho = -1.0;
+
         if (es.info() == Eigen::Success) {
             rho = es.eigenvalues().cwiseAbs().maxCoeff();
-            // Save eigenvalues (real + imag) for complex plane post-processing
-            std::ostringstream ev_fname;
-            ev_fname << "eigenvalues_dt_" << std::setprecision(6) << dt_s << ".txt";
-            std::ofstream ev_file(ev_fname.str());
-            ev_file << "# dt=" << dt_s << "  rho=" << rho << "\n";
-            ev_file << "# real  imag\n";
-            for (int j = 0; j < es.eigenvalues().size(); ++j) {
-                ev_file << std::setprecision(15) << es.eigenvalues()(j).real() << "  " << es.eigenvalues()(j).imag() << "\n";
+
+            // Save eigenvalue files only if requested and near/above stability boundary
+            if (save_eigenvalues_Q && rho > 1.0 - 0.05) {
+                std::ostringstream ev_fname;
+                ev_fname << "eigenvalues_dt_" << std::setprecision(6) << dt_s << ".txt";
+                std::ofstream ev_file(ev_fname.str());
+                ev_file << "# dt=" << dt_s << "  rho=" << rho << "\n";
+                ev_file << "# real  imag\n";
+                for (int j = 0; j < es.eigenvalues().size(); ++j) {
+                    ev_file << std::setprecision(15)
+                            << es.eigenvalues()(j).real() << "  "
+                            << es.eigenvalues()(j).imag() << "\n";
+                }
+                ev_file.close();
             }
-            ev_file.close();
         }
         else {
             std::cout << bold << red << "   --> EigenSolver FAILED at dt=" << dt_s << reset << std::endl;
         }
 
-        // Display: blue = stable (rho <= 1 + rho_eps), red = unstable
+        // Display: cyan = stable (rho <= 1 + rho_eps), red = unstable
         bool is_stable = (rho >= 0.0 && rho <= 1.0 + rho_eps);
         if (is_stable) {
             std::cout << bold << cyan;
@@ -420,30 +440,40 @@ void ERK4_LTS_stab(int argc, char **argv)
             std::cout << bold << red;
         }
 
-        std::cout << bold << yellow << "                      rho = "   << std::setprecision(10) << rho << reset << std::endl;
+        std::cout << "   rho = " << std::setprecision(10) << rho << reset << std::endl;
 
-        log << std::setw(20) << std::setprecision(10) << dt_s << std::setw(22) << std::setprecision(15) << rho << std::setw(10) << (is_stable ? "yes" : "no") << "\n";
+        log << std::setw(20) << std::setprecision(10) << dt_s
+            << std::setw(22) << std::setprecision(15) << rho
+            << std::setw(10) << (is_stable ? "yes" : "no") << "\n";
         log.flush();
-        
+
+        // -----------------------------------------------------------------
+        // If unstable beyond threshold: TEST 2 — propagate the dominant
+        // eigenvector and confirm divergence, then stop the sweep
+        // -----------------------------------------------------------------
         if (rho > rho_stop) {
-            // Trouver le vecteur propre correspondant à la valeur propre de module max
+
             int idx_max = 0;
             es.eigenvalues().cwiseAbs().maxCoeff(&idx_max);
-            
-            // Prendre la partie réelle du vecteur propre dominant
+
+            // Use real part of dominant eigenvector; fall back to imag if trivial
             Matrix<RealType, Dynamic, 1> v_unstable = es.eigenvectors().col(idx_max).real();
+            if (v_unstable.norm() < 1.0e-10)
+                v_unstable = es.eigenvectors().col(idx_max).imag();
             v_unstable.normalize();
-            
-            // Reconstruire l'état complet (faces à zéro, cohérent avec construction de C)
+
+            // Build admissible initial state from eigenvector (cell part only)
             Matrix<RealType, Dynamic, 1> x_eig = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             x_eig.head(n_c) = v_unstable;
-            
-            // Appliquer N_check pas successifs et surveiller la norme
+            erk_an.refresh_faces_unknowns(x_eig);   // ← admissible state
+
             const int N_check = 200;
             std::cout << bold << red << "\n   TEST 2 : propagation du vecteur propre instable\n" << reset;
+
             for (int step = 0; step < N_check; ++step) {
                 std::vector<Matrix<RealType, Dynamic, 1>> w_eig(4);
                 for (int j = 0; j < 4; ++j) { w_eig[j].resize(n_dof); w_eig[j].setZero(); }
+
                 erk_an.ZeroFc();
                 if (p != 1) {
                     erk_an.erk_weight_LTS_coarse(x_eig, assembler.Pcoarse, w_eig, F_zero, F_zero, F_zero, dt_s);
@@ -452,31 +482,37 @@ void ERK4_LTS_stab(int argc, char **argv)
                     RealType tm = m * dtau_s;
                     erk_an.erk_weight_LTS_fine(x_eig, assembler.Pfine, w_eig, F_zero, F_zero, F_zero, tm, dtau_s);
                 }
+
                 double norm_eig = x_eig.head(n_c).norm();
-                if (step%20 == 0) {
-                    std::cout << bold << cyan << "      step " << std::setw(3) << step << "   ||x_c|| = " << std::setprecision(8) << norm_eig << reset << std::endl;
+                if (step % 20 == 0) {
+                    std::cout << bold << cyan
+                              << "      step " << std::setw(3) << step
+                              << "   ||x_c|| = " << std::setprecision(8) << norm_eig
+                              << reset << std::endl;
                 }
-                if ((norm_eig > 1e10 || std::isnan(norm_eig))) {
+                if (norm_eig > 1.0e10 || std::isnan(norm_eig)) {
                     std::cout << bold << red << "      --> DIVERGENCE confirmée" << reset << std::endl;
+                    break;
                 }
             }
-            break;
+
+            break;   // stop sweep
         }
-        
-    } // end stability sweep
-    
+
+    }
+
     // =========================================================================
     // Summary
     // =========================================================================
-    
+
     std::cout << bold << red
-    << "\n   dt_max_stable (p=" << p << ") = "
-    << std::setprecision(12) << dt_max_stable
-    << reset << std::endl;
-    
+              << "\n   dt_max_stable (p=" << p << ") = "
+              << std::setprecision(12) << dt_max_stable
+              << reset << std::endl;
+
     log << "dt_max_stable=" << dt_max_stable << "\n";
     log.flush();
-    
+
     cpu.toc();
     log << "CPU=" << cpu << "\n";
     std::cout << bold << red << "   CPU: " << cpu << reset << std::endl << std::endl;

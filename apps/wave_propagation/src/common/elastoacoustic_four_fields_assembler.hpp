@@ -1854,6 +1854,190 @@ void assemble_P(const Mesh& msh, T h_c, size_t nb_layer = 1) {
         Pcoarse.makeCompressed();
     }
 
+void assemble_P_cell(const Mesh& msh, T h_c, size_t nb_layer = 1) {
+        
+        Pfine.setZero();
+        Pcoarse.setZero();
+        
+        const T hc = std::round(h_c * T(1000)) / T(1000);
+        
+        // --------------------------------------------------
+        // DOF SIZES
+        // --------------------------------------------------
+        const size_t n_e_cbs = get_e_cell_basis_data();
+        const size_t n_a_cbs = get_a_cell_basis_data();
+        
+        const size_t n_e_fbs = disk::vector_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1, Mesh::dimension);
+        const size_t n_a_fbs = disk::scalar_basis_size(m_hho_di.face_degree(), Mesh::dimension - 1);
+        
+        auto storage = msh.backend_storage();
+        
+        // --------------------------------------------------
+        // STEP 1 : mark cells as fine based on mesh size
+        // --------------------------------------------------
+        std::vector<bool> e_cell_is_fine(m_e_cell_index.size(), false);
+        std::vector<bool> a_cell_is_fine(m_a_cell_index.size(), false);
+        
+        for (auto& chunk : m_e_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_e_cell_index[cell_id];
+            auto& cell = storage->surfaces[cell_id];
+            const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+            if (h < hc) {
+                e_cell_is_fine[cell_ind] = true;
+            }
+        }
+        
+        for (auto& chunk : m_a_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_a_cell_index[cell_id];
+            auto& cell = storage->surfaces[cell_id];
+            const T h = std::round(diameter(msh, cell) * T(1000)) / T(1000);
+            if (h < hc) {
+                a_cell_is_fine[cell_ind] = true;
+            }
+        }
+        
+        // --------------------------------------------------
+        // STEP 2 : extend fine region by nb_layer layers
+        // A coarse cell is marked fine if it shares at least one
+        // point (vertex) with a fine cell — this captures diagonal
+        // neighbours (corners) that share only a vertex, not a face.
+        // --------------------------------------------------
+        for (size_t layer = 0; layer < nb_layer; ++layer)
+        {
+            // Collect all point ids belonging to currently fine elastic cells
+            std::set<size_t> e_fine_points;
+            for (auto& chunk : m_e_material)
+            {
+                const size_t cell_id  = chunk.first;
+                const size_t cell_ind = m_e_cell_index[cell_id];
+                if (!e_cell_is_fine[cell_ind]) continue;
+                auto& cell = storage->surfaces[cell_id];
+                for (auto pt_id : cell.point_ids())
+                    e_fine_points.insert(pt_id);
+            }
+
+            // Collect all point ids belonging to currently fine acoustic cells
+            std::set<size_t> a_fine_points;
+            for (auto& chunk : m_a_material)
+            {
+                const size_t cell_id  = chunk.first;
+                const size_t cell_ind = m_a_cell_index[cell_id];
+                if (!a_cell_is_fine[cell_ind]) continue;
+                auto& cell = storage->surfaces[cell_id];
+                for (auto pt_id : cell.point_ids())
+                    a_fine_points.insert(pt_id);
+            }
+
+            // Mark any elastic cell that shares a point with a fine cell
+            for (auto& chunk : m_e_material)
+            {
+                const size_t cell_id  = chunk.first;
+                const size_t cell_ind = m_e_cell_index[cell_id];
+                auto& cell = storage->surfaces[cell_id];
+                for (auto pt_id : cell.point_ids())
+                {
+                    if (e_fine_points.count(pt_id))
+                    {
+                        e_cell_is_fine[cell_ind] = true;
+                        break;
+                    }
+                }
+            }
+
+            // Mark any acoustic cell that shares a point with a fine cell
+            for (auto& chunk : m_a_material)
+            {
+                const size_t cell_id  = chunk.first;
+                const size_t cell_ind = m_a_cell_index[cell_id];
+                auto& cell = storage->surfaces[cell_id];
+                for (auto pt_id : cell.point_ids())
+                {
+                    if (a_fine_points.count(pt_id))
+                    {
+                        a_cell_is_fine[cell_ind] = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // --------------------------------------------------
+        // STEP 3 : fill triplets for Pfine and Pcoarse
+        //
+        // Pfine and Pcoarse act ONLY on cell DOFs.
+        // Face DOFs are excluded from both projectors — they are
+        // always determined implicitly by static condensation from
+        // the cell DOFs via refresh_faces_unknowns / erk_weight.
+        //
+        // This ensures that Pfine commutes with the admissibility
+        // operator Phi: Pfine * Phi(e_i) = Phi(Pfine_c * e_i),
+        // which is required for the CFL compensation dtau = dt/p
+        // to hold exactly and for rho(C) to be independent of p.
+        // --------------------------------------------------
+        std::vector<Triplet<T>> Pfine_trips;
+        std::vector<Triplet<T>> Pcoarse_trips;
+        Pfine_trips.reserve(LHS.rows());
+        Pcoarse_trips.reserve(LHS.rows());
+        
+        // Elastic cells
+        for (auto& chunk : m_e_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_e_cell_index[cell_id];
+            const size_t glob_ofs = cell_ind * n_e_cbs;
+            for (size_t i = 0; i < n_e_cbs; ++i) {
+                const size_t dof = glob_ofs + i;
+                if (e_cell_is_fine[cell_ind])
+                    Pfine_trips.emplace_back(dof, dof, T(1));
+                else
+                    Pcoarse_trips.emplace_back(dof, dof, T(1));
+            }
+        }
+        
+        // Acoustic cells
+        for (auto& chunk : m_a_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_a_cell_index[cell_id];
+            const size_t glob_ofs = m_n_elastic_cell_dof + cell_ind * n_a_cbs;
+            for (size_t i = 0; i < n_a_cbs; ++i) {
+                const size_t dof = glob_ofs + i;
+                if (a_cell_is_fine[cell_ind])
+                    Pfine_trips.emplace_back(dof, dof, T(1));
+                else
+                    Pcoarse_trips.emplace_back(dof, dof, T(1));
+            }
+        }
+
+        // Face DOFs are intentionally excluded from Pfine and Pcoarse.
+        // They are determined by static condensation, not by direct projection.
+
+        // --------------------------------------------------
+        // STEP 4 : expose fine/coarse flag for Silo post-processing
+        // Indexed by global cell_id (msh order), consistent with Pfine/Pcoarse
+        // including protection layers.
+        // --------------------------------------------------
+        cell_is_fine_silo.assign(storage->surfaces.size(), false);
+        for (auto& chunk : m_e_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_e_cell_index[cell_id];
+            cell_is_fine_silo[cell_id] = e_cell_is_fine[cell_ind];
+        }
+        for (auto& chunk : m_a_material) {
+            const size_t cell_id  = chunk.first;
+            const size_t cell_ind = m_a_cell_index[cell_id];
+            cell_is_fine_silo[cell_id] = a_cell_is_fine[cell_ind];
+        }
+
+        // --------------------------------------------------
+        // FINALIZE
+        // --------------------------------------------------
+        Pfine.setFromTriplets(Pfine_trips.begin(), Pfine_trips.end());
+        Pcoarse.setFromTriplets(Pcoarse_trips.begin(), Pcoarse_trips.end());
+        Pfine.makeCompressed();
+        Pcoarse.makeCompressed();
+    }
+
 };
 
 #endif /* elastoacoustic_four_fields_assembler_hpp */
