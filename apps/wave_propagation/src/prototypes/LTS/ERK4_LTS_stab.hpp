@@ -359,7 +359,7 @@ void ERK4_LTS_stab(int argc, char **argv)
                 w[j].setZero();
             }
 
-            erk_an.ZeroFc();u
+            erk_an.ZeroFc();
             if (p != 1) {
                 erk_an.erk_weight_LTS_coarse(e_i, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt_s);
             }
