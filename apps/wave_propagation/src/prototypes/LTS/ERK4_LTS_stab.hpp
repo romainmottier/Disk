@@ -359,7 +359,7 @@ void ERK4_LTS_stab(int argc, char **argv)
                 w[j].setZero();
             }
 
-            erk_an.ZeroFc();
+            erk_an.ZeroFc();u
             if (p != 1) {
                 erk_an.erk_weight_LTS_coarse(e_i, assembler.Pcoarse, w, F_zero, F_zero, F_zero, dt_s);
             }
@@ -369,7 +369,6 @@ void ERK4_LTS_stab(int argc, char **argv)
                 erk_an.erk_weight_LTS_fine(e_i, assembler.Pfine, w, F_zero, F_zero, F_zero, tm, dtau_s);
             }
 
-            // erk_an.refresh_faces_unknowns(e_i);
             C.col(i) = e_i.head(n_c);
         }
 

@@ -151,8 +151,8 @@ int main(int argc, char **argv){
    // EHHOFirstOrder(argc, argv);
    // ERK4_LTS(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
-   // ERK4_LTS_stab(argc, argv);
-   ERK4_LTS_SSTAB(argc, argv);
+   ERK4_LTS_stab(argc, argv);
+   // ERK4_LTS_SSTAB(argc, argv);
    // ERK4_LTS_optimised(argc, argv);
 
    // HeterogeneousEHHOFirstOrder(argc, argv); 

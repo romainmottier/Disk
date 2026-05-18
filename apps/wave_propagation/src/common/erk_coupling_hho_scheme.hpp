@@ -354,29 +354,7 @@ class erk_coupling_hho_scheme {
             x.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_inv_Sff * RHSf;
         }
     }
-    
-    void erk_weight(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k) {
-        
-        k=y;
-        Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
-        Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
-        
-        ////////// CELLS UPDATE
-        Matrix<T, Dynamic, 1> RHSc = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
-        Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * RHSc;
-        k.block(0, 0, m_n_c_dof, 1) = k_c_dof;
-        
-        // FACES UPDATE 
-        Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof ;
-        if (m_sff_is_block_diagonal_Q) {
-            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf; 
-        }
-        else {
-            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_inv_Sff * RHSf; 
-        }
-        
-    }
-    
+       
 //     void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
         
 //         // Precompute active indices of the boolean diagonal projector Pcoarse
@@ -504,7 +482,27 @@ class erk_coupling_hho_scheme {
         }
     }
     
-
+    void erk_weight(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k) {
+        
+        k=y;
+        Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+        
+        ////////// CELLS UPDATE
+        Matrix<T, Dynamic, 1> RHSc = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
+        Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * RHSc;
+        k.block(0, 0, m_n_c_dof, 1) = k_c_dof;
+        
+        // FACES UPDATE 
+        Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof ;
+        if (m_sff_is_block_diagonal_Q) {
+            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf; 
+        }
+        else {
+            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_inv_Sff * RHSf; 
+        }
+        
+    }
     
 void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
                             const Eigen::SparseMatrix<double> &Pcoarse,
@@ -703,6 +701,10 @@ void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &x_dof_n,
     // Algorithm 3 step 3 — update ỹ_{m+1/p}
     x_dof_n += dtau * (k1 + 2*k2 + 2*k3 + k4) / 6.0;
 }
+
+
+
+
 
     #ifdef HAVE_INTEL_MKL
     PardisoLDLT<SparseMatrix<T>> & FacesAnalysis(){
