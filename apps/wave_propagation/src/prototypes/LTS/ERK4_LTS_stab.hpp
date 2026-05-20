@@ -54,8 +54,8 @@ void ERK4_LTS_stab(int argc, char **argv)
     else {
         RealType lx = 2.0;
         RealType ly = 1.0;
-        size_t   nx = 10;
-        size_t   ny = 5;
+        size_t   nx = 20;
+        size_t   ny = 10;
 
         cartesian_2d_mesh_builder<RealType> mesh_builder(lx, ly, nx, ny);
         mesh_builder.refine_mesh(sim_data.m_n_divs);
