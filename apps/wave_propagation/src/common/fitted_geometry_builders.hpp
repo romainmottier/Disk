@@ -9,6 +9,7 @@
 #ifndef fitted_geometry_builder_hpp
 #define fitted_geometry_builder_hpp
 
+#include <queue>
 #include <vector>
 #include <array>
 #include <fstream>
@@ -361,64 +362,6 @@ public:
         }
     }
     
-void rebuild_member_nodes_from_edges() {
-    for (auto& poly : polygons) {
-        const auto& edges = poly.m_member_edges;
-        if (edges.empty()) continue;
-
-        // Build adjacency: node -> list of connected nodes via edges
-        std::unordered_map<size_t, std::vector<size_t>> adj;
-        for (const auto& e : edges) {
-            adj[e[0]].push_back(e[1]);
-            adj[e[1]].push_back(e[0]);
-        }
-
-        // Walk the chain starting from the first node of the first edge
-        size_t start = edges.begin()->operator[](0);
-        std::vector<size_t> ordered;
-        ordered.reserve(edges.size());
-
-        size_t prev = std::numeric_limits<size_t>::max();
-        size_t cur  = start;
-
-        for (size_t step = 0; step < edges.size(); ++step) {
-            ordered.push_back(cur);
-            const auto& neighbors = adj[cur];
-            size_t next = std::numeric_limits<size_t>::max();
-            for (size_t nb : neighbors) {
-                if (nb != prev) { next = nb; break; }
-            }
-            if (next == std::numeric_limits<size_t>::max()) break;
-            prev = cur;
-            cur  = next;
-        }
-
-        poly.m_member_nodes = ordered;
-    }
-}
-
-void rebuild_all_from_nodes_and_edges() {
-
-    // Step 1: rebuild m_member_edges from consecutive node pairs
-    for (auto& poly : polygons) {
-        poly.m_member_edges.clear();
-        const auto& nodes = poly.m_member_nodes;
-        size_t nn = nodes.size();
-        for (size_t k = 0; k < nn; ++k) {
-            std::array<size_t,2> edge = {nodes[k], nodes[(k+1) % nn]};
-            validate_edge(edge);
-            poly.m_member_edges.insert(edge);
-        }
-    }
-
-    // Step 2: rebuild facets as the union of all polygon edges
-    std::set<std::array<size_t,2>> facet_set;
-    for (auto& poly : polygons)
-        for (auto& e : poly.m_member_edges)
-            facet_set.insert(e);
-    facets.assign(facet_set.begin(), facet_set.end());
-}
-
 void refine_cells(const std::vector<size_t>& cell_indices,
                   int refinement_level) {
 
@@ -871,6 +814,207 @@ void refine_quad_cell(size_t cell_index,
     polygons.push_back(q3);
 }
 
+
+
+
+
+
+// ------------------------------------------------------------
+// Barycentre d'une cellule du builder
+// (opère sur polygons/points, avant move_to_mesh_storage)
+// ------------------------------------------------------------
+point_type cell_barycenter(size_t cell_id) const
+{
+    const auto& nodes = polygons[cell_id].m_member_nodes;
+    T cx = T(0), cy = T(0);
+    for (size_t nid : nodes) {
+        cx += points[nid].x();
+        cy += points[nid].y();
+    }
+    cx /= T(nodes.size());
+    cy /= T(nodes.size());
+    return point_type(cx, cy);
+}
+ 
+ 
+// ------------------------------------------------------------
+// Voisins d'une cellule du builder
+//
+// Deux cellules sont voisines si elles partagent au moins
+// un noeud ET que ce noeud est strictement sur une arête
+// de l'autre cellule (gère le cas grosse/petite cellule).
+//
+// Inspiré de find_cells() : on parcourt les point_ids de
+// chaque cellule, comme dans le style diskpp existant.
+// ------------------------------------------------------------
+std::vector<size_t> get_neighbors(size_t cell_id) const
+{
+    // Collecter les noeuds de la cellule courante
+    const std::set<size_t> cell_nodes(
+        polygons[cell_id].m_member_nodes.begin(),
+        polygons[cell_id].m_member_nodes.end()
+    );
+ 
+    std::vector<size_t> neighbors;
+ 
+    for (size_t j = 0; j < polygons.size(); ++j) {
+        if (j == cell_id) continue;
+ 
+        // Cas 1 : partage une arête complète via m_member_edges
+        bool shared_edge = false;
+        for (const auto& e : polygons[cell_id].m_member_edges) {
+            if (polygons[j].m_member_edges.count(e)) {
+                shared_edge = true;
+                break;
+            }
+        }
+        if (shared_edge) {
+            neighbors.push_back(j);
+            continue;
+        }
+ 
+        // Cas 2 : grosse cellule voisine d'une petite
+        // Un noeud de j est strictement sur une arête de cell_id
+        // (hanging node) — même logique que find_cells pour les pt_ids
+        bool hanging = false;
+        for (const auto& e_big : polygons[cell_id].m_member_edges) {
+            const point_type& pa = points[e_big[0]];
+            const point_type& pb = points[e_big[1]];
+            T dx = pb.x() - pa.x();
+            T dy = pb.y() - pa.y();
+            T len2 = dx*dx + dy*dy;
+            if (len2 < T(1e-28)) continue;
+ 
+            for (size_t nid : polygons[j].m_member_nodes) {
+                if (cell_nodes.count(nid)) continue; // déjà coin commun
+                const point_type& p = points[nid];
+                T t = ((p.x()-pa.x())*dx + (p.y()-pa.y())*dy) / len2;
+                if (t < T(1e-12) || t > T(1)-T(1e-12)) continue;
+                T px = pa.x() + t*dx - p.x();
+                T py = pa.y() + t*dy - p.y();
+                if (px*px + py*py < T(1e-24)) {
+                    hanging = true;
+                    break;
+                }
+            }
+            if (hanging) break;
+        }
+        if (hanging) neighbors.push_back(j);
+    }
+ 
+    return neighbors;
+}
+ 
+ 
+// ------------------------------------------------------------
+// Raffinement avec couches de protection (BFS)
+//
+// Garantit : max 1 hanging node par transition de niveau.
+// Les cellules hors de portée du BFS restent au niveau 0.
+//
+// Étape 1 — BFS depuis la zone fine :
+//   required[i] = L pour la zone fine
+//   required[voisin] = max(required[voisin], required[cur]-1)
+//   propagation s'arrête quand required[cur] <= 1
+//   → les cellules non atteintes restent à 0 (coarse)
+//
+// Étape 2 — L passes de raffinement, r = 1..L :
+//   raffiner d'un niveau les cellules avec required >= r
+//   resynchroniser required après chaque appel à refine_cells
+// ------------------------------------------------------------
+void refine_with_protection(
+    std::function<bool(const point_type&)> is_fine_zone,
+    int L)
+{
+    if (L <= 0) return;
+ 
+    // ----------------------------------------------------------
+    // Étape 1 — BFS
+    // ----------------------------------------------------------
+    std::vector<int> required(polygons.size(), 0);
+ 
+    std::queue<size_t> q;
+    for (size_t i = 0; i < polygons.size(); ++i) {
+        if (is_fine_zone(cell_barycenter(i))) {
+            required[i] = L;
+            q.push(i);
+        }
+    }
+ 
+    while (!q.empty()) {
+        size_t cur = q.front(); q.pop();
+        int lvl = required[cur];
+        if (lvl <= 1) continue;   // voisins peuvent rester à 0
+ 
+        for (size_t nb : get_neighbors(cur)) {
+            if (required[nb] < lvl - 1) {
+                required[nb] = lvl - 1;
+                q.push(nb);
+            }
+        }
+    }
+ 
+    // ----------------------------------------------------------
+    // Étape 2 — L passes de raffinement
+    // ----------------------------------------------------------
+    for (int r = 1; r <= L; ++r) {
+ 
+        // Collecter les cibles : required >= r et pas encore au niveau r
+        std::vector<size_t> targets;
+        std::vector<int>    target_req;
+        for (size_t i = 0; i < polygons.size(); ++i) {
+            if (required[i] >= r && polygons[i].m_refinement_level < r) {
+                targets.push_back(i);
+                target_req.push_back(required[i]);
+            }
+        }
+        if (targets.empty()) continue;
+ 
+        // Snapshot du required pour les survivants avant raffinement
+        // refine_cells va supprimer les cibles (ordre décroissant)
+        // et pousser 4 enfants en fin de vecteur pour chacune
+        size_t n_before = polygons.size();
+        std::set<size_t> target_set(targets.begin(), targets.end());
+ 
+        // Snapshot complet : required de TOUTES les cellules actuelles
+        std::vector<int> req_snapshot = required;
+ 
+        refine_cells(targets, 1);
+ 
+        // ----------------------------------------------------------
+        // Resynchronisation de required
+        //
+        // Après refine_cells(targets, 1) :
+        //   - les n_before cellules originales moins les |targets|
+        //     cibles supprimées donnent (n_before - |targets|)
+        //     survivants, conservés en tête dans le même ordre relatif
+        //   - 4*|targets| nouveaux enfants sont ajoutés en queue,
+        //     dans l'ordre de targets (croissant)
+        // ----------------------------------------------------------
+        std::vector<int> new_required;
+        new_required.reserve(polygons.size());
+ 
+        // Survivants : cellules originales non supprimées
+        for (size_t i = 0; i < n_before; ++i) {
+            if (!target_set.count(i))
+                new_required.push_back(req_snapshot[i]);
+        }
+ 
+        // Enfants : 4 enfants par cible, héritent du required parent
+        for (size_t k = 0; k < targets.size(); ++k) {
+            int parent_req = target_req[k];
+            for (int c = 0; c < 4; ++c)
+                new_required.push_back(parent_req);
+        }
+ 
+        required = std::move(new_required);
+    }
+}
+
+
+
+
+
 void move_to_mesh_storage(mesh_type& msh){
     
     auto storage = msh.backend_storage();
@@ -966,6 +1110,13 @@ void set_translation_data(T x_t, T y_t){
         file.close();
     }
     
+
+
+
+
+
+
+
 };
 
 
