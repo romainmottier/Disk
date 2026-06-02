@@ -533,14 +533,6 @@ void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
         return out;
     };
 
-    // auto IP = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
-    //     Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(v.rows());
-    //     for (int i : m_coarse_active_dofs) {
-    //         out(i) = v(i);
-    //     }
-    //     return out;
-    // };
-    
     // (I-P) restricted to cell dofs — for the Pc * MinvF term
     auto IP_c = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
         Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(m_n_c_dof);
@@ -570,14 +562,9 @@ void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
     Matrix<T, Dynamic, 1> F0 =  Fn;
     Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
     Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
-
-    // (I-P) * Fi — coarse projection of interpolation coefficients
     Matrix<T, Dynamic, 1> IPF0 = IP(F0);
     Matrix<T, Dynamic, 1> IPF1 = IP(F1);
     Matrix<T, Dynamic, 1> IPF2 = IP(F2);
-
-    // B * (I-P) * Fi with zero displacement — used in w_{n,i} formulas
-    // Also B * Fi for the B^i F chains
     Matrix<T, Dynamic, 1> BIPFn_0, BIPFn_1, BIPFn_2;
     Matrix<T, Dynamic, 1> BFn_0,   BFn_1,   BFn_2;
     B_zero_y(IPF0, BIPFn_0);   // B(I-P)F0
@@ -606,7 +593,6 @@ void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
     erk_weight(BF0,   B2F0);
     erk_weight(BFn_1, BF1);
 
-    // Taylor arguments — match exactly Algorithm 3 step 2:
     // arg for w_{n,0} = B^0 yn
     // arg for w_{n,1} = B^1 yn + F0
     // arg for w_{n,2} = B^2 yn + B*F0 + F1
