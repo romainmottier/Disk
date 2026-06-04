@@ -182,7 +182,7 @@ class erk_coupling_hho_scheme {
         triplets_cc.clear();
         return;
         
-    }
+    } 
     
     
     void Sff_inverse(size_t e_faces, size_t a_faces, size_t e_fbs, size_t a_fbs, std::vector<size_t> e_compress, std::vector<size_t> a_compress, std::set<size_t> elastic_internal_faces, std::set<size_t> acoustic_internal_faces, std::set<size_t> interfaces_index) {
