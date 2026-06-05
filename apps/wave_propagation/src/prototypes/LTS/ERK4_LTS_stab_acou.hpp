@@ -73,8 +73,8 @@ else {
     int    L    = sim_data.m_substeps_Q;
     // size_t nx   = std::max(size_t(2*L + 1), size_t(9));
     // size_t ny   = nx;
-    size_t nx   = 9;
-    size_t ny   = 9;
+    size_t nx   = 18;
+    size_t ny   = 18;
 
     cartesian_2d_mesh_builder<RealType> mesh_builder(lx, ly, nx, ny);
     mesh_builder.refine_mesh(sim_data.m_n_divs);
@@ -378,7 +378,7 @@ else {
 
             Matrix<RealType, Dynamic, 1> x_rand = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             x_rand.head(n_c) = x_rand_c;
-            // erk_an.refresh_faces_unknowns(x_rand);   // admissible state
+            erk_an.refresh_faces_unknowns(x_rand);   // admissible state
 
             std::vector<Matrix<RealType, Dynamic, 1>> w_test(4);
             for (int j = 0; j < 4; ++j) { w_test[j].resize(n_dof); w_test[j].setZero(); }
@@ -460,7 +460,7 @@ else {
             // Build admissible initial state from eigenvector (cell part only)
             Matrix<RealType, Dynamic, 1> x_eig = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             x_eig.head(n_c) = v_unstable;
-            // erk_an.refresh_faces_unknowns(x_eig);   // ← admissible state
+            erk_an.refresh_faces_unknowns(x_eig);   // ← admissible state
 
             const int N_check = 200;
             std::cout << bold << red << "\n   TEST 2 : propagation du vecteur propre instable\n" << reset;
