@@ -1,7 +1,6 @@
 
 //  Created by Romain Mottier
-// WITHOUT LOCAL REFINEMENT: ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l4 -n220 -p0 -f1 -e0
-// WITH LOCAL REFINEMENT:    ../wave_propagation -k3 -s0 -r0 -c0 -m0 -l4 -n220 -p3 -f1 -e0
+// WITH LOCAL REFINEMENT:    ../../../wave_propagation -k0 -s0 -r0 -c0 -m0 -l0 -n11 -p1 -f1 -e0
 
 void ERK4_LTS_stab_acou(int argc, char **argv);
 
@@ -54,62 +53,53 @@ void ERK4_LTS_stab_acou(int argc, char **argv)
     // else {
     //     RealType lx = 1.0;
     //     RealType ly = 1.0;
-    //     size_t   nx = 9;
-    //     size_t   ny = 9;
-
+    //     int    L    = sim_data.m_substeps_Q;
+    //     size_t nx   = 18;
+    //     size_t ny   = 18;
     //     cartesian_2d_mesh_builder<RealType> mesh_builder(lx, ly, nx, ny);
-    //     mesh_builder.refine_mesh(sim_data.m_n_divs);
-    //     mesh_builder.set_translation_data(-1.0, 0.0);
     //     mesh_builder.build_mesh();
-
-    //     std::vector<size_t> cells_to_refine = {5};
-    //     // mesh_builder.refine_cells(cells_to_refine, sim_data.m_substeps_Q);
+    //     auto is_fine_zone = [](const typename mesh_type::point_type& p) {
+    //         return p.x() > 1.0/3.0 && p.x() < 2.0/3.0
+    //         && p.y() > 1.0/3.0 && p.y() < 2.0/3.0;
+    //     };
+    //     if (L > 0) {
+    //         mesh_builder.refine_with_protection(is_fine_zone, L);
+    //     }
     //     mesh_builder.move_to_mesh_storage(msh);
     // }
-else {
-    RealType lx = 1.0;
-    RealType ly = 1.0;
-
-    int    L    = sim_data.m_substeps_Q;
-    // size_t nx   = std::max(size_t(2*L + 1), size_t(9));
-    // size_t ny   = nx;
-    size_t nx   = 18;
-    size_t ny   = 18;
-
-    cartesian_2d_mesh_builder<RealType> mesh_builder(lx, ly, nx, ny);
-    mesh_builder.refine_mesh(sim_data.m_n_divs);
-
-    // 1. build_mesh EN PREMIER — initialise polygons et points
-    mesh_builder.build_mesh();
-
-    // 2. raffiner localement APRÈS build_mesh
-    auto is_fine_zone = [](const typename mesh_type::point_type& p) {
-        return p.x() > 1.0/3.0 && p.x() < 2.0/3.0
+    else {
+        RealType lx = 1.0;
+        RealType ly = 1.0;
+        int    L    = sim_data.m_substeps_Q;
+        size_t nx   = 18;
+        size_t ny   = 18;
+        cartesian_2d_mesh_builder<RealType> mesh_builder(lx, ly, nx, ny);
+        mesh_builder.build_mesh();
+        auto is_fine_zone = [](const typename mesh_type::point_type& p) {
+            return p.x() > 1.0/3.0 && p.x() < 2.0/3.0
             && p.y() > 1.0/3.0 && p.y() < 2.0/3.0;
-    };
-
-    if (L > 0)
-        mesh_builder.refine_with_protection(is_fine_zone, L);
-
-    // 3. transférer en dernier
-    mesh_builder.move_to_mesh_storage(msh);
-}
+        };
+        if (L > 0) {
+            mesh_builder.refine_with_protection(is_fine_zone, L);
+        }
+        mesh_builder.move_to_mesh_storage(msh);
+    }
     tc.toc();
     std::cout << bold << red << std::endl << std::endl << "   MESH GENERATION : ";
     std::cout << tc << " seconds" << reset << std::endl;
-
-    // Compute mesh size extrema and refinement ratio p = h_max / h_min
     RealType h_max = 1.0e-5;
     RealType h_min = 10.0;
-    for (auto & cell : msh)
-    {
+    for (auto & cell : msh) {
         RealType h_l = diameter(msh, cell);
-        if (h_l < h_min) h_min = h_l;
-        else if (h_l > h_max) h_max = h_l;
+        if (h_l < h_min) {
+            h_min = h_l;
+        }
+        else if (h_l > h_max) {
+            h_max = h_l;
+        }
     }
-
-    // p is the local refinement ratio; used to set h_c (the coarse threshold)
-    auto p   = h_max / h_min;
+    // auto p   = h_max / h_min;
+    auto p   = 1;
     auto h_c = (p == 1) ? 1.25 * h_max : 0.75 * h_max;
 
     std::cout << bold << cyan << "      h_max       = " << h_max << reset << std::endl;
@@ -119,9 +109,6 @@ else {
     // =========================================================================
     // Time parameters
     // =========================================================================
-
-    // nt is taken directly from the command-line argument -n;
-    // dt = (tf - ti) / nt is the coarse time step whose stability we study
     size_t   nt = sim_data.m_nt_divs;
     RealType ti = 0.0, tf = 0.25;
     RealType dt = (tf - ti) / nt;
@@ -129,7 +116,6 @@ else {
     // =========================================================================
     // HHO discretisation degree
     // =========================================================================
-
     size_t cell_k_degree = sim_data.m_k_degree;
     if (sim_data.m_hdg_stabilization_Q) cell_k_degree++;
     disk::hho_degree_info hho_di(cell_k_degree, sim_data.m_k_degree);
@@ -137,62 +123,43 @@ else {
     // =========================================================================
     // Material parameters
     // =========================================================================
-
-    // Elastic domain (x < 0): rho=1, lambda=sqrt(3), mu=1
     auto elastic_mat_fun = [](const typename mesh_type::point_type&) -> elastic_material_data<RealType> {
         return elastic_material_data<RealType>(1.0, std::sqrt(3.0), 1.0);
     };
-    // Acoustic domain (x > 0): rho=1, c=1
     auto acoustic_mat_fun = [](const typename mesh_type::point_type&) -> acoustic_material_data<RealType> {
         return acoustic_material_data<RealType>(1.0, 1.0);
     };
 
-    // =========================================================================
-    // Analytical functions (used only for projection of initial data)
-    // =========================================================================
+    auto null_s_fun = [](const disk::mesh<double, 2, disk::generic_mesh_storage<double, 2>>::point_type& pt) -> double {
+      return 0.0;
+    }; 
 
-    scal_vec_analytic_functions functions;
-    functions.set_function_type(scal_vec_analytic_functions::EFunctionType::EFunctionNonPolynomial);
-
-    auto u_fun      = functions.Evaluate_u(ti);
-    auto v_fun      = functions.Evaluate_v(ti);
-    auto a_fun      = functions.Evaluate_a(ti);
-    auto f_fun      = functions.Evaluate_f(ti);
-    auto flux_fun   = functions.Evaluate_sigma(ti);
-
-    auto s_u_fun    = functions.Evaluate_s_u(ti);
-    auto s_v_fun    = functions.Evaluate_s_v(ti);
-    auto s_a_fun    = functions.Evaluate_s_a(ti);
-    auto s_f_fun    = functions.Evaluate_s_f(ti);
-    auto s_flux_fun = functions.Evaluate_s_q(ti);
+    auto null_fun = [](const disk::mesh<double, 2, disk::generic_mesh_storage<double, 2>>::point_type& pt) -> disk::static_vector<double, 2> {
+      disk::static_vector<double, 2> f{0,0};
+      return f;
+    };
+    
+    auto null_flux_fun = [](const typename disk::mesh<double, 2, disk::generic_mesh_storage<double, 2>>::point_type& pt) -> disk::static_matrix<double,2,2> {
+      double x,y;
+      x = pt.x();
+      y = pt.y();
+      disk::static_matrix<double, 2, 2> sigma = disk::static_matrix<double,2,2>::Zero(2,2);
+      return sigma;
+    };
 
     // =========================================================================
     // Domain decomposition: elastic (x<0) / acoustic (x>0) / interface (x=0)
     // =========================================================================
-
     std::map<size_t, elastic_material_data<RealType>>  e_material;
     std::map<size_t, acoustic_material_data<RealType>> a_material;
     std::set<size_t> elastic_bc_face_indexes, acoustic_bc_face_indexes, interface_face_indexes;
     std::map<size_t, std::pair<size_t, size_t>> interface_cell_pair_indexes;
 
-    // Assign material to each cell; detect interface cell pairs
     for (auto & cell : msh) {
         auto cell_ind = msh.lookup(cell);
         mesh_type::point_type bar = barycenter(msh, cell);
         a_material.insert(std::make_pair(cell_ind, acoustic_mat_fun(bar)));
-
-        // For each face of this cell, check if it lies on the interface
-        auto cell_faces = faces(msh, cell);
-        for (auto face : cell_faces) {
-            auto fc_id    = msh.lookup(face);
-            bool is_iface = interface_face_indexes.find(fc_id) != interface_face_indexes.end();
-            if (is_iface) {
-                interface_cell_pair_indexes[fc_id].second = cell_ind;
-            }
-        }
     }
-
-    // Classify internal interface faces as elastic-side or acoustic-side
     std::set<size_t> elastic_internal_faces;
     std::set<size_t> acoustic_internal_faces;
     for (auto face_it = msh.faces_begin(); face_it != msh.faces_end(); face_it++) {
@@ -204,8 +171,6 @@ else {
             acoustic_internal_faces.insert(fc_id);
         }
     }
-
-    // Assign Dirichlet boundary conditions
     size_t bc_elastic_id  = 0;
     size_t bc_acoustic_id = 1;
     for (auto face_it = msh.boundary_faces_begin(); face_it != msh.boundary_faces_end(); face_it++) {
@@ -216,56 +181,39 @@ else {
         msh.backend_storage()->boundary_info.at(fc_id) = bi;
         acoustic_bc_face_indexes.insert(fc_id);
     }
-
     e_boundary_type e_bnd(msh);
     a_boundary_type a_bnd(msh);
-    e_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_elastic_id,  u_fun);
-    a_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_acoustic_id, s_u_fun);
+    e_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_elastic_id,  null_fun);
+    a_bnd.addDirichletBC(disk::DirichletType::DIRICHLET, bc_acoustic_id, null_s_fun);
 
     // =========================================================================
     // HHO assembly
     // =========================================================================
-
     auto assembler = elastoacoustic_four_fields_assembler<mesh_type>(msh, hho_di, e_bnd, a_bnd, e_material, a_material);
-
     assembler.set_interface_cell_indexes(interface_cell_pair_indexes);
     assembler.set_coupling_stabilization();
-    if (sim_data.m_scaled_stabilization_Q)
+    if (sim_data.m_scaled_stabilization_Q) {
         assembler.set_scaled_stabilization();
+    }
     assembler.assemble_mass(msh);
     assembler.assemble_coupling_terms(msh);
-
-    // Project initial data onto cell and face unknowns
     Matrix<RealType, Dynamic, 1> x_dof;
-    assembler.project_over_cells(msh, x_dof, v_fun, flux_fun, s_v_fun, s_flux_fun);
-    assembler.project_over_faces(msh, x_dof, v_fun, s_v_fun);
-
-    // Build the global stiffness operator (LHS = stiffness + coupling)
-    assembler.assemble(msh, f_fun, s_f_fun, true);
+    assembler.project_over_cells(msh, x_dof, null_fun, null_flux_fun, null_s_fun, null_fun);
+    assembler.project_over_faces(msh, x_dof, null_fun, null_s_fun);
+    assembler.assemble(msh, null_fun, null_s_fun, true);
     assembler.LHS += assembler.COUPLING;
-
-    // Build the ERK scheme object and invert mass / Schur complement on cell/face blocks
-    erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING,
-                                              assembler.get_e_n_cells_dof(), assembler.get_a_n_cells_dof(),
-                                              assembler.get_e_face_dof(),    assembler.get_a_face_dof());
-
-    erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(),
-                       assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
-    erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(),
-                       assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(),
-                       assembler.get_e_compress(), assembler.get_a_compress(),
-                       elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
+    erk_coupling_hho_scheme<RealType> erk_an(assembler.LHS, assembler.RHS, assembler.MASS, assembler.COUPLING, assembler.get_e_n_cells_dof(), assembler.get_a_n_cells_dof(), assembler.get_e_face_dof(), assembler.get_a_face_dof());
+    erk_an.Mcc_inverse(assembler.get_elastic_cells(), assembler.get_acoustic_cells(), assembler.get_e_cell_basis_data(), assembler.get_a_cell_basis_data());
+    erk_an.Sff_inverse(assembler.get_elastic_faces(), assembler.get_acoustic_faces(), assembler.get_e_face_basis_data(), assembler.get_a_face_basis_data(), assembler.get_e_compress(), assembler.get_a_compress(), elastic_internal_faces, acoustic_internal_faces, interface_face_indexes);
     erk_an.refresh_faces_unknowns(x_dof);
     assembler.assemble_P(msh, h_c, 1);
 
     if (sim_data.m_render_silo_files_Q) {
         std::ostringstream sn;
         sn << "silo_stab_l_" << sim_data.m_n_divs << "_k_" << sim_data.m_k_degree << "_p_" << p << "_";
-        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(sn.str(), 0, msh, hho_di, x_dof,
-                                                                             e_material, a_material, false, h_c,
-                                                                             assembler.cell_is_fine_silo);
+        postprocessor<mesh_type>::write_silo_four_fields_elastoacoustic_LTS(sn.str(), 0, msh, hho_di, x_dof, e_material, a_material, false, h_c, assembler.cell_is_fine_silo);
     }
-
+ 
     // =========================================================================
     // Log file
     // =========================================================================
@@ -300,9 +248,9 @@ else {
     // If save_eigenvalues_Q is true, eigenvalue files are written for each dt
     // near the stability boundary for complex-plane post-processing.
 
-    const int    n_dof = static_cast<int>(x_dof.rows());
-    const int    n_c   = static_cast<int>(erk_an.n_c_dof());
-    const int    n_f   = n_dof - n_c;
+    const int n_dof = static_cast<int>(x_dof.rows());
+    const int n_c   = static_cast<int>(erk_an.n_c_dof());
+    const int n_f   = n_dof - n_c;
 
     // Display tolerance: rho in (1, 1+rho_eps] is shown as boundary noise
     const double rho_eps  = 1.0e-5;
@@ -374,11 +322,11 @@ else {
         // -----------------------------------------------------------------
         if (!test1_done_Q) {
             Matrix<RealType, Dynamic, 1> x_rand_c = Matrix<RealType, Dynamic, 1>::Random(n_c);
-            Matrix<RealType, Dynamic, 1> Cx        = C * x_rand_c;
+            Matrix<RealType, Dynamic, 1> Cx = C * x_rand_c;
 
             Matrix<RealType, Dynamic, 1> x_rand = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
             x_rand.head(n_c) = x_rand_c;
-            erk_an.refresh_faces_unknowns(x_rand);   // admissible state
+            erk_an.refresh_faces_unknowns(x_rand);  
 
             std::vector<Matrix<RealType, Dynamic, 1>> w_test(4);
             for (int j = 0; j < 4; ++j) { w_test[j].resize(n_dof); w_test[j].setZero(); }
@@ -391,7 +339,6 @@ else {
                 erk_an.erk_weight_LTS_fine(x_rand, assembler.Pfine, w_test, F_zero, F_zero, F_zero, tm, dtau_s);
             }
 
-            // double err1 = (Cx - x_rand.head(n_c)).norm() / x_rand.head(n_c).norm();
             double err1 = (Cx - x_rand.head(n_c)).norm();
             std::cout << bold << yellow << "   ||C*x - step(x)|| = " << std::setprecision(6) << err1 << reset;
             test1_done_Q = true;
