@@ -87,6 +87,7 @@ using namespace Eigen;
       #include "prototypes/LTS/ERK4_LTS_SSTAB.hpp"     
       #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"    
       #include "prototypes/LTS/ERK4_LTS_optimised.hpp"    
+      #include "prototypes/LTS/ERK_LTS_stab.hpp" 
       // PULSE
       #include "prototypes/LTS/AcousticHeterogeneousPulse.hpp"           // ACOUSTIC ERK
       #include "prototypes/LTS/AcousticLTSEulerHeterogeneousPulse.hpp"   // ACOUSTIC EULER-LTS
@@ -153,7 +154,8 @@ int main(int argc, char **argv){
    // ERK4_LTS(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
    // ERK4_LTS_stab(argc, argv);
-   ERK4_LTS_stab_acou(argc, argv);
+   // ERK4_LTS_stab_acou(argc, argv);
+   ERK_LTS_stab(argc, argv);
    // ERK4_LTS_SSTAB(argc, argv);
    // ERK4_LTS_optimised(argc, argv);
 
