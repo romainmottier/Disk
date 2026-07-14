@@ -98,8 +98,8 @@ void ERK4_LTS_stab_acou(int argc, char **argv)
             h_max = h_l;
         }
     }
-    // auto p   = h_max / h_min;
-    auto p   = 1;
+    int p = static_cast<int>(std::round(h_max / h_min));
+    // auto p   = 1;
     auto h_c = (p == 1) ? 1.25 * h_max : 0.75 * h_max;
 
     std::cout << bold << cyan << "      h_max       = " << h_max << reset << std::endl;

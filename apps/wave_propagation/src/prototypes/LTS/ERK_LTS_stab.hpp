@@ -98,8 +98,8 @@ void ERK_LTS_stab(int argc, char **argv)
             h_max = h_l;
         }
     }
-    // auto p   = h_max / h_min;
-    auto p   = 1;
+    auto p   = h_max / h_min;
+    // auto p   = 1;
     auto h_c = (p == 1) ? 1.25 * h_max : 0.75 * h_max;
 
     std::cout << bold << cyan << "      h_max       = " << h_max << reset << std::endl;
@@ -204,8 +204,8 @@ void ERK_LTS_stab(int argc, char **argv)
     Matrix<RealType, Dynamic, Dynamic> a;
     Matrix<RealType, Dynamic, 1> b;
     Matrix<RealType, Dynamic, 1> c;
-    int s = 4;
-    erk_butcher_tableau::erk_tables(s, a, b, c);
+    int ss = 4;
+    erk_butcher_tableau::erk_tables(ss, a, b, c);
 
     assembler.assemble(msh, null_fun, null_s_fun, true);
     assembler.LHS += assembler.COUPLING;
@@ -304,17 +304,18 @@ void ERK_LTS_stab(int argc, char **argv)
             e_i(i) = 1.0;
             erk_an.refresh_faces_unknowns(e_i);
 
-            Matrix<RealType, Dynamic, Dynamic> k = Matrix<RealType, Dynamic, Dynamic>::Zero(n_dof, s);
+            Matrix<RealType, Dynamic, 1> y0 = e_i;
+            Matrix<RealType, Dynamic, Dynamic> k = Matrix<RealType, Dynamic, Dynamic>::Zero(n_dof, ss);
             Matrix<RealType, Dynamic, 1> Fg, Fg_c;            
             Matrix<RealType, Dynamic, 1> yn, ki;
-            for (int ii = 0; ii < s; ii++) {
-                yn = x_dof;
-                for (int j = 0; j < s - 1; j++) {
-                    yn += a(ii,j) * dt * k.block(0, j, n_dof, 1);
+            for (int ii = 0; ii < ss; ii++) {
+                yn = y0;
+                for (int j = 0; j < ss - 1; j++) {
+                    yn += a(ii,j) * dt_s * k.block(0, j, n_dof, 1);
                 }
                 erk_an.erk_weight(yn, ki);
                 // Accumulated solution
-                e_i += dt*b(ii,0)*ki;
+                e_i += dt_s*b(ii,0)*ki;
                 k.block(0, ii, n_dof, 1) = ki;      
             }
             
@@ -334,21 +335,22 @@ void ERK_LTS_stab(int argc, char **argv)
             x_rand.head(n_c) = x_rand_c;
             erk_an.refresh_faces_unknowns(x_rand);  
 
-            Matrix<RealType, Dynamic, Dynamic> k = Matrix<RealType, Dynamic, Dynamic>::Zero(n_dof, s);
+            Matrix<RealType, Dynamic, Dynamic> k = Matrix<RealType, Dynamic, Dynamic>::Zero(n_dof, ss);
             Matrix<RealType, Dynamic, 1> Fg, Fg_c;            
             Matrix<RealType, Dynamic, 1> yn, ki;
-            for (int ii = 0; ii < s; ii++) {
-                yn = x_dof;
-                for (int j = 0; j < s - 1; j++) {
-                    yn += a(ii,j) * dt * k.block(0, j, n_dof, 1);
+            Matrix<RealType, Dynamic, 1> x0 = x_rand;
+            for (int ii = 0; ii < ss; ii++) {
+                yn = x0;
+                for (int j = 0; j < ss - 1; j++) {
+                    yn += a(ii,j) * dt_s * k.block(0, j, n_dof, 1);
                 }
-                erk_an.erk_weight(yn, ki);
-                x_rand += dt*b(ii,0)*ki;
+                erk_an.erk_weight(yn, ki); 
+                x_rand += dt_s*b(ii,0)*ki;
                 k.block(0, ii, n_dof, 1) = ki;      
             }
 
             double err1 = (Cx - x_rand.head(n_c)).norm();
-            std::cout << bold << yellow << "   ||C*x - step(x)|| = " << std::setprecision(6) << err1 << reset;
+            std::cout << bold << yellow << "   ||C*x - step(x)|| = " << std::setprecision(6) << err1 << reset; 
             test1_done_Q = true;
         }
 
