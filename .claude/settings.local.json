@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find ~/Downloads/mri_dataset -type f -not -path \"*/.git/*\" | sort)",
+      "Read(//home/mottie0000/Downloads/mri_dataset/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import gmsh\")",
+      "Bash(python3 -c \"import shapely\")",
+      "Bash(python3 -c \"import rasterio\")",
+      "Bash(python3 -c \"import cv2\")",
+      "Bash(python3 -c \"import pygmsh\")",
+      "Bash(python3 -c \"import skimage; print\\(skimage.__version__\\)\")",
+      "Bash(python3 /tmp/verify_mesh.py data/dataset/subject_0001_slice_0050.npy 3 1)",
+      "Bash(cd /home/mottie0000/Github/Diskpp/meshes *)",
+      "Read(//home/mottie0000/Github/Diskpp/meshes/**)"
+    ]
+  }
+}

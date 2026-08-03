@@ -78,7 +78,11 @@ using namespace Eigen;
 
    // Sedimentary Basin
    #include "prototypes/coupling/Basin/BassinIHHOFirstOrder.hpp"               // Implicit Sedimentary Basin
-   
+
+   // Segmented Brain (MRI)
+   #include "prototypes/coupling/Basin/BrainIHHOFirstOrder.hpp"                // Implicit Brain (MRI segmentation)
+   #include "prototypes/coupling/Basin/BrainEHHOFirstOrder.hpp"                // Explicit Brain (MRI segmentation)
+
    // LTS
       // CONV TEST 
       #include "prototypes/LTS/ERK4_LTS.hpp"     
@@ -141,8 +145,12 @@ int main(int argc, char **argv){
 // SEDIMENTARY BASIN:
    // BassinIHHOFirstOrder(argc, argv);
    // Test(argc, argv);
-   // BassinEHHOFirstOrder(argc, argv); Not working 
-  
+   // BassinEHHOFirstOrder(argc, argv); Not working
+
+// SEGMENTED BRAIN (MRI):
+   // BrainIHHOFirstOrder(argc, argv);
+   // BrainEHHOFirstOrder(argc, argv);
+
 // LOCAL TIME STEPPING 
    // HeterogeneousEULER_LTS_HHO_FirstOrder(argc, argv);
 
@@ -155,7 +163,7 @@ int main(int argc, char **argv){
    // ERK4_LTS(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
    // ERK4_LTS_stab(argc, argv);
-   ERK4_LTS_stab_acou(argc, argv);
+   // ERK4_LTS_stab_acou(argc, argv);
    // ERK4_LTS_stab_acou_debug(argc, argv);
    // ERK_LTS_stab(argc, argv);
    // ERK4_LTS_SSTAB(argc, argv);
@@ -164,6 +172,9 @@ int main(int argc, char **argv){
    // HeterogeneousEHHOFirstOrder(argc, argv); 
    // HeterogeneousERK4_LTS_HHO_FirstOrder(argc, argv);
    // HeterogeneousERK4_LTS_HHO_FirstOrder_stab(argc, argv);
+
+   // BrainIHHOFirstOrder(argc, argv);
+   BrainEHHOFirstOrder(argc, argv);
 
 }
 
