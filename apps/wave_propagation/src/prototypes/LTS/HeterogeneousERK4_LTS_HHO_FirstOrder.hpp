@@ -99,7 +99,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder(int argc, char **argv){
         }
     }
     auto h_c = 0.75*h_max;
-    auto p = h_max/h_min;
+    int p = static_cast<int>(std::round(h_max / h_min));
     std::cout << bold << cyan << "      h_max = " << h_max << reset << std::endl;
     std::cout << bold << cyan << "      h_min = " << h_min << std::endl;
     std::cout << bold << cyan << "      h_max/h_min = " << p << reset << std::endl << std::endl;

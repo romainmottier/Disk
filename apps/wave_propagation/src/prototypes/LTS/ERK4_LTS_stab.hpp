@@ -82,7 +82,7 @@ void ERK4_LTS_stab(int argc, char **argv)
     }
 
     // p is the local refinement ratio; used to set h_c (the coarse threshold)
-    auto p   = h_max / h_min;
+    int  p   = static_cast<int>(std::round(h_max / h_min));
     auto h_c = (p == 1) ? 1.25 * h_max : 0.75 * h_max;
 
     std::cout << bold << cyan << "      h_max       = " << h_max << reset << std::endl;

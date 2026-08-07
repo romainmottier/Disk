@@ -112,7 +112,7 @@ void ERK4_LTS_optimised(int argc, char **argv){
             h_max = h_l;
         }
     }
-    auto p = h_max/h_min;
+    int p = static_cast<int>(std::round(h_max / h_min));
     auto h_c = 0.75*h_max;
     if (std::abs(p - 1.0) < 1e-10) {
         h_c = 1.25*h_max;

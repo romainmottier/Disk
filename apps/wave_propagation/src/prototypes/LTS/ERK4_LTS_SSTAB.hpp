@@ -111,7 +111,7 @@ void ERK4_LTS_SSTAB(int argc, char **argv){
             h_max = h_l;
         }
     }
-    auto p = h_max/h_min;
+    int p = static_cast<int>(std::round(h_max / h_min));
     auto h_c = 0.75*h_max;
     if (p == 1) {
         h_c = 1.25*h_max;

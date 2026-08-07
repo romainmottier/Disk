@@ -355,8 +355,12 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder_stab(int argc, char **argv){
     const int    nb_dt_points = 100;
 
     const int    n_dof  = static_cast<int>(x_dof.rows());
+    const int    n_c    = static_cast<int>(erk_an.n_c_dof());
     const int    n_eigs = 1;
-    const int    n_cv   = std::min(n_dof, std::max(30, 20 * n_eigs));
+    const int    n_cv   = std::min(n_c, std::max(30, 20 * n_eigs));
+
+    std::cout << bold << cyan << "      n_dof=" << n_dof << "  n_c=" << n_c
+              << "  n_f=" << (n_dof - n_c) << reset << std::endl;
 
     const double ddt = (dt_stab_max - dt_stab_min) / static_cast<double>(nb_dt_points - 1);
 
@@ -402,7 +406,39 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder_stab(int argc, char **argv){
         return x;
     };
 
+    // The amplification matrix is built on the cell dofs only (size n_c x n_c):
+    // face dofs are not independent unknowns, they are recovered from the cell
+    // dofs by static condensation (erk_an.refresh_faces_unknowns). Building C
+    // on the full n_dof state would needlessly probe dependent face directions
+    // and inflate the matrix (and the cost of any dense eigendecomposition) by
+    // the face-dof count for no extra information.
+    auto build_C_LTS = [&](double dtau) -> Eigen::SparseMatrix<double> {
+        Eigen::SparseMatrix<double> C_LTS(n_c, n_c);
+        std::vector<Eigen::Triplet<double>> triplets;
+        triplets.reserve(n_c);
+        for (int i = 0; i < n_c; ++i) {
+            Matrix<RealType, Dynamic, 1> e_i = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
+            e_i(i) = 1.0;
+            erk_an.refresh_faces_unknowns(e_i);   // admissible state
+            Matrix<RealType, Dynamic, 1> col = apply_C_LTS(e_i, dtau);
+            for (int j = 0; j < n_c; ++j) {
+                if (std::abs(col(j)) > 1e-15)
+                    triplets.emplace_back(j, i, col(j));
+            }
+        }
+        C_LTS.setFromTriplets(triplets.begin(), triplets.end());
+        return C_LTS;
+    };
+
     double dt_max_stable = -1.0;
+
+    // Track the dt whose rho(C_LTS) is closest to the stability boundary
+    // (|rho - 1| minimal); the full spectrum is exported only for that one,
+    // since a dense eigendecomposition of C_LTS is too costly to repeat
+    // at every one of the nb_dt_points sweep points.
+    double dt_closest      = -1.0;
+    double rho_closest     = -1.0;
+    double diff_closest    = std::numeric_limits<double>::infinity();
 
     for (int s = 0; s < nb_dt_points; ++s) {
 
@@ -410,22 +446,7 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder_stab(int argc, char **argv){
         const double dtau = dt_s / static_cast<double>(p_stab);
 
         tc.tic();
-        Eigen::SparseMatrix<double> C_LTS(n_dof, n_dof);
-        {
-            std::vector<Eigen::Triplet<double>> triplets;
-            triplets.reserve(n_dof);
-            Matrix<RealType, Dynamic, 1> e_i = Matrix<RealType, Dynamic, 1>::Zero(n_dof);
-            for (int i = 0; i < n_dof; ++i) {
-                e_i(i) = 1.0;
-                Matrix<RealType, Dynamic, 1> col = apply_C_LTS(e_i, dtau);
-                for (int j = 0; j < n_dof; ++j) {
-                    if (std::abs(col(j)) > 1e-15)
-                        triplets.emplace_back(j, i, col(j));
-                }
-                e_i(i) = 0.0;
-            }
-            C_LTS.setFromTriplets(triplets.begin(), triplets.end());
-        }
+        Eigen::SparseMatrix<double> C_LTS = build_C_LTS(dtau);
         tc.toc();
         std::cout << bold << cyan << "      C_LTS built in " << tc << " s" << reset << std::endl;
 
@@ -438,7 +459,16 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder_stab(int argc, char **argv){
         double     rho = -1.0;
         if (ok) {
             rho = eigs.eigenvalues().cwiseAbs().maxCoeff();
-            if (rho <= 1.0) dt_max_stable = dt_s;
+            if (rho <= 1.0) {
+                dt_max_stable = dt_s;
+                // among the stable points, keep the one closest to rho = 1
+                const double diff = 1.0 - rho;
+                if (diff < diff_closest) {
+                    diff_closest = diff;
+                    dt_closest   = dt_s;
+                    rho_closest  = rho;
+                }
+            }
         }
 
         // Affichage haute précision (15 chiffres) pour distinguer
@@ -462,6 +492,49 @@ void HeterogeneousERK4_LTS_HHO_FirstOrder_stab(int argc, char **argv){
               << reset << std::endl;
     simulation_log << "dt_max_stable (p=" << p_stab << ") = "
                    << std::setprecision(10) << dt_max_stable << "\n";
+
+    // ######################################################################
+    // ###################################################################### Full spectrum export
+    // ######################################################################
+    // Rebuild C_LTS only for the stable dt closest to the stability boundary
+    // (rho closest to 1) and export its full complex spectrum, for plotting
+    // in the complex plane. A dense eigendecomposition is affordable once,
+    // but not at every one of the nb_dt_points sweep points.
+
+    if (dt_closest > 0.0) {
+        std::cout << bold << red << "\n   FULL SPECTRUM EXPORT (dt = "
+                  << std::setprecision(8) << dt_closest
+                  << ", rho = " << std::setprecision(15) << rho_closest
+                  << ")" << reset << std::endl;
+
+        const double dtau_closest = dt_closest / static_cast<double>(p_stab);
+        Eigen::SparseMatrix<double> C_closest = build_C_LTS(dtau_closest);
+        Eigen::MatrixXd C_dense = Eigen::MatrixXd(C_closest);
+
+        tc.tic();
+        Eigen::EigenSolver<Eigen::MatrixXd> es(C_dense);
+        tc.toc();
+        std::cout << bold << cyan << "      Dense eigendecomposition in " << tc << " s" << reset << std::endl;
+
+        if (es.info() == Eigen::Success) {
+            std::ostringstream ev_fname;
+            ev_fname << "eigenvalues_dt_" << std::setprecision(8) << dt_closest << ".txt";
+            std::ofstream ev_file(ev_fname.str());
+            ev_file << "# dt=" << std::setprecision(15) << dt_closest
+                     << "  rho=" << rho_closest << "\n";
+            ev_file << "# real  imag\n";
+            for (int j = 0; j < es.eigenvalues().size(); ++j) {
+                ev_file << std::setprecision(15)
+                        << es.eigenvalues()(j).real() << "  "
+                        << es.eigenvalues()(j).imag() << "\n";
+            }
+            ev_file.close();
+            std::cout << bold << cyan << "      Spectrum written: " << ev_fname.str() << reset << std::endl;
+        }
+        else {
+            std::cout << bold << red << "   --> EigenSolver FAILED at dt=" << dt_closest << reset << std::endl;
+        }
+    }
 
     simulation_log.flush();
 
