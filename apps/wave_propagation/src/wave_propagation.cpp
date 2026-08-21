@@ -88,6 +88,7 @@ using namespace Eigen;
       #include "prototypes/LTS/ERK4_LTS.hpp"     
       #include "prototypes/LTS/ERK4_LTS_stab.hpp"     
       #include "prototypes/LTS/ERK4_LTS_stab_acou.hpp"
+      #include "prototypes/LTS/LHS_spectrum_acou.hpp"
       #include "prototypes/LTS/ERK4_LTS_SSTAB.hpp"
       #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"    
       #include "prototypes/LTS/ERK4_LTS_optimised.hpp"    
@@ -163,6 +164,7 @@ int main(int argc, char **argv){
    // ERK4_LTS_conv_test(argc, argv);
    // ERK4_LTS_stab(argc, argv);
    ERK4_LTS_stab_acou(argc, argv);
+   // LHS_spectrum_acou(argc, argv);
    // ERK_LTS_stab(argc, argv);
    // ERK4_LTS_SSTAB(argc, argv);
    // ERK4_LTS_optimised(argc, argv);
