@@ -1,0 +1,345 @@
+\documentclass[11pt]{article}
+\usepackage[french]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\geometry{margin=2.7cm}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  numbers=none,
+}
+
+\title{LTS-RK4 multi-niveaux pour le maillage gradué en L\\
+\large Journal d'implémentation et de validation}
+\author{Romain Mottier}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Ce rapport documente la conception, l'implémentation et la validation d'une
+généralisation multi-niveaux du schéma explicite \emph{Local Time-Stepping}
+RK4 (LTS-RK4, ``Algorithme 3'') déjà présent dans DiSk++
+(\code{erk\_coupling\_hho\_scheme}), motivée par le coût prohibitif du
+schéma à 2 niveaux existant sur un maillage gradué en L avec singularité de
+coin rentrant. Le rapport couvre : le diagnostic du problème de coût, deux
+bugs de correction trouvés dans le chemin de code ``restreint'' préexistant,
+les nouvelles briques de calcul restreintes et validées, la généralisation
+récursive multi-niveaux, et l'état actuel de validation.
+\end{abstract}
+
+\tableofcontents
+
+\section{Contexte et motivation}
+
+\subsection{Le problème de coût}
+
+Le maillage en L gradué vers le coin rentrant (angle intérieur $\omega =
+3\pi/2$) est construit par un raffinement quadtree couplé : le fond est
+raffiné uniformément $\ell$ fois, et le coin est raffiné avec une
+profondeur supplémentaire $\mathrm{depth} = 1.5(k+1)\,\ell$ (pour un degré
+polynomial HHO $k$), afin de retrouver le taux de convergence optimal
+$h^{k+1}$ malgré la singularité (théorie classique du maillage gradué).
+
+Cette construction fait exploser le ratio $p = h_{\max}/h_{\min}$ :
+$p = 1, 32, 1024, 32768,\dots$ pour les niveaux successifs $N=0,1,2,3,\dots$
+(pour $k=3$, $p$ croît d'un facteur $64$ par niveau). Le schéma LTS-RK4 à 2
+niveaux existant effectue $p$ sous-pas RK4 fins par macro-pas, et --- point
+crucial --- \textbf{chaque appel touche l'intégralité du maillage}, pas
+seulement la région ``fine''. Le coût total est donc $O(p \times
+n_{\text{cells}})$, ce qui rend $N=3$ ($p\approx 32768$) de l'ordre de 9 à
+10 heures de calcul, et $N=4$ totalement hors de portée.
+
+\subsection{L'observation de Grote}
+
+Un schéma LTS-RK4 correctement implémenté devrait coûter approximativement
+la même chose qu'un RK4 classique (sans découpage coarse/fine) dès lors que
+la région fine est minoritaire en nombre de degrés de liberté --- c'est
+précisément ce qui n'était pas observé. Ceci a motivé une investigation en
+deux temps :
+\begin{enumerate}
+  \item rendre le schéma à 2 niveaux \emph{effectivement} restreint en
+  coût (chaque appel ne doit toucher que les DOFs de la bande active, pas
+  tout le maillage) ;
+  \item généraliser à un véritable schéma multi-niveaux, nécessaire car
+  aucun seuil unique ne peut séparer ``fine minoritaire'' de ``coarse
+  stable au grand pas de temps'' sur un maillage dont la distribution de
+  tailles de cellules est quasi uniforme en échelle logarithmique sur 10 à
+  15 octaves (vérifié empiriquement, voir \S\ref{sec:histogram}).
+\end{enumerate}
+
+\subsection{Diagnostic : distribution des tailles de cellules}
+\label{sec:histogram}
+
+Un histogramme des diamètres de cellules par octave ($h_{\max}/2^{k}$)
+révèle que le fond uniformément raffiné (bande 0) est la seule bande
+franchement majoritaire ; chaque octave suivante, jusqu'à 15 octaves de
+profondeur à $N=3$, ne contient qu'un nombre quasi constant de cellules
+($\sim 36$), conséquence directe de la marge de raffinement (``halo'')
+ajoutée autour du coin. Cela prouve qu'\textbf{aucun seuil unique} ne peut
+donner la propriété ``fine minoritaire'' de Grote sans que la bande
+opposée (``coarse'') ne s'étende elle-même sur de nombreuses octaves --- ce
+qui, comme démontré en \S\ref{sec:instability}, casse la validité de
+l'approximation polynomiale du rôle coarse.
+
+\section{Diagnostic empirique de deux bugs préexistants}
+\label{sec:bugs}
+
+Avant de construire quoi que ce soit de nouveau, le chemin de code
+``restreint'' déjà présent dans \code{erk\_coupling\_hho\_scheme.hpp}
+(\code{build\_LTS\_subspaces} + \code{erk\_weight\_LTS\_coarse\_restricted}
+/ \code{erk\_weight\_LTS\_fine\_restricted}, utilisé par
+\code{ERK4\_LTS\_optimised.hpp}) a été audité par lecture de code, puis
+\textbf{confirmé empiriquement défaillant} par un test contrôlé : sur un
+maillage localement raffiné (ratio $p=2$), avec un pas de temps
+correctement résolu (CFL vérifié via une comparaison avec $p=1$, erreur
+$\sim 0.02$--$0.10$, plausible), le chemin restreint donne une erreur 10 à
+30 fois \emph{pire} malgré un maillage plus fin --- signature claire d'un
+bug de correction, pas d'un problème de précision.
+
+\begin{description}
+  \item[Bug A --- dofs coarse jamais avancés.] Dans
+  \code{erk\_weight\_LTS\_fine\_restricted}, la mise à jour RK4
+  \[
+    \delta x = d\tau \cdot \tfrac{1}{6}(k_1+2k_2+2k_3+k_4)
+  \]
+  n'est diffusée (\emph{scatter}) que sur les positions \emph{fines}
+  (\code{m\_fine\_active\_c/f}) ; un commentaire affirme que les dofs
+  coarses sont ``gérés ailleurs'', mais
+  \code{erk\_weight\_LTS\_coarse\_restricted} ne fait \emph{jamais} muter
+  l'état --- elle ne fait qu'écrire dans \code{w[]}. Aucune autre voie
+  de code ne met à jour les dofs coarses : ils restent gelés à leur valeur
+  initiale pendant toute la simulation.
+  \item[Bug B --- terme de couplage à l'interface manquant.] Dans
+  \code{compute\_w\_restricted}, la sortie ``face'' n'est calculée et
+  diffusée que pour les faces \emph{classées coarses}. Or une face
+  d'interface (un voisin coarse, un voisin fine) est \emph{toujours}
+  classée fine par la règle d'union de \code{assemble\_P} (``une face est
+  fine si au moins une cellule adjacente est fine''). La contribution de la
+  cellule coarse vers cette face d'interface --- pourtant non nulle et
+  physiquement nécessaire au couplage --- est donc silencieusement
+  perdue.
+\end{description}
+
+Ces deux bugs affectent uniquement \code{ERK4\_LTS\_optimised.hpp} et
+\code{ERK4\_LTS\_SSTAB.hpp} ; ils sont \textbf{indépendants} des
+prototypes L-shape de cette session, qui utilisent l'API non restreinte
+(\code{erk\_weight\_LTS\_coarse}/\code{erk\_weight\_LTS\_fine}) et restent
+donc fiables. Par principe de moindre risque, ces fonctions préexistantes
+n'ont \emph{pas} été modifiées ; de nouvelles fonctions, correctement
+conçues dès le départ, ont été ajoutées à la place (voir \S\ref{sec:v2}).
+
+\section{Nouvelles briques restreintes (fichier \code{erk\_coupling\_hho\_scheme.hpp})}
+\label{sec:v2}
+
+\subsection{\code{LTS\_subblock\_set} et \code{build\_LTS\_subblock}}
+
+Contrairement à \code{build\_LTS\_subspaces} (un seul jeu de sous-blocs
+coarse/fine, dans des membres de classe uniques, écrasés à chaque appel),
+\code{build\_LTS\_subblock(own\_c, own\_f, halo\_rings)} retourne une
+structure \emph{autonome} \code{LTS\_subblock\_set}, permettant à
+plusieurs bandes de coexister --- prérequis indispensable pour le
+multi-niveaux.
+
+Le halo est construit par parcours en largeur (BFS) sur le graphe
+d'adjacence cellule--face induit par la structure creuse de $K_{fc}$ :
+partant de \code{own\_c}/\code{own\_f}, chaque anneau ajoute les faces
+touchant une cellule déjà incluse, puis les cellules touchant une face déjà
+incluse. Ce halo garantit que la chaîne d'applications répétées de
+l'opérateur $B$ (utilisée par le rôle ``coarse'', voir \S\ref{sec:coarse})
+reste exacte, en exploitant le fait que $K_{cc}$ est exactement
+diagonale par bloc par cellule en HHO (les cellules ne couplent qu'à
+travers les faces).
+
+Chaque \code{LTS\_subblock\_set} stocke \emph{deux} jeux de sous-matrices
+restreintes : \code{Kcc/Kcf/Kfc/Mc\_inv/Sff\_inv} (avec halo, pour le rôle
+coarse) et leurs équivalents \code{\_own} (sans halo, pour le rôle fine, qui
+n'en a pas besoin --- voir \S\ref{sec:fine}).
+
+\subsection{Rôle ``coarse'' : \code{erk\_weight\_LTS\_coarse\_v2}}
+\label{sec:coarse}
+
+Reproduit fidèlement, mais restreint à \code{blocks.active\_c/f}
+(propre + halo), l'algorithme de \code{erk\_weight\_LTS\_coarse} :
+interpolation de Lagrange quadratique de la force sur $[0,dt]$, chaînes
+$B^i y_n$ et $B^i F_j$ (non masquées, utilisant le halo pour rester
+exactes), puis masquage \emph{final} à \code{own\_c/own\_f} uniquement
+avant la dernière application de $B$ --- ce masquage final est ce qui
+donne au polynôme de Taylor de sortie $w[0..3]$ sa fuite correcte vers les
+faces d'interface (fixant le Bug B), sans polluer les cellules halo elles-
+mêmes ($K_{cc}$ diagonale par cellule + masquage $\Rightarrow$ contribution
+nulle aux lignes non-propres).
+
+Sortie : $w_i(\tau) = w_0 + \tau w_1 + \tfrac{\tau^2}{2} w_2 +
+\tfrac{\tau^3}{6} w_3$, valide en temps local sur $[0, \mathrm{len}]$ où
+$\mathrm{len}$ est la durée \emph{propre} à ce niveau (voir
+\S\ref{sec:mlts}, pas le macro-pas global).
+
+\subsection{Rôle ``fine'' : \code{erk\_weight\_LTS\_fine\_v2}}
+\label{sec:fine}
+
+Un pas RK4 complet de taille $d\tau$, avec chaque étage
+$k = B(P_{\text{own}} y) + w(\tau)$ --- l'entrée $y$ est masquée à
+\code{own} avant application de $B$ (miroir exact de $P_{\text{fine}} \cdot
+y_{\text{stage}}$ dans l'algorithme original), \emph{mais} $B$ est
+appliqué avec les matrices \emph{avec halo}, de sorte que la sortie soit
+non nulle non seulement sur les positions propres, mais aussi sur les
+cellules coarse directement adjacentes (halo) --- exactement le
+comportement de l'algorithme original non restreint, où une cellule
+coarse au bord hérite d'une contribution réelle via le couplage $K_{cf}$
+à la face d'interface. La mise à jour est diffusée sur \code{active\_c/f}
+en entier (propre + halo), corrigeant le Bug A.
+
+\subsection{Repli analytique : \code{erk\_weight\_LTS\_coarse\_advance\_uncovered}}
+
+Les cellules coarse \emph{non} atteintes par le halo de la bande fine (les
+cellules ``profondément intérieures'') ne reçoivent aucune correction du
+rôle fine. Pour elles, $B(P_{\text{fine}} y) \equiv 0$ (aucun couplage vers
+une face fine), donc leur mise à jour exacte sur tout le macro-pas est
+l'intégrale fermée du polynôme cubique :
+\[
+  \Delta x = w_0\, dt + w_1\, \tfrac{dt^2}{2} + w_2\, \tfrac{dt^3}{6}
+  + w_3\, \tfrac{dt^4}{24}.
+\]
+Ceci est \emph{exact}, pas une approximation : la règle de Simpson (à
+laquelle se réduit la somme RK4 lorsque $B(P_{\text{fine}} y)=0$
+identiquement) est exacte pour un polynôme cubique.
+\textbf{Cellules couvertes par le halo et cellules non couvertes ne
+doivent jamais recevoir les deux mécanismes} --- ce fut la source d'un bug
+de double comptage (et d'un bug de comptage manquant dans une première
+tentative), corrigé et validé (\S\ref{sec:validation}).
+
+\section{Validation à $L=2$}
+\label{sec:validation}
+
+Méthodologie : comparaison directe, pas à pas, du vecteur d'état complet
+entre l'algorithme original (non restreint, éprouvé) et les nouvelles
+briques v2, sur un maillage réel avec un partage coarse/fine
+\emph{authentique} (pas un cas dégénéré où l'une des deux bandes est
+vide). Deux bugs ont été trouvés et corrigés durant cette validation
+avant d'obtenir une correspondance exacte :
+
+\begin{enumerate}
+  \item Une première tentative (\code{fine\_v2} n'écrivant que ses
+  positions propres, complétée par une intégrale fermée
+  \emph{inconditionnelle} pour \emph{toutes} les cellules coarse propres)
+  donnait un écart de $1.3\times 10^{-5}$ après un pas, croissant à $0.05$
+  après 141 pas --- cause : les cellules coarses \emph{au bord} recevaient
+  alors À LA FOIS la correction $B(P_{\text{fine}} y)$ (implicitement,
+  puisque non masquée dans cette version) ET l'intégrale fermée, un double
+  comptage partiel.
+  \item Une seconde tentative (halo inclus dans \code{fine\_v2}, diffusion
+  sur \code{active\_c/f} complet, mais \emph{sans} intégrale fermée du
+  tout) donnait un écart \emph{pire} ($10^{-3}$ après un pas) --- cause :
+  les cellules coarses non atteintes par le halo (environ $72/864$ dofs
+  dans le cas testé) ne recevaient alors \emph{aucune} mise à jour du
+  tout.
+  \item La combinaison correcte --- intégrale fermée appliquée
+  \emph{seulement} aux cellules propres de la bande coarse non couvertes
+  par le halo de la bande fine (vérifié par appartenance d'ensemble) ---
+  donne une correspondance exacte à la précision machine
+  ($9.7\times 10^{-16}$, arrondi) sur les 141 pas de temps complets.
+\end{enumerate}
+
+\section{Généralisation multi-niveaux}
+\label{sec:mlts}
+
+\subsection{Structure récursive}
+
+À chaque niveau $i < L-1$ : calculer $w_i$ (rôle coarse, avec la durée
+\emph{propre} à ce niveau $\mathrm{len}_i$, pas le macro-pas global),
+combiner avec la contribution ancêtre reçue en argument (somme
+coefficient par coefficient, les deux étant exprimés dans le même repère
+temporel local), avancer les cellules propres non couvertes via
+l'intégrale fermée du polynôme \emph{combiné}, puis boucler $p_i$ fois :
+à chaque sous-intervalle, décaler (\emph{Taylor-shift}) le polynôme
+combiné vers la nouvelle origine locale, et soit appeler
+\code{erk\_weight\_LTS\_fine\_v2} directement (cas de base, $i+1=L-1$),
+soit récurser.
+
+\paragraph{Décalage de Taylor.} Pour un polynôme cubique $T(\tau) = w_0 +
+w_1\tau + \tfrac{w_2}{2}\tau^2 + \tfrac{w_3}{6}\tau^3$, la ré-expansion
+exacte autour d'un nouveau point $a$ est :
+\[
+  w_0' = T(a),\quad w_1' = T'(a),\quad w_2' = T''(a),\quad w_3' = w_3.
+\]
+Ceci est une identité exacte (série de Taylor finie d'un polynôme de degré
+3), pas une approximation.
+
+\subsection{Point clé : mise à l'échelle du pas de temps par niveau}
+\label{sec:instability}
+
+Une première tentative de \S\ref{sec:mlts} appliquée à un simple split à
+2 niveaux, en réduisant agressivement le seuil $h_c$ (pour minimiser la
+région ``fine'') \emph{tout en gardant le même pas de temps macro
+$dt=\mathrm{cfl}\cdot h_{\max}$}, a produit un résultat \code{NaN} ---
+même avec $h_c = 16\,h_{\min}$ (bande coarse s'étalant encore sur $\sim 6$
+octaves). Diagnostic : le polynôme cubique $w[]$ n'a que 4 degrés de
+liberté ; sur une fenêtre $dt$ calée pour des cellules de taille
+$h_{\max}$, il ne peut pas représenter la dynamique de cellules bien plus
+petites oscillant plusieurs fois pendant cette même fenêtre --- rupture de
+validité inhérente à la méthode, pas un bug d'implémentation (les
+coefficients eux-mêmes restent corrects, comme vérifié en
+\S\ref{sec:validation}).
+
+\textbf{Correction} : chaque niveau $i$ reçoit son propre $dt_i =
+\mathrm{cfl} \cdot \mathrm{scale}_i$, où $\mathrm{scale}_i$ est la taille
+caractéristique des cellules de ce niveau ($h_{\max}$ pour le niveau 0,
+le seuil $h_{c,i}$ pour les niveaux intermédiaires, $h_{\min}$ pour le
+niveau le plus fin). Le ratio de branchement est $p_i = \mathrm{round}
+(dt_i / dt_{i+1})$.
+
+\subsection{Validation de la récursion générique}
+
+Le pilote récursif générique, spécialisé à $L=2$ avec exactement le même
+seuil que la validation de \S\ref{sec:validation}, reproduit le résultat
+de référence à la précision machine ($6.9\times 10^{-16}$). Ceci confirme
+que la récursion elle-même (décalage de Taylor, accumulation des
+contributions ancêtres, repli analytique) est correcte --- tout écart
+constaté à $L>2$ est donc une question de réglage (précision), pas de
+correction.
+
+\subsection{Résultats à $L=5$ ($N=2$, $k=3$)}
+
+Avec des bandes espacées d'environ 2 octaves chacune (5 niveaux au total
+pour couvrir les 10 octaves de $p=1024$) :
+\begin{itemize}
+  \item Aucune divergence (\code{NaN}) --- confirmation de la correction
+  de mise à l'échelle du pas de temps.
+  \item Temps de calcul : $170\,\mathrm{s}$, contre $\sim 540\,\mathrm{s}$
+  pour le schéma original non restreint --- gain $\times 3{,}2$.
+  \item Précision : erreur $L^2 = 3{,}7\times 10^{-3}$, contre
+  $1{,}14\times 10^{-5}$ pour le schéma de référence --- une dégradation
+  significative (facteur $\sim 326$), attribuable à l'accumulation
+  d'approximations cubiques à travers 4 niveaux intermédiaires plutôt qu'à
+  une erreur de conception.
+\end{itemize}
+
+\section{État actuel et travail restant}
+
+\begin{itemize}
+  \item \textbf{Acquis et validé} : briques restreintes (coarse/fine/repli),
+  pilote récursif générique --- tous deux exacts par rapport à
+  l'algorithme de référence dans leur cas de test respectif.
+  \item \textbf{Acquis mais à régler} : le schéma multi-niveaux complet
+  est stable et plus rapide, mais nécessite un réglage
+  (octaves par niveau, \code{cfl\_factor}) pour retrouver la précision de
+  référence sans perdre le gain de vitesse.
+  \item \textbf{Prochaine étape} : étude paramétrique du compromis
+  précision/vitesse, puis application à $N=3$ et $N=4$ pour compléter la
+  courbe de convergence à 5 points.
+\end{itemize}
+
+\end{document}

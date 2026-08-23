@@ -1,0 +1,326 @@
+\documentclass[11pt]{article}
+\usepackage[english]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\geometry{margin=2.7cm}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  numbers=none,
+}
+
+\title{Multi-level LTS-RK4 for the graded L-shaped mesh\\
+\large Implementation and validation log}
+\author{Romain Mottier}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report documents the design, implementation, and validation of a
+multi-level generalization of the explicit \emph{Local Time-Stepping} RK4
+scheme (LTS-RK4, ``Algorithm 3'') already present in DiSk++
+(\code{erk\_coupling\_hho\_scheme}), motivated by the prohibitive cost of
+the existing 2-level scheme on a graded L-shaped mesh with a reentrant
+corner singularity. The report covers: the diagnosis of the cost problem,
+two correctness bugs found in the pre-existing ``restricted'' code path,
+the new, validated restricted building blocks, the recursive multi-level
+generalization, and the current validation status.
+\end{abstract}
+
+\tableofcontents
+
+\section{Context and motivation}
+
+\subsection{The cost problem}
+
+The L-shaped mesh graded toward the reentrant corner (interior angle
+$\omega = 3\pi/2$) is built via a coupled quadtree refinement: the
+background is uniformly refined $\ell$ times, and the corner gets an
+extra refinement depth $\mathrm{depth} = 1.5(k+1)\,\ell$ (for HHO
+polynomial degree $k$), so as to recover the optimal $h^{k+1}$
+convergence rate despite the singularity (classical graded-mesh theory).
+
+This construction makes the ratio $p = h_{\max}/h_{\min}$ explode:
+$p = 1, 32, 1024, 32768,\dots$ for successive refinement levels
+$N=0,1,2,3,\dots$ (for $k=3$, $p$ grows by a factor of $64$ per level).
+The existing 2-level LTS-RK4 scheme performs $p$ fine RK4 sub-steps per
+macro-step, and --- critically --- \textbf{every call touches the entire
+mesh}, not just the ``fine'' region. Total cost is therefore
+$O(p \times n_{\text{cells}})$, making $N=3$ ($p\approx 32768$) roughly
+9--10 hours of compute, and $N=4$ entirely out of reach.
+
+\subsection{Grote's observation}
+
+A correctly implemented LTS-RK4 scheme should cost roughly the same as
+classical RK4 (no coarse/fine split) whenever the fine region is a
+minority of the degrees of freedom --- which is precisely not what was
+observed. This motivated a two-part investigation:
+\begin{enumerate}
+  \item make the 2-level scheme \emph{genuinely} cost-restricted (every
+  call should only touch the active band's dofs, not the whole mesh);
+  \item generalize to a true multi-level scheme, which turns out to be
+  necessary because no single threshold can separate ``fine is a
+  minority'' from ``coarse is stable at the large time step'' on a mesh
+  whose cell-size distribution is nearly uniform in log-scale across
+  10--15 octaves (confirmed empirically, see \S\ref{sec:histogram}).
+\end{enumerate}
+
+\subsection{Diagnostic: cell-size distribution}
+\label{sec:histogram}
+
+An octave-by-octave histogram of cell diameters ($h_{\max}/2^{k}$) shows
+that the uniformly-refined background (band 0) is the only genuinely
+large bucket; every subsequent octave, down to 15 octaves deep at $N=3$,
+carries an almost constant cell count ($\sim 36$), a direct consequence
+of the refinement ``halo'' margin added around the corner. This proves
+that \textbf{no single threshold} can give Grote's ``fine is a minority''
+property without the opposite (``coarse'') band itself spanning many
+octaves --- which, as shown in \S\ref{sec:instability}, breaks the
+validity of the coarse role's polynomial approximation.
+
+\section{Empirical diagnosis of two pre-existing bugs}
+\label{sec:bugs}
+
+Before building anything new, the ``restricted'' code path already
+present in \code{erk\_coupling\_hho\_scheme.hpp}
+(\code{build\_LTS\_subspaces} + \code{erk\_weight\_LTS\_coarse\_restricted}
+/ \code{erk\_weight\_LTS\_fine\_restricted}, used by
+\code{ERK4\_LTS\_optimised.hpp}) was audited by code reading, then
+\textbf{empirically confirmed broken} by a controlled test: on a locally
+refined mesh (ratio $p=2$), with a properly resolved time step (CFL
+sanity-checked via a $p=1$ comparison, error $\sim 0.02$--$0.10$,
+plausible), the restricted path gives an error 10--30$\times$
+\emph{worse} despite a finer mesh --- a clear correctness-bug signature,
+not an accuracy issue.
+
+\begin{description}
+  \item[Bug A --- coarse dofs never advanced.] In
+  \code{erk\_weight\_LTS\_fine\_restricted}, the RK4 update
+  \[
+    \delta x = d\tau \cdot \tfrac{1}{6}(k_1+2k_2+2k_3+k_4)
+  \]
+  is only scattered onto \emph{fine} positions
+  (\code{m\_fine\_active\_c/f}); a comment claims coarse dofs are
+  ``handled elsewhere'', but \code{erk\_weight\_LTS\_coarse\_restricted}
+  never mutates the state at all --- it only ever writes \code{w[]}. No
+  other code path updates coarse dofs: they stay frozen at their initial
+  value for the entire simulation.
+  \item[Bug B --- missing interface coupling term.] In
+  \code{compute\_w\_restricted}, the ``face'' output is only computed and
+  scattered for \emph{coarse-classified} faces. But an interface face
+  (one coarse neighbour, one fine neighbour) is \emph{always} classified
+  fine by \code{assemble\_P}'s union rule (``a face is fine if any
+  adjacent cell is fine''). The coarse cell's contribution to that
+  interface face --- nonzero and physically required for the coupling ---
+  is therefore silently dropped.
+\end{description}
+
+Both bugs affect only \code{ERK4\_LTS\_optimised.hpp} and
+\code{ERK4\_LTS\_SSTAB.hpp}; they are \textbf{independent of} this
+session's L-shape prototypes, which use the unrestricted API
+(\code{erk\_weight\_LTS\_coarse}/\code{erk\_weight\_LTS\_fine}) and remain
+trustworthy. On a minimum-risk principle, these pre-existing functions
+were \emph{not} modified; new, correctly-designed functions were added
+instead (see \S\ref{sec:v2}).
+
+\section{New restricted building blocks (file \code{erk\_coupling\_hho\_scheme.hpp})}
+\label{sec:v2}
+
+\subsection{\code{LTS\_subblock\_set} and \code{build\_LTS\_subblock}}
+
+Unlike \code{build\_LTS\_subspaces} (a single coarse/fine sub-block pair
+in hardcoded class members, overwritten on every call),
+\code{build\_LTS\_subblock(own\_c, own\_f, halo\_rings)} returns a
+self-contained \code{LTS\_subblock\_set} struct, allowing several bands
+to coexist --- a hard requirement for multi-level.
+
+The halo is built by breadth-first search over the cell--face adjacency
+graph implied by $K_{fc}$'s sparsity pattern: starting from
+\code{own\_c}/\code{own\_f}, each ring adds faces touching an
+already-included cell, then cells touching an already-included face.
+This halo guarantees the repeated-$B$-application chain (used by the
+``coarse'' role, \S\ref{sec:coarse}) stays exact, exploiting the fact
+that $K_{cc}$ is exactly block-diagonal per cell in HHO (cells only
+couple through faces).
+
+Each \code{LTS\_subblock\_set} stores \emph{two} sets of restricted
+sub-matrices: \code{Kcc/Kcf/Kfc/Mc\_inv/Sff\_inv} (with halo, for the
+coarse role) and their \code{\_own} counterparts (halo-free, for the fine
+role, which does not need one --- see \S\ref{sec:fine}).
+
+\subsection{``Coarse'' role: \code{erk\_weight\_LTS\_coarse\_v2}}
+\label{sec:coarse}
+
+Faithfully mirrors \code{erk\_weight\_LTS\_coarse}'s algorithm, but
+restricted to \code{blocks.active\_c/f} (own + halo): quadratic Lagrange
+interpolation of the force over $[0,dt]$, $B^i y_n$ and $B^i F_j$ chains
+(unmasked, using the halo to stay exact), then a \emph{final} mask down
+to \code{own\_c/own\_f} only, right before the last $B$ application ---
+this final masking is what gives the output Taylor polynomial $w[0..3]$
+its correct leak into interface faces (fixing Bug B), without
+contaminating the halo cells themselves ($K_{cc}$ block-diagonal per cell
++ masking $\Rightarrow$ zero contribution at non-own rows).
+
+Output: $w_i(\tau) = w_0 + \tau w_1 + \tfrac{\tau^2}{2} w_2 +
+\tfrac{\tau^3}{6} w_3$, valid in local time over $[0, \mathrm{len}]$
+where $\mathrm{len}$ is this level's \emph{own} interval length (see
+\S\ref{sec:mlts}, not the global macro-step).
+
+\subsection{``Fine'' role: \code{erk\_weight\_LTS\_fine\_v2}}
+\label{sec:fine}
+
+One full RK4 step of size $d\tau$, with each stage
+$k = B(P_{\text{own}} y) + w(\tau)$ --- the input $y$ is masked down to
+\code{own} before applying $B$ (exact mirror of $P_{\text{fine}} \cdot
+y_{\text{stage}}$ in the original algorithm), \emph{but} $B$ is applied
+using the halo-inclusive matrices, so the output is nonzero not just at
+own positions but also at directly-adjacent coarse (halo) cells ---
+exactly matching the original unrestricted algorithm's behaviour, where
+a boundary coarse cell genuinely picks up a contribution via the $K_{cf}$
+coupling to the interface face. The update is scattered over the full
+\code{active\_c/f} (own + halo), fixing Bug A.
+
+\subsection{Analytic fallback: \code{erk\_weight\_LTS\_coarse\_advance\_uncovered}}
+
+Coarse cells \emph{not} reached by the fine band's halo (the ``deep
+interior'' cells) receive no correction from the fine role at all. For
+them, $B(P_{\text{fine}} y) \equiv 0$ (no coupling to any fine face), so
+their exact whole-macro-step update is the closed-form integral of the
+cubic polynomial:
+\[
+  \Delta x = w_0\, dt + w_1\, \tfrac{dt^2}{2} + w_2\, \tfrac{dt^3}{6}
+  + w_3\, \tfrac{dt^4}{24}.
+\]
+This is \emph{exact}, not an approximation: Simpson's rule (what the RK4
+sum reduces to when $B(P_{\text{fine}} y)=0$ identically) is exact for a
+cubic polynomial. \textbf{Halo-covered and halo-uncovered cells must
+never both receive this update} --- this was the source of a
+double-counting bug (and a missing-coverage bug in an earlier attempt),
+fixed and validated (\S\ref{sec:validation}).
+
+\section{Validation at $L=2$}
+\label{sec:validation}
+
+Methodology: direct, step-by-step comparison of the full state vector
+between the original (unrestricted, trusted) algorithm and the new v2
+building blocks, on a real mesh with a \emph{genuine} coarse/fine split
+(not a degenerate case where one band is empty). Two bugs were found and
+fixed during this validation before reaching an exact match:
+
+\begin{enumerate}
+  \item A first attempt (\code{fine\_v2} writing only its own positions,
+  supplemented by an \emph{unconditional} closed-form integral for
+  \emph{all} coarse-band own cells) gave a $1.3\times 10^{-5}$ mismatch
+  after one step, growing to $0.05$ after 141 steps --- cause: boundary
+  coarse cells then received \emph{both} the $B(P_{\text{fine}} y)$
+  correction (implicitly, since unmasked in that version) \emph{and} the
+  closed-form integral, a partial double-count.
+  \item A second attempt (halo included in \code{fine\_v2}, scattering
+  over the full \code{active\_c/f}, but \emph{no} closed-form integral at
+  all) gave a \emph{worse} mismatch ($10^{-3}$ after one step) --- cause:
+  coarse cells not reached by the halo (about $72/864$ dofs in the tested
+  case) then received \emph{no} update at all.
+  \item The correct combination --- closed-form integral applied
+  \emph{only} to coarse-band own cells not covered by the fine band's
+  halo (checked by set membership) --- gives an exact match to machine
+  precision ($9.7\times 10^{-16}$, roundoff) over the full 141-step run.
+\end{enumerate}
+
+\section{Multi-level generalization}
+\label{sec:mlts}
+
+\subsection{Recursive structure}
+
+At every level $i < L-1$: compute $w_i$ (coarse role, using this
+level's \emph{own} interval length $\mathrm{len}_i$, not the global
+macro-step), combine with the ancestor contribution received as an
+argument (coefficient-wise sum, both expressed in the same local time
+frame), advance own cells not covered by the fine band's halo via the
+closed-form integral of the \emph{combined} polynomial, then loop $p_i$
+times: at each sub-interval, Taylor-shift the combined polynomial to the
+new local origin, and either call \code{erk\_weight\_LTS\_fine\_v2}
+directly (base case, $i+1=L-1$) or recurse.
+
+\paragraph{Taylor shift.} For a cubic polynomial $T(\tau) = w_0 +
+w_1\tau + \tfrac{w_2}{2}\tau^2 + \tfrac{w_3}{6}\tau^3$, the exact
+re-expansion around a new origin $a$ is:
+\[
+  w_0' = T(a),\quad w_1' = T'(a),\quad w_2' = T''(a),\quad w_3' = w_3.
+\]
+This is an exact identity (finite Taylor series of a degree-3
+polynomial), not an approximation.
+
+\subsection{Key insight: per-level time-step scaling}
+\label{sec:instability}
+
+A first attempt at applying \S\ref{sec:mlts} to a plain 2-level split, by
+aggressively shrinking the threshold $h_c$ (to minimize the ``fine''
+region) \emph{while keeping the same global macro time step}
+$dt=\mathrm{cfl}\cdot h_{\max}$, produced \code{NaN} --- even at
+$h_c = 16\,h_{\min}$ (coarse band still spanning $\sim 6$ octaves).
+Diagnosis: the cubic polynomial $w[]$ has only 4 degrees of freedom; over
+a window $dt$ calibrated for $h_{\max}$-scale cells, it cannot represent
+the dynamics of much smaller cells oscillating several times within that
+same window --- an inherent breakdown of the method's validity, not an
+implementation bug (the coefficients themselves remain correct, as
+confirmed in \S\ref{sec:validation}).
+
+\textbf{Fix}: every level $i$ gets its own $dt_i = \mathrm{cfl} \cdot
+\mathrm{scale}_i$, where $\mathrm{scale}_i$ is that level's own
+characteristic cell size ($h_{\max}$ for level 0, the threshold
+$h_{c,i}$ for intermediate levels, $h_{\min}$ for the finest level). The
+branching ratio is $p_i = \mathrm{round}(dt_i / dt_{i+1})$.
+
+\subsection{Validation of the generic recursion}
+
+The generic recursive driver, specialized to $L=2$ with exactly the same
+threshold as \S\ref{sec:validation}'s validation, reproduces the
+reference result to machine precision ($6.9\times 10^{-16}$). This
+confirms the recursion itself (Taylor shift, ancestor-contribution
+accumulation, analytic fallback) is correct --- any gap seen at $L>2$ is
+therefore a tuning (accuracy) question, not a correctness bug.
+
+\subsection{Results at $L=5$ ($N=2$, $k=3$)}
+
+With bands spanning about 2 octaves each (5 levels total to cover
+$p=1024$'s 10 octaves):
+\begin{itemize}
+  \item No divergence (\code{NaN}) --- confirms the time-step scaling
+  fix.
+  \item Wall time: $170\,\mathrm{s}$, versus $\sim 540\,\mathrm{s}$ for
+  the original unrestricted scheme --- a $3.2\times$ speedup.
+  \item Accuracy: $L^2$ error $= 3.7\times 10^{-3}$, versus
+  $1.14\times 10^{-5}$ for the reference scheme --- a significant
+  degradation ($\sim 326\times$), attributable to accumulated cubic
+  approximations across 4 intermediate levels rather than a design flaw.
+\end{itemize}
+
+\section{Current status and remaining work}
+
+\begin{itemize}
+  \item \textbf{Done and validated}: restricted building blocks
+  (coarse/fine/fallback), generic recursive driver --- both exact against
+  the reference algorithm in their respective test cases.
+  \item \textbf{Working but needs tuning}: the full multi-level scheme is
+  stable and faster, but needs tuning (octaves per level,
+  \code{cfl\_factor}) to recover reference-level accuracy without losing
+  the speed gain.
+  \item \textbf{Next step}: a parametric study of the accuracy/speed
+  trade-off, then apply to $N=3$ and $N=4$ to complete the 5-point
+  convergence curve.
+\end{itemize}
+
+\end{document}

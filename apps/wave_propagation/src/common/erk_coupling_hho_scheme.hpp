@@ -1109,6 +1109,406 @@ void erk_weight_LTS_coarse_restricted(const Matrix<T, Dynamic, 1> &y,
 }
 
 
+// =====================================================================
+// Multi-level LTS-RK4 building blocks.
+//
+// PURELY ADDITIVE: new struct + new methods only, none of the existing
+// methods above are touched, so the 11 existing 2-level LTS callers
+// (ERK4_LTS.hpp, ERK4_LTS_conv_test.hpp, ERK4_LTS_stab*.hpp,
+// ERK4_LTS_Lshape_conv_test.hpp, ERK4_LTS_Lshape_MMS_conv_test.hpp,
+// ERK4_LTS_optimised.hpp, ERK4_LTS_SSTAB.hpp, ...) and assemble_P in
+// elastoacoustic_four_fields_assembler.hpp are completely unaffected.
+//
+// Unlike build_LTS_subspaces() (single hardcoded coarse/fine member-slot
+// pair, only one alive at a time), build_LTS_subblock() returns a
+// self-contained, independently-alive LTS_subblock_set per call, so a
+// std::vector<LTS_subblock_set> (one per multi-level band) can coexist.
+//
+// Unlike erk_weight_LTS_coarse_restricted/erk_weight_LTS_fine_restricted
+// (which only restrict the FINAL solve, still doing the B-chain and the
+// scatter over the WHOLE mesh / only "coarse-classified" faces
+// respectively -- see session notes on Bug A/B), erk_weight_LTS_coarse_v2
+// restricts EVERY step (including the B^i-chain) to a band's own dofs
+// plus a halo wide enough to stay exact (Kcc is exactly block-diagonal
+// per cell in HHO -- cells only couple through faces -- so a halo in the
+// face direction, expanded a few rings via the Kfc/Kcf sparsity graph,
+// suffices), and scatters its output over the FULL active set (own +
+// halo), fixing the "interface face dropped" bug. erk_weight_LTS_fine_v2
+// only needs to be exact at a band's own dofs (the Taylor polynomial
+// additive term already carries every other band's influence), so no
+// halo is required there, and it scatters exactly at the band's own
+// positions (fixing the "coarse dofs never written" bug).
+// =====================================================================
+
+struct LTS_subblock_set {
+    std::vector<int> active_c, active_f;   // band's OWN dofs first, halo dofs after
+    size_t n_own_c = 0, n_own_f = 0;       // how many of the above are this band's own (rest is halo context)
+    SparseMatrix<T> Kcc, Kcf, Kfc, Mc_inv, Sff_inv;             // sized to active_c/active_f (own+halo) -- used by the "coarse role" (erk_weight_LTS_coarse_v2), which needs the halo for its B-chain to stay exact
+    SparseMatrix<T> Kcc_own, Kcf_own, Kfc_own, Mc_inv_own, Sff_inv_own; // sized to just own_c/own_f (no halo) -- used by the "fine role" (erk_weight_LTS_fine_v2), which needs no halo (the ancestor/descendant influence comes in purely additively via the Taylor term, never through Kcf/Kfc directly)
+};
+
+private:
+
+static SparseMatrix<T> extract_block(const SparseMatrix<T>& M,
+                                      const std::vector<int>& rows,
+                                      const std::vector<int>& cols) {
+    std::unordered_map<int,int> row_map; row_map.reserve(rows.size());
+    for (int i = 0; i < (int)rows.size(); ++i) row_map[rows[i]] = i;
+    std::unordered_map<int,int> col_map; col_map.reserve(cols.size());
+    for (int j = 0; j < (int)cols.size(); ++j) col_map[cols[j]] = j;
+
+    std::vector<Triplet<T>> trips;
+    trips.reserve(rows.size() * 8);
+    for (int k = 0; k < M.outerSize(); ++k) {
+        for (typename SparseMatrix<T>::InnerIterator it(M, k); it; ++it) {
+            auto row_it = row_map.find((int)it.row());
+            if (row_it == row_map.end()) continue;
+            auto col_it = col_map.find((int)it.col());
+            if (col_it == col_map.end()) continue;
+            trips.emplace_back(row_it->second, col_it->second, it.value());
+        }
+    }
+    SparseMatrix<T> out((int)rows.size(), (int)cols.size());
+    out.setFromTriplets(trips.begin(), trips.end());
+    return out;
+}
+
+public:
+
+// Builds a self-contained restricted sub-block set for one multi-level
+// band: `own_c`/`own_f` are the band's own (local, global-indexed) cell
+// and face dof indices; `halo_rings` expands the set by that many
+// cell<->face BFS hops through the Kfc sparsity graph (a face is added
+// if it touches an already-included cell, a cell is added if it touches
+// an already-included face), so that every B-application used inside
+// erk_weight_LTS_coarse_v2 (up to a 3-deep chain, plus the force chains)
+// stays exact within the band's own dofs. Generous by default (safety
+// over squeezing out the last bit of speed) -- verified numerically by
+// the L=2 exact-reproduction gate before being trusted for L>2.
+LTS_subblock_set build_LTS_subblock(const std::vector<int>& own_c,
+                                     const std::vector<int>& own_f,
+                                     int halo_rings = 6) const {
+
+    std::set<int> set_c(own_c.begin(), own_c.end());
+    std::set<int> set_f(own_f.begin(), own_f.end());
+
+    for (int ring = 0; ring < halo_rings; ++ring) {
+        std::set<int> new_c, new_f;
+        for (int k = 0; k < m_Kfc.outerSize(); ++k) {
+            for (typename SparseMatrix<T>::InnerIterator it(m_Kfc, k); it; ++it) {
+                int face = (int)it.row(), cell = (int)it.col();
+                bool cell_in = set_c.count(cell) > 0;
+                bool face_in = set_f.count(face) > 0;
+                if (cell_in && !face_in) new_f.insert(face);
+                if (face_in && !cell_in) new_c.insert(cell);
+            }
+        }
+        if (new_c.empty() && new_f.empty()) break;
+        set_c.insert(new_c.begin(), new_c.end());
+        set_f.insert(new_f.begin(), new_f.end());
+    }
+
+    std::set<int> own_c_set(own_c.begin(), own_c.end());
+    std::set<int> own_f_set(own_f.begin(), own_f.end());
+    std::vector<int> halo_c, halo_f;
+    for (int c : set_c) if (!own_c_set.count(c)) halo_c.push_back(c);
+    for (int f : set_f) if (!own_f_set.count(f)) halo_f.push_back(f);
+
+    LTS_subblock_set out;
+    out.n_own_c = own_c.size();
+    out.n_own_f = own_f.size();
+    out.active_c = own_c; out.active_c.insert(out.active_c.end(), halo_c.begin(), halo_c.end());
+    out.active_f = own_f; out.active_f.insert(out.active_f.end(), halo_f.begin(), halo_f.end());
+
+    out.Kcc     = extract_block(m_Kcc,     out.active_c, out.active_c);
+    out.Kcf     = extract_block(m_Kcf,     out.active_c, out.active_f);
+    out.Kfc     = extract_block(m_Kfc,     out.active_f, out.active_c);
+    out.Mc_inv  = extract_block(m_Mc_inv,  out.active_c, out.active_c);
+    out.Sff_inv = extract_block(m_Sff_inv, out.active_f, out.active_f);
+
+    out.Kcc_own     = extract_block(m_Kcc,     own_c, own_c);
+    out.Kcf_own     = extract_block(m_Kcf,     own_c, own_f);
+    out.Kfc_own     = extract_block(m_Kfc,     own_f, own_c);
+    out.Mc_inv_own  = extract_block(m_Mc_inv,  own_c, own_c);
+    out.Sff_inv_own = extract_block(m_Sff_inv, own_f, own_f);
+    return out;
+}
+
+// Band i's "coarse role": produces a cubic-in-time Taylor polynomial
+// w[0..3], valid over LOCAL time [0,dt] (dt = the length of the CURRENT
+// recursion interval, tau=0 <-> the state y at this interval's start),
+// approximating band i's own dofs' evolution PLUS its leak into
+// neighbouring bands' interface dofs (via the halo in `blocks.active_f`)
+// -- exactly what a descendant (finer) level needs to know about band i
+// without ever calling band i's own B-operator again. y is the FULL,
+// global-size current state (same convention as erk_weight_LTS_coarse).
+// Output w[i] are full-length (m_n_c_dof+m_n_f_dof) vectors, zero
+// outside blocks.active_c/active_f.
+void erk_weight_LTS_coarse_v2(const Matrix<T, Dynamic, 1> &y,
+                               const LTS_subblock_set &blocks,
+                               std::vector<Matrix<T, Dynamic, 1>> &w,
+                               const Matrix<T, Dynamic, 1> &Fn,
+                               const Matrix<T, Dynamic, 1> &Fn12,
+                               const Matrix<T, Dynamic, 1> &Fn1,
+                               const T dt) const {
+
+    const int nc = (int)blocks.active_c.size();
+    const int nf = (int)blocks.active_f.size();
+    const size_t N = y.rows();
+
+    auto gather_c = [&](const Matrix<T,Dynamic,1>& v) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out(nc);
+        for (int i = 0; i < nc; ++i) out(i) = v(blocks.active_c[i]);
+        return out;
+    };
+    auto gather_f = [&](const Matrix<T,Dynamic,1>& v) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out(nf);
+        for (int i = 0; i < nf; ++i) out(i) = v(m_n_c_dof + blocks.active_f[i]);
+        return out;
+    };
+    auto scatter = [&](const Matrix<T,Dynamic,1>& kc_loc, const Matrix<T,Dynamic,1>& kf_loc) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out = Matrix<T,Dynamic,1>::Zero(N);
+        for (int i = 0; i < nc; ++i) out(blocks.active_c[i])             = kc_loc(i);
+        for (int i = 0; i < nf; ++i) out(m_n_c_dof + blocks.active_f[i]) = kf_loc(i);
+        return out;
+    };
+
+    // B restricted to this band's blocks, y=0 (pure force term):
+    // returns (kc_loc, kf_loc) local vectors, NOT scattered.
+    auto B_zero_y_loc = [&](const Matrix<T,Dynamic,1>& Fc_loc,
+                             Matrix<T,Dynamic,1>& kc_loc, Matrix<T,Dynamic,1>& kf_loc) {
+        kc_loc = blocks.Mc_inv * Fc_loc;
+        kf_loc = -blocks.Sff_inv * (blocks.Kfc * kc_loc);
+    };
+    // B restricted to this band's blocks, general y (local vectors in/out).
+    auto B_loc = [&](const Matrix<T,Dynamic,1>& yc_loc, const Matrix<T,Dynamic,1>& yf_loc, const Matrix<T,Dynamic,1>& Fc_loc,
+                      Matrix<T,Dynamic,1>& kc_loc, Matrix<T,Dynamic,1>& kf_loc) {
+        kc_loc = blocks.Mc_inv * (Fc_loc - blocks.Kcc*yc_loc - blocks.Kcf*yf_loc);
+        kf_loc = -blocks.Sff_inv * (blocks.Kfc * kc_loc);
+    };
+
+    Matrix<T,Dynamic,1> zeroFc = Matrix<T,Dynamic,1>::Zero(nc);
+
+    // Zero out entries beyond this band's own dofs (own entries are always
+    // first in the gathered/local vectors, by construction of active_c/f).
+    auto mask_own_c = [&](const Matrix<T,Dynamic,1>& v) {
+        Matrix<T,Dynamic,1> out = v;
+        for (size_t i = blocks.n_own_c; i < (size_t)out.rows(); ++i) out(i) = 0;
+        return out;
+    };
+    auto mask_own_f = [&](const Matrix<T,Dynamic,1>& v) {
+        Matrix<T,Dynamic,1> out = v;
+        for (size_t i = blocks.n_own_f; i < (size_t)out.rows(); ++i) out(i) = 0;
+        return out;
+    };
+
+    // Quadratic Lagrange interpolation of F over [0,dt] (local band force,
+    // RAW/unmasked -- matches erk_weight_LTS_coarse's F0/F1/F2, used as-is
+    // in the B^i*yn / B^i*F "arg" chains below).
+    Matrix<T,Dynamic,1> Fn_c   = gather_c(Fn),   Fn12_c = gather_c(Fn12),  Fn1_c = gather_c(Fn1);
+    Matrix<T,Dynamic,1> F0 =  Fn_c;
+    Matrix<T,Dynamic,1> F1 = (-3*Fn_c + 4*Fn12_c - Fn1_c) / dt;
+    Matrix<T,Dynamic,1> F2 = ( 4*Fn_c - 8*Fn12_c + 4*Fn1_c) / (dt*dt);
+
+    // BFn_i = B_zero_y(Fi) -- RAW F, feeds the arg1/arg2/arg3 chains
+    Matrix<T,Dynamic,1> BFn_0_c, BFn_0_f, BFn_1_c, BFn_1_f, BFn_2_c, BFn_2_f;
+    B_zero_y_loc(F0, BFn_0_c, BFn_0_f);
+    B_zero_y_loc(F1, BFn_1_c, BFn_1_f);
+    B_zero_y_loc(F2, BFn_2_c, BFn_2_f);
+
+    // IPFi = Fi masked to this band's OWN dofs only (matches erk_weight_LTS_coarse's
+    // IP(Fi)); BIPFn_i = B_zero_y(IPFi); MinvFi = its cell part -- the SEPARATE
+    // force-correction term added directly inside compute_w (distinct from the
+    // RAW-F-based BFn_i chain above).
+    Matrix<T,Dynamic,1> IPF0 = mask_own_c(F0), IPF1 = mask_own_c(F1), IPF2 = mask_own_c(F2);
+    Matrix<T,Dynamic,1> BIPFn_0_c, BIPFn_0_f, BIPFn_1_c, BIPFn_1_f, BIPFn_2_c, BIPFn_2_f;
+    B_zero_y_loc(IPF0, BIPFn_0_c, BIPFn_0_f);
+    B_zero_y_loc(IPF1, BIPFn_1_c, BIPFn_1_f);
+    B_zero_y_loc(IPF2, BIPFn_2_c, BIPFn_2_f);
+    const Matrix<T,Dynamic,1>& MinvF0 = BIPFn_0_c;
+    const Matrix<T,Dynamic,1>& MinvF1 = BIPFn_1_c;
+    const Matrix<T,Dynamic,1>& MinvF2 = BIPFn_2_c;
+
+    // B^i * yn chains, restricted to this band (UNMASKED state, matches
+    // erk_weight_LTS_coarse's B0yn=y, B1yn=B(y), ...)
+    Matrix<T,Dynamic,1> y0c = gather_c(y), y0f = gather_f(y);
+    Matrix<T,Dynamic,1> B1c, B1f, B2c, B2f, B3c, B3f;
+    B_loc(y0c, y0f, zeroFc, B1c, B1f);
+    B_loc(B1c, B1f, zeroFc, B2c, B2f);
+    B_loc(B2c, B2f, zeroFc, B3c, B3f);
+
+    // B^i * F0 chains: BF0=B(BFn_0), B2F0=B(BF0), BF1=B(BFn_1)
+    Matrix<T,Dynamic,1> BF0_c, BF0_f, B2F0_c, B2F0_f, BF1_c, BF1_f;
+    B_loc(BFn_0_c, BFn_0_f, zeroFc, BF0_c, BF0_f);
+    B_loc(BF0_c,   BF0_f,   zeroFc, B2F0_c, B2F0_f);
+    B_loc(BFn_1_c, BFn_1_f, zeroFc, BF1_c, BF1_f);
+
+    // Taylor arguments (local, cell+face parts) -- matches erk_weight_LTS_coarse:
+    //   arg0 = B0yn
+    //   arg1 = B1yn + BFn_0
+    //   arg2 = B2yn + BF0  + BFn_1
+    //   arg3 = B3yn + B2F0 + BF1  + BFn_2
+    Matrix<T,Dynamic,1> arg0_c = y0c,                          arg0_f = y0f;
+    Matrix<T,Dynamic,1> arg1_c = B1c + BFn_0_c,                arg1_f = B1f + BFn_0_f;
+    Matrix<T,Dynamic,1> arg2_c = B2c + BF0_c  + BFn_1_c,       arg2_f = B2f + BF0_f  + BFn_1_f;
+    Matrix<T,Dynamic,1> arg3_c = B3c + B2F0_c + BF1_c + BFn_2_c, arg3_f = B3f + B2F0_f + BF1_f + BFn_2_f;
+
+    // wi = B((I-P)*arg) + (I-P)*Fi, matching erk_weight_LTS_coarse's compute_w:
+    // mask arg down to this band's OWN dofs (zero halo) before the final B
+    // application -- the halo only exists to make the ABOVE chains exact;
+    // the halo cells' own dynamics are someone else's (a different band's)
+    // responsibility. wi_c is then trivially zero beyond own_c (Kcc is
+    // diagonal-per-cell and both arg_c/arg_f/MinvFext are zero there), so
+    // scattering wi_f over the FULL active_f (own+halo) correctly captures
+    // this band's leak into a neighbouring band's interface face (halo
+    // faces adjacent to an own cell pick up a nonzero Kfc*wi_c row) without
+    // any extra bookkeeping.
+    auto compute_w = [&](const Matrix<T,Dynamic,1>& arg_c, const Matrix<T,Dynamic,1>& arg_f,
+                          const Matrix<T,Dynamic,1>* MinvFext, Matrix<T,Dynamic,1>& wi) {
+        Matrix<T,Dynamic,1> IParg_c = mask_own_c(arg_c);
+        Matrix<T,Dynamic,1> IParg_f = mask_own_f(arg_f);
+        Matrix<T,Dynamic,1> wi_c = blocks.Mc_inv * (-blocks.Kcc*IParg_c - blocks.Kcf*IParg_f);
+        if (MinvFext) wi_c += *MinvFext;
+        Matrix<T,Dynamic,1> wi_f = -blocks.Sff_inv * (blocks.Kfc * wi_c);
+        wi = scatter(wi_c, wi_f);
+    };
+
+    compute_w(arg0_c, arg0_f, &MinvF0, w[0]);
+    compute_w(arg1_c, arg1_f, &MinvF1, w[1]);
+    compute_w(arg2_c, arg2_f, &MinvF2, w[2]);
+    compute_w(arg3_c, arg3_f, nullptr,  w[3]);
+}
+
+// Band i's "fine role": genuine RK4 sub-step of size dtau, mirroring
+// erk_weight_LTS_fine exactly (just restricted): each stage is
+// B(P_own * y_stage) + Taylor_w(tau), where P_own masks the INPUT down to
+// this band's own dofs (matching Pfine*y_stage in the original) before
+// applying B with the HALO-INCLUSIVE operators -- crucially, B(P_own*y)
+// is generally NONZERO not just at this band's own rows but also at
+// halo (neighbouring band) rows that couple to an own face (a coarse
+// cell bordering the interface picks up a real contribution from the
+// fine side's Kcf coupling to that shared face, exactly as the original,
+// unmasked erk_weight_LTS_fine's output naturally is over the WHOLE
+// vector). So the RK4 update is accumulated over active_c/active_f
+// (own + halo), not just own -- this is what fixes Bug A properly (an
+// earlier attempt that only wrote "own" positions, compensating with a
+// separate closed-form integral for the other band, was WRONG: it missed
+// exactly this halo leak, confirmed by a direct side-by-side numerical
+// mismatch against the trusted unrestricted algorithm).
+void erk_weight_LTS_fine_v2(Matrix<T, Dynamic, 1> &x_dof_n,
+                             const LTS_subblock_set &blocks,
+                             const std::vector<Matrix<T, Dynamic, 1>> &w,
+                             const Matrix<T, Dynamic, 1> &Fm,
+                             const Matrix<T, Dynamic, 1> &Fmh,
+                             const Matrix<T, Dynamic, 1> &Fm1,
+                             const T tm,
+                             const T dtau) const {
+
+    const int nc = (int)blocks.active_c.size();
+    const int nf = (int)blocks.active_f.size();
+
+    auto Taylor_w = [&](T tau) -> Matrix<T,Dynamic,1> {
+        T tau2 = tau*tau, tau3 = tau*tau2;
+        Matrix<T,Dynamic,1> out(nc + nf);
+        for (int i = 0; i < nc; ++i) {
+            int g = blocks.active_c[i];
+            out(i) = w[0](g) + tau*w[1](g) + (tau2/2.0)*w[2](g) + (tau3/6.0)*w[3](g);
+        }
+        for (int i = 0; i < nf; ++i) {
+            size_t g = m_n_c_dof + blocks.active_f[i];
+            out(nc+i) = w[0](g) + tau*w[1](g) + (tau2/2.0)*w[2](g) + (tau3/6.0)*w[3](g);
+        }
+        return out;
+    };
+
+    T tmh = tm + 0.5*dtau;
+    T tm1 = tm + dtau;
+
+    // gather own+halo local state from x_dof_n (own+halo -- matches B's
+    // full active_c/active_f domain; masking to own-only happens INSIDE
+    // fine_stage, mirroring Pfine*y_stage in the original)
+    auto gather = [&](const Matrix<T,Dynamic,1>& full) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out(nc + nf);
+        for (int i = 0; i < nc; ++i) out(i)      = full(blocks.active_c[i]);
+        for (int i = 0; i < nf; ++i) out(nc + i) = full(m_n_c_dof + blocks.active_f[i]);
+        return out;
+    };
+    auto mask_own = [&](const Matrix<T,Dynamic,1>& v) {
+        Matrix<T,Dynamic,1> out = v;
+        for (size_t i = blocks.n_own_c; i < (size_t)nc; ++i) out(i) = 0;
+        for (size_t i = blocks.n_own_f; i < (size_t)nf; ++i) out(nc + i) = 0;
+        return out;
+    };
+
+    auto fine_stage = [&](const Matrix<T,Dynamic,1>& y_stage, T tau, const Matrix<T,Dynamic,1>& F_tau) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> Py = mask_own(y_stage);
+        Matrix<T,Dynamic,1> PF = mask_own(gather(F_tau));
+        Matrix<T,Dynamic,1> yc = Py.head(nc), yf = Py.tail(nf), Fc_loc = PF.head(nc);
+        Matrix<T,Dynamic,1> kc = blocks.Mc_inv * (Fc_loc - blocks.Kcc*yc - blocks.Kcf*yf);
+        Matrix<T,Dynamic,1> kf = -blocks.Sff_inv * (blocks.Kfc * kc);
+        Matrix<T,Dynamic,1> k(nc+nf);
+        k.head(nc) = kc; k.tail(nf) = kf;
+        return k + Taylor_w(tau);
+    };
+
+    Matrix<T,Dynamic,1> y0 = gather(x_dof_n);
+    Matrix<T,Dynamic,1> k1 = fine_stage(y0,                tm,  Fm);
+    Matrix<T,Dynamic,1> k2 = fine_stage(y0 + 0.5*dtau*k1, tmh, Fmh);
+    Matrix<T,Dynamic,1> k3 = fine_stage(y0 + 0.5*dtau*k2, tmh, Fmh);
+    Matrix<T,Dynamic,1> k4 = fine_stage(y0 +     dtau*k3, tm1, Fm1);
+
+    Matrix<T,Dynamic,1> dy = dtau * (k1 + 2*k2 + 2*k3 + k4) / 6.0;
+    for (int i = 0; i < nc; ++i) x_dof_n(blocks.active_c[i])             += dy(i);
+    for (int i = 0; i < nf; ++i) x_dof_n(m_n_c_dof + blocks.active_f[i]) += dy(nc + i);
+}
+
+// Companion to erk_weight_LTS_coarse_v2 + erk_weight_LTS_fine_v2: advances
+// `blocks_coarse`'s own dofs that are NOT reached by the descendant (fine)
+// band's halo (`descendant_active_c`/`descendant_active_f`, i.e. its
+// LTS_subblock_set::active_c/active_f, own+halo) via the closed-form
+// integral of wk over [0,dt]: wk[0]*dt + wk[1]*dt^2/2 + wk[2]*dt^3/6 +
+// wk[3]*dt^4/24. This is EXACT, not an approximation of the exact
+// algorithm: for a cell with every face coarse-classified (no coupling to
+// any fine-region face), B(Pfine*y)=0 identically, so its whole-macro-step
+// update is exactly this integral of its own cubic Taylor polynomial
+// (Simpson's rule -- which is what the RK4 update at such positions
+// reduces to -- is exact for a cubic).
+//
+// Dofs the descendant's halo DOES reach must NOT also get this update:
+// erk_weight_LTS_fine_v2's own scatter already includes both the Taylor
+// term (via `w` argument, i.e. this same wk) AND the genuine B(Pfine*y)
+// coupling correction for them -- adding this integral there too would
+// double-count the Taylor part. This split (halo-covered dofs handled by
+// the descendant's own scatter; only genuinely-uncovered dofs need this
+// separate step) was found necessary and sufficient by a direct,
+// validated side-by-side comparison against the original 2-level scheme
+// (see ERK4_LTS_v2_L2_validation_test.hpp) -- an earlier attempt applying
+// this integral to ALL of a band's own dofs unconditionally, and a
+// separate attempt relying solely on the descendant's scatter with no
+// fallback at all, were both numerically wrong.
+void erk_weight_LTS_coarse_advance_uncovered(Matrix<T, Dynamic, 1> &x_dof_n,
+                                              const LTS_subblock_set &blocks_coarse,
+                                              const std::vector<Matrix<T, Dynamic, 1>> &wk,
+                                              const std::vector<int> &descendant_active_c,
+                                              const std::vector<int> &descendant_active_f,
+                                              const T dt) const {
+    std::set<int> cov_c(descendant_active_c.begin(), descendant_active_c.end());
+    std::set<int> cov_f(descendant_active_f.begin(), descendant_active_f.end());
+    T dt2 = dt*dt, dt3 = dt2*dt, dt4 = dt3*dt;
+    for (size_t i = 0; i < blocks_coarse.n_own_c; ++i) {
+        int g = blocks_coarse.active_c[i];
+        if (cov_c.count(g)) continue;
+        x_dof_n(g) += wk[0](g)*dt + wk[1](g)*dt2/2.0 + wk[2](g)*dt3/6.0 + wk[3](g)*dt4/24.0;
+    }
+    for (size_t i = 0; i < blocks_coarse.n_own_f; ++i) {
+        int local = blocks_coarse.active_f[i];
+        if (cov_f.count(local)) continue;
+        int g = (int)m_n_c_dof + local;
+        x_dof_n(g) += wk[0](g)*dt + wk[1](g)*dt2/2.0 + wk[2](g)*dt3/6.0 + wk[3](g)*dt4/24.0;
+    }
+}
+
+
 };
 
 

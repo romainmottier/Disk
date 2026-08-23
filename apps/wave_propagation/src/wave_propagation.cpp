@@ -89,6 +89,14 @@ using namespace Eigen;
       #include "prototypes/LTS/ERK4_LTS_stab.hpp"     
       #include "prototypes/LTS/ERK4_LTS_stab_acou.hpp"
       #include "prototypes/LTS/LHS_spectrum_acou.hpp"
+      #include "prototypes/LTS/ERK4_LTS_Lshape_conv_test.hpp"
+      #include "prototypes/LTS/EllipticLshape_conv_test.hpp"
+      #include "prototypes/LTS/ERK4_LTS_Lshape_MMS_conv_test.hpp"
+      #include "prototypes/LTS/ERK4_LTS_v2_L2_validation_test.hpp"
+      #include "prototypes/LTS/ERK4_LTS_v2_timing_test.hpp"
+      #include "prototypes/LTS/ERK4_MLTS_timing_test.hpp"
+      #include "prototypes/LTS/ERK4_MLTS_L2_validation_test.hpp"
+      #include "prototypes/LTS/ERK4_MLTS_L3_validation_test.hpp"
       #include "prototypes/LTS/ERK4_LTS_SSTAB.hpp"
       #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"    
       #include "prototypes/LTS/ERK4_LTS_optimised.hpp"    
@@ -163,8 +171,16 @@ int main(int argc, char **argv){
    // ERK4_LTS(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
    // ERK4_LTS_stab(argc, argv);
-   ERK4_LTS_stab_acou(argc, argv);
+   // ERK4_LTS_stab_acou(argc, argv);
    // LHS_spectrum_acou(argc, argv);
+   // ERK4_LTS_Lshape_conv_test(argc, argv);
+   // EllipticLshape_conv_test(argc, argv);
+   // ERK4_LTS_Lshape_MMS_conv_test(argc, argv);
+   // ERK4_LTS_v2_L2_validation_test(argc, argv);
+   // ERK4_LTS_v2_timing_test(argc, argv);
+   ERK4_MLTS_timing_test(argc, argv);
+   // ERK4_MLTS_L2_validation_test(argc, argv);
+   // ERK4_MLTS_L3_validation_test(argc, argv);
    // ERK_LTS_stab(argc, argv);
    // ERK4_LTS_SSTAB(argc, argv);
    // ERK4_LTS_optimised(argc, argv);
