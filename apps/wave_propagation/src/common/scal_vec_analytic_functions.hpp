@@ -1073,8 +1073,8 @@ class scal_vec_analytic_functions {
                       double x,y,qx,qy;
                       x = pt.x();
                       y = pt.y();
-                      qx = M_PI*t*t*t*std::cos(M_PI*x)*std::sin(M_PI*y);
-                      qy = M_PI*t*t*t*std::sin(M_PI*x)*std::cos(M_PI*y);
+                      qx = M_PI*t*t*std::cos(M_PI*x)*std::sin(M_PI*y);
+                      qy = M_PI*t*t*std::sin(M_PI*x)*std::cos(M_PI*y);
                       disk::static_vector<double, 2> q{qx,qy};
                       return q;
                   };

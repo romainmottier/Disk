@@ -1,0 +1,2 @@
+# ell  file  n_points  n_cells  h_min  h_max
+4 cornersquare_graded_k3_N4.txt 4545 4336 2.1073424255447e-08 0.0220970869120796

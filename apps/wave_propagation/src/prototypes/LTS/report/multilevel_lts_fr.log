@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2025.10.6)  23 AUG 2026 18:20
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2025.10.6)  24 AUG 2026 13:32
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -497,27 +497,27 @@ File: t1cmtt.fd 2023/04/13 v2.5m Standard LaTeX font definitions
 (./multilevel_lts_fr.toc
 LaTeX Font Info:    Font shape `T1/cmtt/bx/n' in size <10.95> not available
 (Font)              Font shape `T1/cmtt/m/n' tried instead on input line 7.
-)
-\tf@toc=\write4
-\openout4 = `multilevel_lts_fr.toc'.
-
  [1
 
 {/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texmf/fonts/enc/
-dvips/cm-super/cm-super-t1.enc}]
+dvips/cm-super/cm-super-t1.enc}])
+\tf@toc=\write4
+\openout4 = `multilevel_lts_fr.toc'.
+
+ [2]
 Overfull \hbox (0.66872pt too wide) in paragraph at lines 100--111
 \T1/cmtt/m/n/10.95 erk_coupling_hho_scheme.hpp \T1/cmr/m/n/10.95 (\T1/cmtt/m/n/
 10.95 build_LTS_subspaces \T1/cmr/m/n/10.95 + \T1/cmtt/m/n/10.95 erk_weight_LTS
 _coarse_restricted
  []
 
-[2]
+
 Overfull \hbox (2.08826pt too wide) in paragraph at lines 125--134
 []\T1/cmr/m/n/10.95 Dans \T1/cmtt/m/n/10.95 compute_w_restricted\T1/cmr/m/n/10.
 95 , la
  []
 
-
+[3]
 Overfull \hbox (0.3877pt too wide) in paragraph at lines 136--143
 \T1/cmr/m/n/10.95 (\T1/cmtt/m/n/10.95 erk_weight_LTS_coarse\T1/cmr/m/n/10.95 /\
 T1/cmtt/m/n/10.95 erk_weight_LTS_fine\T1/cmr/m/n/10.95 ) et res-tent donc fiabl
@@ -555,20 +555,16 @@ s mas-quage \T1/cmr/m/it/10.95 fi-nal \T1/cmr/m/n/10.95 à \T1/cmtt/m/n/10.95 ow
 n_c/own_f
  []
 
-[3]
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 224.
-
-
-Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 224.
-
 [4]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 314.
+(hyperref)                removing `math shift' on input line 224.
 
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 224.
+
+[5]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `math shift' on input line 314.
@@ -589,7 +585,217 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                removing `math shift' on input line 314.
 
-[5] [6] (./multilevel_lts_fr.aux)
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 314.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 330.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 330.
+
+[6]
+Overfull \hbox (36.15501pt too wide) in paragraph at lines 342--355
+ []\T1/cmr/bx/n/10.95 Bug C --- mau-vaise cible de cou-ver-ture.[] \T1/cmr/m/n/
+10.95 La fonc-tion \T1/cmtt/m/n/10.95 erk_weight_LTS_coarse_advance_uncovered
+ []
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 366.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 366.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 366.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 366.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 366.
+
+
+Overfull \hbox (27.1103pt too wide) in paragraph at lines 368--371
+[]\T1/cmr/m/n/10.95 Après ap-pli-ca-tion du cor-rec-tif du Bug C au pi-lote gé-
+né-rique com-plet (\T1/cmtt/m/n/10.95 ERK4_MLTS_timing_test.hpp\T1/cmr/m/n/10.9
+5 ),
+ []
+
+[7]
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 446.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 446.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 446.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `subscript' on input line 446.
+
+
+Package hyperref Warning: Token not allowed in a PDF string (Unicode):
+(hyperref)                removing `math shift' on input line 446.
+
+[8] [9]
+Overfull \hbox (61.2651pt too wide) in paragraph at lines 563--573
+ []\T1/cmr/bx/n/10.95 Nouvelle brique : \T1/cmtt/m/n/10.95 erk_weight_LTS_coars
+e_global\T1/cmr/bx/n/10.95 .[] \T1/cmr/m/n/10.95 La fonc-tion glo-bale exis-tan
+te \T1/cmtt/m/n/10.95 erk_weight_LTS_coarse
+ []
+
+
+Overfull \hbox (133.59993pt too wide) in paragraph at lines 577--582
+[]\T1/cmr/m/n/10.95 recalculer \T1/cmr/m/it/10.95 à neuf\T1/cmr/m/n/10.95 , de-
+puis l'état cou-rant \T1/cmtt/m/n/10.95 xn\T1/cmr/m/n/10.95 , la contri-bu-tion
+ propre de la bande $\OML/cmm/m/it/10.95 i$ \T1/cmr/m/n/10.95 via \T1/cmtt/m/n/
+10.95 erk_weight_LTS_coarse_global(xn,
+ []
+
+[10] [11] [12]
+Overfull \hbox (7.94661pt too wide) in paragraph at lines 784--784
+[]\T1/cmr/bx/n/14.4 Quatre ten-ta-tives d'op-ti-mi-sa-tion al-go-rith-mique sup
+-plé-men-taires 
+ []
+
+
+Overfull \hbox (72.23528pt too wide) in paragraph at lines 808--822
+[]\T1/cmr/bx/n/10.95 Micro-optimisations sans risque \T1/cmr/m/n/10.95 : (a) un
+ cal-cul gas-pillé iden-ti-fié dans \T1/cmtt/m/n/10.95 erk_weight_LTS_coarse_gl
+obal
+ []
+
+[13] [14]
+Overfull \hbox (60.4733pt too wide) in paragraph at lines 962--971
+[]\T1/cmr/m/n/10.95 Pour com-prendre \T1/cmr/m/it/10.95 pré-ci-sé-ment \T1/cmr/
+m/n/10.95 où l'écart entre ver-sion res-treinte (avec le cor-rec-tif \T1/cmtt/m
+/n/10.95 advance_uncovered_full\T1/cmr/m/n/10.95 ,
+ []
+
+
+Overfull \hbox (102.03447pt too wide) in paragraph at lines 962--971
+\T1/cmr/m/n/10.95 halo à 8 an-neaux) et ver-sion glo-bale exacte se forme, un o
+u-til de diag-nos-tic dé-dié (\T1/cmtt/m/n/10.95 ERK4_MLTS_Lshape_DiagN2_test.h
+pp\T1/cmr/m/n/10.95 )
+ []
+
+[15]
+Underfull \hbox (badness 10000) in paragraph at lines 1027--1027
+[]\T1/cmr/m/n/10.95 Correctif halo
+ []
+
+
+Underfull \hbox (badness 2538) in paragraph at lines 1027--1027
+[]\T1/cmr/m/n/10.95 Marche sur pe-tit cas
+ []
+
+
+Underfull \hbox (badness 2088) in paragraph at lines 1027--1027
+\T1/cmr/m/n/10.95 contrôlé (ra-tio $\OMS/cmsy/m/n/10.95 !$\T1/cmr/m/n/10.95 1,0
+),
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1027--1027
+\T1/cmr/m/n/10.95 ré-sidu $\OMS/cmsy/m/n/10.95 ^^X$\T1/cmr/m/n/10.95 15--17$\OM
+S/cmsy/m/n/10.95 ^^B$ \T1/cmr/m/n/10.95 sur
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1028--1028
+[]\T1/cmr/m/n/10.95 Terme croisé \T1/cmtt/m/n/10.95 ancestor_w
+ []
+
+
+Underfull \hbox (badness 2443) in paragraph at lines 1028--1028
+[]\T1/cmr/m/n/10.95 Pire ($\OT1/cmr/m/n/10.95 1[]92 \OMS/cmsy/m/n/10.95 ^^B \OT
+1/cmr/m/n/10.95 10[]$ \T1/cmr/m/n/10.95 vs
+ []
+
+
+Underfull \hbox (badness 1092) in paragraph at lines 1029--1029
+[]\T1/cmr/m/n/10.95 Micro-opt. (cal-cul gas-pillé +
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1029--1029
+[]\T1/cmr/m/n/10.95 Correct, mais au-cun
+ []
+
+
+Underfull \hbox (badness 2393) in paragraph at lines 1029--1029
+\T1/cmr/m/n/10.95 gain de temps me-su-
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1030--1030
+[]\T1/cmr/m/n/10.95 Beaucoup plus lent
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1033--1033
+[]\T1/cmr/m/n/10.95 Diagnostic crois-sance par
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1033--1033
+[]\T1/cmr/m/n/10.95 Sous-linéaire jus-qu'à
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 1033--1033
+\T1/cmtt/m/n/10.95 nt$\OT1/cmr/m/n/10.95 = 30$\T1/cmr/m/n/10.95 , n'ex-plique
+ []
+
+[16] [17]
+Overfull \hbox (39.91974pt too wide) in paragraph at lines 1091--1099
+[]\T1/cmr/bx/n/10.95 État du code à la fin de la ses-sion \T1/cmr/m/n/10.95 : l
+e fi-chier \T1/cmtt/m/n/10.95 ERK4_MLTS_Lshape_RestrictedExact_conv_test.hpp
+ []
+
+
+Overfull \hbox (18.59755pt too wide) in paragraph at lines 1140--1140
+[]\T1/cmtt/m/n/10.95 ERK4_MLTS_L5small_validation_test.hpp:295| 
+ []
+
+[18]
+Overfull \hbox (11.49596pt too wide) in paragraph at lines 1148--1156
+\T1/cmr/m/n/10.95 quasi ma-chine, Ÿ[]5[]) font tous \T1/cmtt/m/n/10.95 combined
+ = ancestor_w + own_w \T1/cmr/m/n/10.95 avant d'ap-pe-ler \T1/cmtt/m/n/10.95 ad
+vance_uncovered\T1/cmr/m/n/10.95 .
+ []
+
+[19] (/usr/share/texlive/texmf-dist/tex/latex/listings/lstlang1.sty
+File: lstlang1.sty 2023/02/27 1.9 listings language file
+)
+(/usr/share/texlive/texmf-dist/tex/latex/listings/lstlang1.sty
+File: lstlang1.sty 2023/02/27 1.9 listings language file
+)
+(/usr/share/texlive/texmf-dist/tex/latex/listings/lstmisc.sty
+File: lstmisc.sty 2023/02/27 1.9 (Carsten Heinz)
+)
+Overfull \hbox (119.0767pt too wide) in paragraph at lines 1273--1279
+[]\T1/cmr/m/n/10.95 Le \T1/cmtt/m/n/10.95 cfl_factor \T1/cmr/m/n/10.95 par dé-f
+aut des deux dri-vers (\T1/cmtt/m/n/10.95 ...RestrictedExact_conv_test.hpp \T1/
+cmr/m/n/10.95 et \T1/cmtt/m/n/10.95 ...GlobalExact_conv_test.hpp\T1/cmr/m/n/10.
+95 )
+ []
+
+[20] [21] (./multilevel_lts_fr.aux)
  ***********
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-01-22>
@@ -599,40 +805,46 @@ L3 programming layer <2024-01-22>
 LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
 
 Package rerunfilecheck Info: File `multilevel_lts_fr.out' has not changed.
-(rerunfilecheck)             Checksum: 403B35E80B907AECBE905F6550A5396F;4254.
+(rerunfilecheck)             Checksum: 942DF69E58EF52F46FFAC568C0887D7E;12349.
  ) 
 Here is how much of TeX's memory you used:
- 13775 strings out of 474222
- 209164 string characters out of 5748733
- 1939975 words of memory out of 5000000
- 35836 multiletter control sequences out of 15000+600000
- 577961 words of font info for 88 fonts, out of 8000000 for 9000
+ 14351 strings out of 474222
+ 215222 string characters out of 5748733
+ 2005975 words of memory out of 5000000
+ 36328 multiletter control sequences out of 15000+600000
+ 582169 words of font info for 97 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,6n,79p,554b,567s stack positions out of 10000i,1000n,20000p,200000b,200000s
-</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></us
-r/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></usr/shar
-e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/share/texli
-ve/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texm
-f-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/
-fonts/type1/public/amsfonts/cm/cmr6.pfb></usr/share/texlive/texmf-dist/fonts/ty
-pe1/public/amsfonts/cm/cmr8.pfb></usr/share/texlive/texmf-dist/fonts/type1/publ
-ic/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/ams
-fonts/cm/cmsy8.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1000.pfb><
-/usr/share/texmf/fonts/type1/public/cm-super/sfbx1095.pfb></usr/share/texmf/fon
-ts/type1/public/cm-super/sfbx1200.pfb></usr/share/texmf/fonts/type1/public/cm-s
-uper/sfbx1440.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm0800.pfb></
-usr/share/texmf/fonts/type1/public/cm-super/sfrm1000.pfb></usr/share/texmf/font
-s/type1/public/cm-super/sfrm1095.pfb></usr/share/texmf/fonts/type1/public/cm-su
-per/sfrm1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1728.pfb></u
-sr/share/texmf/fonts/type1/public/cm-super/sfti1000.pfb></usr/share/texmf/fonts
-/type1/public/cm-super/sfti1095.pfb></usr/share/texmf/fonts/type1/public/cm-sup
-er/sftt1000.pfb></usr/share/texmf/fonts/type1/public/cm-super/sftt1095.pfb></us
-r/share/texmf/fonts/type1/public/cm-super/sftt1200.pfb></usr/share/texmf/fonts/
-type1/public/cm-super/sftt1440.pfb>
-Output written on multilevel_lts_fr.pdf (6 pages, 443151 bytes).
+ 75i,11n,79p,653b,1306s stack positions out of 10000i,1000n,20000p,200000b,200000s
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></us
+r/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx8.pfb></usr/share
+/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texli
+ve/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/tex
+mf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></usr/share/texlive/texmf-dis
+t/fonts/type1/public/amsfonts/cm/cmmi6.pfb></usr/share/texlive/texmf-dist/fonts
+/type1/public/amsfonts/cm/cmmi8.pfb></usr/share/texlive/texmf-dist/fonts/type1/
+public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/
+amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfont
+s/cm/cmr6.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr
+8.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb>
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/s
+hare/texmf/fonts/type1/public/cm-super/sfbx0800.pfb></usr/share/texmf/fonts/typ
+e1/public/cm-super/sfbx1000.pfb></usr/share/texmf/fonts/type1/public/cm-super/s
+fbx1095.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfbx1200.pfb></usr/sh
+are/texmf/fonts/type1/public/cm-super/sfbx1440.pfb></usr/share/texmf/fonts/type
+1/public/cm-super/sfit1000.pfb></usr/share/texmf/fonts/type1/public/cm-super/sf
+rm0800.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1000.pfb></usr/sha
+re/texmf/fonts/type1/public/cm-super/sfrm1095.pfb></usr/share/texmf/fonts/type1
+/public/cm-super/sfrm1200.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfr
+m1728.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfti1000.pfb></usr/shar
+e/texmf/fonts/type1/public/cm-super/sfti1095.pfb></usr/share/texmf/fonts/type1/
+public/cm-super/sftt0800.pfb></usr/share/texmf/fonts/type1/public/cm-super/sftt
+1000.pfb></usr/share/texmf/fonts/type1/public/cm-super/sftt1095.pfb></usr/share
+/texmf/fonts/type1/public/cm-super/sftt1200.pfb></usr/share/texmf/fonts/type1/p
+ublic/cm-super/sftt1440.pfb>
+Output written on multilevel_lts_fr.pdf (21 pages, 646913 bytes).
 PDF statistics:
- 265 PDF objects out of 1000 (max. 8388607)
- 206 compressed objects within 3 object streams
- 31 named destinations out of 1000 (max. 500000)
- 137 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 564 PDF objects out of 1000 (max. 8388607)
+ 474 compressed objects within 5 object streams
+ 100 named destinations out of 1000 (max. 500000)
+ 321 words of extra memory for PDF output out of 10000 (max. 10000000)
 

@@ -327,19 +327,963 @@ pour couvrir les 10 octaves de $p=1024$) :
   une erreur de conception.
 \end{itemize}
 
+\section{Bugs supplémentaires trouvés à $L=3$ et au-delà}
+\label{sec:l3bugs}
+
+Suite à la validation de la récursion générique à $L=2$ (\S\ref{sec:mlts}),
+un test contrôlé similaire à $L=3$ (comparaison contre le schéma à 2
+niveaux original avec $P_{\text{fine}}=\{\text{bande}_1+\text{bande}_2\}$,
+sur un maillage réduit $N=1$, $p_{\text{global}}=32$, pour qu'un vrai bug
+se manifeste de façon flagrante plutôt que d'être masqué par une erreur
+d'approximation légitime) a révélé un écart de \textbf{facteur 109} par
+rapport à la référence --- bien trop grand pour être expliqué par
+l'approximation supplémentaire d'un unique niveau intermédiaire.
+
+\paragraph{Bug C --- mauvaise cible de couverture.} La fonction
+\code{erk\_weight\_LTS\_coarse\_advance\_uncovered} vérifiait, pour la
+bande $i$, la couverture par le halo de la bande $i{+}1$
+(\code{blocks[i+1]}). Ceci est correct \emph{uniquement} quand $i{+}1$ est
+la bande terminale (celle qui reçoit réellement \code{erk\_weight\_LTS\_-
+fine\_v2}, donc une écriture directe). Pour toute bande intermédiaire
+($i+1 < L-1$), son propre halo ne sert que de contexte en lecture seule
+pour son \emph{propre} calcul de $B$-chaîne --- elle ne diffuse jamais
+d'écriture vers les cellules qui l'y ont atteinte. Le correctif : la
+vérification de couverture doit \emph{toujours} référencer la bande
+terminale \code{blocks[L-1]}, pour tous les niveaux $i$, pas la bande
+$i{+}1$ immédiate. Ce correctif a fait chuter le ratio d'erreur de
+$\times 109$ à $\times 17$.
+
+\paragraph{Bug D --- désaccord de quantification $p_0 \times p_1 \times
+\dots \ne p_{\text{global}}$.} Les ratios $p_i$ de chaque niveau étaient
+arrondis indépendamment (\code{round(dt\_i/dt\_{i+1})}), sans garantir que
+leur produit égale exactement $p_{\text{global}}$ --- introduisant un
+écart artificiel de résolution temporelle fine entre le schéma récursif et
+la référence. En choisissant les seuils pour que le produit soit exact
+(ex. $p_0=4, p_1=8$ pour $p_{\text{global}}=32$), le ratio est retombé à
+$\times 8{,}7$ --- jugé plausible (pas de bug flagrant restant à ce point
+de test précis).
+
+\subsection{Le ratio d'erreur croît avec $L$, indépendamment de $p_{\text{global}}$}
+
+Après application du correctif du Bug C au pilote générique complet
+(\code{ERK4\_MLTS\_timing\_test.hpp}), une série de tests contrôlés
+montre :
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+Configuration & $L$ & $p_{\text{global}}$ & ratio erreur/référence \\
+\midrule
+$N=1$, bandes larges (Bug D corrigé) & 3 & 32 & $\times 8{,}7$ \\
+$N=1$, bandes étroites ($\sim$1 octave) & 5 & 32 & $\times 20{,}1$ \\
+$N=2$, bandes larges ($\sim$2 octaves) & 5 & 1024 & $\times 92$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Le ratio croît \emph{à la fois} avec $L$ (à $p_{\text{global}}$ fixé, 8,7
+$\to$ 20,1 en ajoutant 2 niveaux) et avec $p_{\text{global}}$ (à $L$ fixé,
+20,1 $\to$ 92 en passant de 32 à 1024). Ce n'est plus la signature d'un
+bug isolé et localisable comme les Bugs A--D : c'est un pattern cohérent
+de dégradation qui ressemble à une limite \emph{inhérente} de
+l'empilement de plusieurs approximations cubiques indépendantes (chaque
+niveau intermédiaire introduit sa propre erreur de troncature, et ces
+erreurs semblent se composer plutôt que simplement s'additionner). Cette
+hypothèse n'est pas encore prouvée rigoureusement --- elle reste la
+piste la plus probable au vu des données recueillies, mais d'autres bugs
+plus subtils ne peuvent pas être formellement exclus sans une
+investigation plus poussée.
+
+\section{Correction structurelle majeure : chaque niveau reçoit une vraie dynamique}
+\label{sec:realrk4}
+
+L'hypothèse de \S\ref{sec:l3bugs} (limite inhérente de l'empilement
+d'approximations cubiques) s'est révélée \textbf{incorrecte} : le
+problème était une erreur de conception structurelle, identifiée grâce à
+une clarification de l'utilisateur sur le fonctionnement voulu du
+multi-niveaux.
+
+\paragraph{Le design fautif.} Dans la version précédente, \emph{seul le
+niveau terminal} (le plus fin) recevait un véritable pas RK4
+(\code{erk\_weight\_LTS\_fine\_v2}) ; tous les niveaux intermédiaires
+n'avançaient leurs propres cellules que via l'intégrale fermée
+(analytique) du polynôme de Taylor. Ceci sous-estime systématiquement la
+dynamique réelle de tous les niveaux sauf les deux extrêmes.
+
+\paragraph{Le design corrigé.} Le niveau 0 (le plus grossier) reste
+purement analytique (jamais de RK4 réel pour lui-même) --- mais
+\textbf{tous les niveaux $i\geq1$}, pas seulement le dernier, reçoivent
+un véritable pas RK4 (\code{erk\_weight\_LTS\_fine\_v2}), \emph{un seul
+pas} de taille $\mathrm{len}$ (l'intervalle propre à ce niveau, qui par
+construction égale $dt_{\text{level}(i)}$), en utilisant le polynôme
+figé $w_{i-1}$ du niveau parent comme terme de forçage additif. Chaque
+niveau $i<L-1$ calcule en plus son propre $w_i$ (\emph{avant} que son
+propre pas RK4 ne modifie l'état, pour respecter la convention ``figé au
+début de l'intervalle'') afin de le transmettre au niveau $i+1$. Le halo
+de protection (utilisé à la fois pour la précision de la chaîne $B$ du
+rôle coarse et pour la diffusion réelle du rôle fine vers la couche
+adjacente $p{-}1$) a aussi été réduit de 6 à 3 anneaux, plus proche de
+l'idée d'une simple ``couche de protection'' plutôt qu'une portée
+générique large.
+
+\paragraph{Résultat.} Validé d'abord sur le cas contrôlé $L=3$, $N=1$,
+$p_{\text{global}}=32$ : le ratio d'erreur par rapport à la référence
+chute de $\times 8{,}7$ à $\times 1{,}22$ --- un résultat quasi exact.
+Propagé au pilote général et testé à l'échelle problématique ($L=5$,
+$N=2$, $p_{\text{global}}=1024$, celle qui donnait $\times 92$
+auparavant) :
+\begin{itemize}
+  \item Ratio d'erreur : $\times 9{,}1$ (contre $\times 92$) --- une
+  réduction d'un facteur $\sim 10$.
+  \item Temps de calcul : $142\,\mathrm{s}$ --- \emph{plus rapide} que la
+  version précédente ($165\,\mathrm{s}$), malgré davantage de travail par
+  niveau, grâce au halo réduit.
+  \item Comparé au schéma original non restreint ($\sim 540\,\mathrm{s}$) :
+  gain de vitesse $\times 3{,}8$, pour une précision maintenant dans une
+  plage raisonnable pour un algorithme multi-niveaux authentiquement
+  différent (pas une preuve de bug supplémentaire).
+\end{itemize}
+
+\section{L'erreur résiduelle croît avec $L$, pas avec $p_{\text{global}}$}
+\label{sec:lgrowth}
+
+Après la correction structurelle de la \S\ref{sec:realrk4}, un résidu
+d'erreur subsistait : $\times 1{,}22$ à $L=3$ mais $\times 9{,}1$ à
+$L=5$. L'utilisateur a formellement rejeté l'idée qu'un design
+multi-niveaux correctement implémenté puisse introduire une erreur non
+nulle, et a demandé d'isoler la cause précise plutôt que d'accepter ce
+résidu comme une limite inhérente.
+
+\paragraph{Isolation de la variable.} Un test contrôlé à $L=5$,
+$N=1$, $p_{\text{global}}=32$ (petit, donc rapide, mais avec le même
+nombre de niveaux que le cas problématique) a donné un ratio de
+$\times 9{,}08$ --- quasi identique au $\times 9{,}1$ obtenu à
+$p_{\text{global}}=1024$. Ceci démontre que la croissance de l'erreur
+suit \textbf{le nombre de niveaux $L$, pas le rapport de raffinement
+global}.
+
+\paragraph{Deux hypothèses testées et écartées.}
+\begin{enumerate}
+  \item \emph{Terme de forçage ancestral manquant.} L'hypothèse que
+  \code{erk\_weight\_LTS\_coarse\_v2} d'un niveau intermédiaire ignorait
+  la contribution de son propre ancêtre (au lieu de la geler comme un
+  instantané) a été corrigée proprement (nouveau paramètre
+  \code{ancestor\_w}, incorporé sans réappliquer $M_c^{-1}$ deux fois ---
+  une première tentative naïve avait fait exploser le calcul par erreur
+  d'unités). Effet mesuré~: $\times 9{,}08 \to \times 9{,}02$ ---
+  négligeable.
+  \item \emph{Halo trop étroit.} Élargir \code{halo\_rings} de 3 à 10
+  \textbf{a empiré} le résultat ($\times 21$ au lieu de $\times 3$ à
+  $L=3$), écartant complètement cette piste.
+\end{enumerate}
+
+\paragraph{Un balayage précis en $L$, à $p_{\text{global}}=32$ fixe,
+révèle un saut net et un plateau.} En gardant \code{band0} identique
+(même seuil $h_{\max}/2$) pour tout $L$ et en variant seulement le
+nombre de bandes intermédiaires :
+\begin{center}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+$L$ & 2 & 3 & 4 & 5 \\
+\midrule
+Ratio & $1{,}00$ & $2{,}97$ & $9{,}00$ & $9{,}02$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Le saut se produit précisément entre $L=3$ et $L=4$, puis
+\textbf{plafonne}. La différence structurelle entre $L=3$ et $L=4$ :
+c'est la première fois qu'un niveau ``rôle coarse'' reçoit son
+forçage ancestral d'un \emph{autre} niveau lui-même en rôle coarse
+(chaîne \code{band1}$\to$\code{band2}$\to$\code{band3}), plutôt que de
+recevoir directement de la racine ou de nourrir directement le niveau
+terminal. Un test à un seul macro-pas (\code{nt=1}) montre par ailleurs
+que l'erreur \emph{par pas} reste minuscule ($\sim 10^{-4}$ relatif) à
+tous les $L$ --- ce n'est donc pas un bug isolé dans un nœud de la
+récursion, mais une erreur qui \emph{s'amplifie} sur les 141 pas,
+spécifiquement quand une telle chaîne existe.
+
+\section{Relecture de l'article de Diaz--Grote : la cause profonde}
+\label{sec:groteread}
+
+Sur suggestion de l'utilisateur, l'article fondateur
+\emph{Multi-Level Explicit Local Time-Stepping Methods for Second-Order
+Wave Equations} (Diaz \& Grote, CMAME 2015) et sa version 2-niveaux
+(Grote \& Mitkova, 2012) ont été lus en détail (PDF fournis par
+l'utilisateur après plusieurs tentatives infructueuses d'accès en
+ligne). L'Algorithme~4 de l'article (MLTS2, récursion multi-niveaux)
+révèle une différence structurelle fondamentale avec notre
+implémentation~:
+\begin{quote}
+\code{MLTS2(y\_inter, w, $\Delta t$, l)}: si $l<N_{level}$, appelle
+récursivement \code{MLTS2(y\_inter, w -- A($P_l$--$P_{l+1}$)y\_inter,
+$\Delta t/p_l$, l+1)}, où le terme \code{A($P_l$--$P_{l+1}$)y\_inter}
+est \textbf{recalculé à chaque sous-pas}, à partir de l'état
+\code{y\_inter} \emph{réel et à jour} --- jamais extrapolé.
+\end{quote}
+Deux différences architecturales expliquent l'écart observé :
+\begin{enumerate}
+  \item \textbf{Extrapolation vs recalcul exact.} Notre design calculait
+  \code{own\_w\_i} \emph{une fois} par visite d'un niveau, puis
+  l'extrapolait analytiquement (\emph{Taylor-shift}) sur tous les
+  sous-pas du niveau suivant. Grote--Diaz recalculent cette contribution
+  \emph{à chaque sous-pas}, à partir de l'état réel --- pas une
+  approximation polynomiale figée sur tout l'intervalle macro.
+  \item \textbf{Opérateur global vs sous-blocs restreints.} Tout
+  l'algorithme de Grote--Diaz opère sur le vecteur et la matrice
+  \emph{globaux} (masqués via des projecteurs diagonaux $P_l$), jamais
+  sur des sous-blocs restreints à un voisinage local. La portée de la
+  ``fuite'' d'un niveau vers ses voisins (via les puissances
+  $(AP)^j$ dans la preuve, Lemme~4.1) s'étend avec le nombre de
+  sous-pas $p$, pas avec une largeur de halo fixe --- ce qui explique
+  \emph{a posteriori} pourquoi élargir notre halo restreint (fixe) a
+  échoué.
+\end{enumerate}
+Une première tentative d'adopter fidèlement cette structure (niveau
+terminal seul avec vraie dynamique RK4, niveaux intermédiaires en
+``pass-through'') a révélé un piège supplémentaire~: sans le mécanisme
+de fuite propre à chaque niveau intermédiaire, les cellules de la
+racine adjacentes à la première bande fine restaient orphelines (jamais
+mises à jour), faisant \emph{exploser} l'erreur (band0~: $0{,}48$,
+contre $1{,}7\times10^{-5}$ dans le design original). Plusieurs correctifs
+ciblés (recalcul de la racine à chaque sous-pas, cible de couverture
+élargie) ont réduit mais pas éliminé ce résidu ($\sim\times20$,
+plafonnant avec $L$ mais toujours pire qu'à l'origine) --- confirmant
+que rester sur des sous-blocs restreints ne permet pas de reproduire
+fidèlement le mécanisme de l'article.
+
+\section{Résolution : réécriture fidèle sur matrices globales}
+\label{sec:globalfix}
+
+Sur décision explicite de l'utilisateur (``il faut prendre leur
+design''), le pilote multi-niveaux a été entièrement réécrit pour
+suivre l'Algorithme~4 de Grote--Diaz \emph{littéralement}, tout en
+gardant RK4 (et non le leap-frog de l'article) comme intégrateur de
+base, conformément à l'algorithme déjà validé (Algorithme~3) de DiSk++.
+
+\paragraph{Nouvelle brique : \code{erk\_weight\_LTS\_coarse\_global}.}
+La fonction globale existante \code{erk\_weight\_LTS\_coarse} met en
+cache sa liste de degrés de liberté actifs au premier appel
+(\code{m\_coarse\_active\_dofs}) et la réutilise indéfiniment --- sûr
+pour ses 11 appelants existants (qui n'utilisent jamais qu'un seul
+\code{Pcoarse} fixe), mais incompatible avec un pilote multi-niveaux
+appelant la fonction avec un \code{Pcoarse} différent à chaque bande et
+à chaque sous-pas. Une nouvelle fonction, strictement additive et sans
+état (\code{erk\_weight\_LTS\_coarse\_global}), reproduit exactement le
+même calcul mais reconstruit sa liste de degrés de liberté actifs à
+chaque appel.
+
+\paragraph{Nouveau pilote récursif.} Pour chaque niveau $i<L-1$, à
+chaque sous-pas court $m$~:
+\begin{enumerate}
+  \item recalculer \emph{à neuf}, depuis l'état courant \code{xn}, la
+  contribution propre de la bande $i$ via
+  \code{erk\_weight\_LTS\_coarse\_global(xn, $P_{\text{band}_i}$,
+  ...)} --- avec $P_{\text{band}_i}$ un projecteur \emph{global}
+  (diagonal, taille du maillage complet), pas un sous-bloc restreint ;
+  \item \textbf{additionner} cette contribution à celle héritée des
+  ancêtres (\emph{Taylor-shiftée} à l'origine locale de ce sous-pas)
+  --- exactement le \code{v := w + $\sum_k$ w\_k} de l'article ;
+  \item récurser vers le niveau $i+1$ avec cette somme.
+\end{enumerate}
+Au niveau terminal $L-1$, un unique pas RK4 authentique
+(\code{erk\_weight\_LTS\_fine}, la fonction globale déjà validée,
+inchangée) est appliqué, forcé par la somme complète accumulée depuis
+la racine. \textbf{Aucune} étape séparée de type ``avancer les degrés
+de liberté non couverts'' n'est nécessaire : chaque niveau, y compris
+la racine, est mis à jour uniquement par la fuite naturelle des
+opérateurs globaux, enchaînée à travers les nombreuses visites
+imbriquées de la récursion --- exactement comme dans l'article, où seul
+l'appel de base met directement à jour le vecteur d'état.
+
+\paragraph{Résultat : validation exacte à tous les niveaux testés.}
+Sur le même test contrôlé ($N=1$, $p_{\text{global}}=32$)~:
+\begin{center}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+$L$ & 2 & 3 & 4 & 5 \\
+\midrule
+Ratio & $1{,}0000000000$ & $1{,}0000000000$ & $0{,}9999999999$ & $0{,}9999999999$ \\
+Erreur max & $\sim 4\times10^{-11}$ & $\sim 4\times10^{-11}$ & $\sim 4\times10^{-11}$ & $\sim 6\times10^{-11}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+Précision machine, \textbf{sans aucune dégradation avec $L$} --- pour la
+première fois depuis le début de cette investigation. Ceci confirme que
+l'écart observé n'était pas une limite inhérente au multi-niveaux, mais
+bien un choix architectural incorrect (extrapolation figée sur des
+sous-blocs restreints) qui ne reproduisait pas fidèlement le mécanisme
+prouvé stable et exact de l'article.
+
 \section{État actuel et travail restant}
 
 \begin{itemize}
-  \item \textbf{Acquis et validé} : briques restreintes (coarse/fine/repli),
-  pilote récursif générique --- tous deux exacts par rapport à
-  l'algorithme de référence dans leur cas de test respectif.
-  \item \textbf{Acquis mais à régler} : le schéma multi-niveaux complet
-  est stable et plus rapide, mais nécessite un réglage
-  (octaves par niveau, \code{cfl\_factor}) pour retrouver la précision de
-  référence sans perdre le gain de vitesse.
-  \item \textbf{Prochaine étape} : étude paramétrique du compromis
-  précision/vitesse, puis application à $N=3$ et $N=4$ pour compléter la
-  courbe de convergence à 5 points.
+  \item \textbf{Correction fondamentale validée} : le pilote
+  multi-niveaux réécrit fidèlement sur matrices globales
+  (\S\ref{sec:globalfix}) reproduit la référence à précision machine
+  pour $L=2,3,4,5$, sans dégradation avec la profondeur --- résolvant
+  définitivement le problème identifié en \S\ref{sec:lgrowth}.
+  \item \textbf{Quatre bugs réels trouvés et corrigés en tout} : mauvaise
+  cible de couverture (Bug C), désaccord de quantification (Bug D),
+  seul le niveau terminal recevait une vraie dynamique RK4
+  (\S\ref{sec:realrk4}), et le mécanisme d'extrapolation figée par
+  sous-bloc au lieu du recalcul exact sur matrices globales
+  (\S\ref{sec:globalfix}).
+  \item \textbf{Coût actuel non optimisé} : la version corrigée
+  utilise les matrices \emph{globales} (produits matrice-vecteur creux
+  sur tout le maillage) à chaque sous-pas, recalculés très fréquemment
+  --- plus coûteux que la version (incorrecte) à sous-blocs restreints.
+  L'algorithme est maintenant \emph{correct} ; le travail restant est de
+  retrouver un coût réduit (probablement en revenant à des sous-blocs
+  restreints, mais construits correctement cette fois, maintenant que
+  l'algorithme de référence est connu) pour que le multi-niveaux tienne
+  sa promesse de réduction de coût à l'échelle $N=3$/$N=4$.
+  \item \textbf{Prochaine étape} : optimiser le coût, puis appliquer ce
+  design corrigé au balayage complet $N=0$ à $N=4$ pour obtenir la
+  courbe de convergence à 5 points pour $k=3$.
 \end{itemize}
+
+\section{Tentatives d'optimisation restreinte : trois pistes explorées et écartées}
+\label{sec:restrictedattempts}
+
+Suite à la demande de l'utilisateur (\og il faut réussir à optimiser
+l'approche de Grote qui est exacte \fg{}), plusieurs tentatives ont été
+faites pour retrouver le bénéfice de performance des sous-blocs
+restreints (\S\ref{sec:realrk4}) \emph{sans} réintroduire l'erreur
+dépendante de $L$, en réutilisant le mécanisme exact de
+\S\ref{sec:globalfix} :
+
+\begin{enumerate}
+  \item \textbf{Couverture élargie + \code{advance\_uncovered}.} Chaque
+  niveau intermédiaire calcule sa contribution propre sur un sous-bloc
+  restreint, puis l'applique directement à ses propres degrés de liberté
+  via une intégrale fermée (au lieu de compter sur la fuite du niveau
+  terminal, dont le halo restreint ne peut jamais atteindre band0).
+  Résultat~: la magnitude totale du déplacement de band0 devient
+  \emph{exacte} ($0{,}14497712$, identique à 6 chiffres près à la
+  version globale), mais l'erreur \emph{résiduelle} reste à
+  $\sim\times20$, stable avec $L$.
+  \item \textbf{Approche hybride} (RK4 restreint \emph{et} intégrale
+  fermée combinés pour chaque niveau)~: rejetée sur instruction de
+  l'utilisateur avant même d'être testée à fond, car elle mélangeait
+  deux mécanismes sans justification théorique claire -- un test rapide
+  a effectivement dégradé $L=2$ (qui était pourtant exact) à
+  $\times16{,}8$.
+  \item \textbf{Rafraîchissement à la fréquence du niveau terminal.}
+  Hypothèse~: band0 n'est recalculé qu'une fois par son propre intervalle
+  grossier, alors que dans la version globale son influence est
+  implicitement réévaluée à chaque sous-pas du niveau terminal (bien plus
+  fréquent). Le code a été restructuré pour recalculer et appliquer la
+  contribution de \emph{chaque} niveau ancêtre à la granularité fine du
+  terminal. Résultat~: \textbf{aucune amélioration mesurable}
+  ($\times19{,}80$ contre $\times19{,}81$ avant) -- réfutant cette
+  hypothèse spécifique.
+\end{enumerate}
+
+La cause exacte du résidu $\times20$ (magnitude correcte, distribution
+légèrement fausse) reste donc \textbf{non résolue} à l'issue de cette
+session. Sur décision de l'utilisateur, la suite privilégie
+l'utilisation de la version \emph{globale exacte} (\S\ref{sec:globalfix})
+pour produire des résultats de confiance, en acceptant son coût plus
+élevé, plutôt que de continuer à chercher une optimisation restreinte
+sans nouvelle piste solide.
+
+\section{Résultats de convergence obtenus avec la version globale exacte}
+\label{sec:finalresults}
+
+Le balayage $N=0,1,2$ a été exécuté avec la version globale exacte
+(\S\ref{sec:globalfix}), chaque appel du niveau terminal et de chaque
+niveau ancêtre utilisant les matrices globales $K_{cc}, K_{cf}, K_{fc}$
+non restreintes.
+
+\begin{center}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+$N$ & $h_{\max}$ & $p_{\text{global}}$ & $L$ & Erreur $L_2$ & Temps (s) \\
+\midrule
+0 & 0,3536 & 1     & 1 & $2{,}193\times10^{-2}$ & 0,008 \\
+1 & 0,1768 & 32    & 2 & $2{,}769\times10^{-4}$ & 13,7 \\
+2 & 0,0884 & 1024  & 5 & $1{,}145\times10^{-5}$ & 2331 ($\approx$39 min) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Validation croisée cruciale}~: l'erreur $L_2$ obtenue à $N=2$
+($1{,}144980932\times10^{-5}$) correspond, à 9 chiffres significatifs
+près, à la valeur de référence de confiance obtenue en tout début de
+session avec le schéma 2-niveaux non restreint
+($1{,}14498093168055\times10^{-5}$) -- confirmation indépendante et
+définitive que l'algorithme multi-niveaux (avec la correction de
+\S\ref{sec:globalfix}) reproduit exactement la physique attendue, y
+compris à l'échelle réelle du maillage ($N=2$, $p_{\text{global}}=1024$,
+pas seulement le petit cas contrôlé $N=1$).
+
+\textbf{Ordre de convergence observé}~:
+\[
+  \text{ordre}(N{=}0{\to}1) = \log_2\!\frac{2{,}193\times10^{-2}}{2{,}769\times10^{-4}} \approx 6{,}31,
+  \qquad
+  \text{ordre}(N{=}1{\to}2) = \log_2\!\frac{2{,}769\times10^{-4}}{1{,}145\times10^{-5}} \approx 4{,}60.
+\]
+L'ordre $N{=}1{\to}2$ ($\approx4{,}60$) correspond exactement à la
+valeur trouvée en tout début de session avec le schéma de confiance
+non restreint, confirmant que $k=3$ atteint un ordre quasi-optimal
+(l'ordre optimal théorique étant $k+1=4$; la légère sur-convergence
+provient du maillage gradué en coin).
+
+\textbf{Coût et arrêt à $N=2$}~: le calcul de $N=3$
+($p_{\text{global}}=32768$, $32\times$ plus grand que $N=2$) a été
+lancé puis interrompu après extrapolation du coût observé
+($\text{nt}\times p_{\text{global}}\times n_{\text{cells}}$), estimé à
+environ \textbf{4 jours} avec la version globale non optimisée --
+jugé impraticable pour cette session. Sur décision de l'utilisateur,
+la session s'arrête avec 3 points de courbe de convergence
+($N=0,1,2$), tous confirmés corrects, plutôt que de laisser tourner un
+calcul de plusieurs jours sans supervision.
+
+\section{Bilan et travail restant}
+
+\begin{itemize}
+  \item \textbf{Acquis définitif}~: l'algorithme multi-niveaux
+  fidèle à Grote--Diaz (\S\ref{sec:globalfix}) est \emph{mathématiquement
+  correct}, validé à la fois par précision machine sur cas contrôlés
+  ($L=2..5$) et par une correspondance à 9 chiffres avec la référence
+  de confiance sur un cas réel ($N=2$).
+  \item \textbf{Non résolu}~: l'optimisation vers des sous-blocs
+  restreints réintroduit un résidu $\sim\times20$ dont la cause précise
+  n'a pas été identifiée malgré trois tentatives motivées
+  (\S\ref{sec:restrictedattempts}). Cette piste reste ouverte pour une
+  prochaine session.
+  \item \textbf{Résultat scientifique obtenu}~: 3 points de convergence
+  ($N=0,1,2$) pour $k=3$, confirmant un ordre quasi-optimal
+  ($\approx4{,}60$), cohérent avec les résultats obtenus en début de
+  session par une méthode différente (schéma 2-niveaux non restreint).
+  \item \textbf{Prochaine étape}~: soit reprendre l'optimisation
+  restreinte (pour rendre $N=3$/$N=4$ praticables), soit accepter le
+  coût de la version globale exacte pour un nombre limité de points
+  supplémentaires avec un budget de temps dédié plus important.
+\end{itemize}
+
+\section{Recalibrage CFL : un gain de performance confirmé et indépendant}
+\label{sec:cflfix}
+
+Une piste totalement orthogonale à l'architecture multi-niveaux a été
+explorée et validée : le facteur de sécurité CFL utilisé pour fixer le
+pas de temps macro (\texttt{cfl\_factor}, dans \texttt{dt\_macro =
+cfl\_factor} $\times\, h_{\max}$) était hérité d'un choix ancien et
+jamais recalibré. Une recherche binaire empirique de la limite de
+stabilité RK4 réelle (à $N=1$) a montré que la vraie limite se situe
+vers \texttt{cfl\_factor}$\approx 0{,}08$--$0{,}085$, alors que la valeur
+utilisée était $0{,}002$ -- soit un pas de temps $\sim$40$\times$ plus
+petit que nécessaire, sans aucun bénéfice de précision (RK4 est déjà
+d'ordre 4 ; l'erreur spatiale domine largement l'erreur temporelle dans
+cette plage). Avec \texttt{cfl\_factor}$=0{,}05$ (marge de sécurité
+sous la limite réelle), $N=2$ passe de 2330\,s à 96--111\,s
+($\sim$25$\times$ plus rapide), avec une erreur $L_2$ identique à 6
+chiffres significatifs près par rapport à \texttt{cfl\_factor}$=0{,}002$.
+Ce gain est \emph{confirmé, indépendant de l'exactitude de
+l'algorithme}, et s'applique tel quel au balayage $N=0..4$.
+
+\section{Quatre tentatives d'optimisation algorithmique supplémentaires}
+\label{sec:moreattempts}
+
+Suite à la demande explicite de continuer à chercher une optimisation
+\emph{algorithmique} (plutôt que de changer de technologie de
+parallélisation -- voir \S\ref{sec:parallel}), quatre pistes
+supplémentaires ont été explorées ce soir, en s'appuyant notamment sur
+une relecture attentive d'Almquist \& Mehlin (\emph{Multi-level local
+time-stepping methods of Runge-Kutta type for wave equations}, CRC
+Preprint 2016/16) -- l'extension RK explicite du schéma leapfrog de
+Diaz--Grote, directement pertinente puisque notre schéma utilise RK4.
+
+\begin{enumerate}
+  \item \textbf{Terme croisé ancestor\_w} (\S\ref{sec:restrictedattempts}
+  poursuivi) : leur formule (22) repropage explicitement la contribution
+  de chaque niveau ancêtre \emph{à travers} l'opérateur $B P_l$ du niveau
+  courant, plutôt que de simplement l'additionner après décalage de
+  Taylor. Un mécanisme équivalent existait déjà dans le code
+  (\texttt{ancestor\_w}) mais n'était pas branché dans le driver restreint
+  le plus récent. Rebranché et testé sur $N=2$ réel : résultat
+  \textbf{pire} ($1{,}92\times10^{-4}$ contre $1{,}54\times10^{-4}$ sans ce
+  terme, référence $1{,}14\times10^{-5}$) -- très probablement un
+  double-comptage avec le mécanisme \texttt{advance\_uncovered\_full}
+  déjà en place. Abandonné.
+  \item \textbf{Micro-optimisations sans risque} : (a) un calcul
+  gaspillé identifié dans \texttt{erk\_weight\_LTS\_coarse\_global} (la
+  partie face de \texttt{B\_zero\_y(IPF\_k)} n'est jamais lue, seule la
+  partie cellule sert) ; (b) le scan $O(n_{\text{dof}})$ de la diagonale
+  \texttt{Pcoarse} pour reconstruire la liste des degrés de liberté
+  actifs, refait à \emph{chaque appel} alors qu'elle est identique pour
+  toute la simulation à un niveau donné -- remplacé par une liste
+  précalculée passée directement. Les deux corrections sont
+  \textbf{validées correctes} (résultats identiques bit à bit sur $N=1$
+  et $N=2$) mais \textbf{n'apportent aucun gain de temps mesurable}
+  ($110{,}9$\,s contre $96$--$111$\,s avant, à $N=2$) -- confirmant que
+  le coût dominant est le \emph{volume brut} de produits
+  matrice-vecteur creux exigé par l'algorithme, pas un gaspillage
+  identifiable.
+  \item \textbf{Parallélisation OpenMP des produits matrice-vecteur
+  creux} (\S\ref{sec:parallel}) : tentative directe (une région
+  parallèle OpenMP par appel), mesurée \textbf{beaucoup plus lente}
+  ($N{=}1$ : $18$--$26$\,s contre $0{,}67$\,s en série) -- le coût de
+  synchronisation par appel dépasse largement le travail à paralléliser,
+  cette fonction étant appelée des dizaines de milliers de fois avec un
+  travail minuscule à chaque fois. Abandonnée (code source retiré,
+  gardé en commentaire).
+  \item \textbf{Hybride : ancêtres exacts, terminal restreint seul} :
+  hypothèse que le niveau terminal (visité $\propto p_{\text{global}}$
+  fois, donc le principal moteur de coût) pourrait être restreint à un
+  sous-bloc local (\texttt{erk\_weight\_LTS\_fine\_v2}) tout en gardant
+  les niveaux ancêtres en calcul global exact (peu visités, donc leur
+  coût $O(n_{\text{dof}})$ reste supportable), avec une avance directe en
+  forme fermée des degrés de liberté propres de chaque ancêtre (utilisant
+  cette fois le \texttt{own\_w\_i} \emph{exact}, pas l'approximation
+  restreinte). Testé sur $N=2$ réel : \textbf{pire sur les deux plans} --
+  précision dégradée ($1{,}09\times10^{-3}$, near $100\times$ la
+  référence) \emph{et} aucun gain de vitesse mesurable ($88{,}8$\,s,
+  comparable à la version globale complète). Ceci réfute l'hypothèse que
+  le niveau terminal domine seul le coût total -- les niveaux ancêtres,
+  cumulés sur toute la profondeur de récursion, pèsent visiblement tout
+  autant. Abandonné.
+\end{enumerate}
+
+\textbf{Bilan honnête} : quatre tentatives de restructuration
+algorithmique n'ont amélioré ni la précision ni la vitesse par rapport
+à la version globale exacte déjà validée. Les deux micro-optimisations
+sans risque sont correctes mais négligeables en pratique. Le
+recalibrage CFL (\S\ref{sec:cflfix}) reste le seul gain de performance
+substantiel et confirmé obtenu ce soir, complètement indépendant de
+cette question.
+
+\section{Parallélisation : pourquoi elle n'aide pas ici}
+\label{sec:parallel}
+
+La question a été posée d'utiliser OpenMP, MPI, ou un GPU pour
+accélérer l'algorithme exact. Le diagnostic est le même dans les trois
+cas et a été confirmé empiriquement pour OpenMP (point 3 ci-dessus) :
+l'algorithme est une longue chaîne d'opérations \emph{séquentielles},
+petites et bon marché (chaque étage RK4 dépend du précédent, chaque
+niveau de récursion dépend du précédent, chaque pas de temps dépend du
+précédent). Le seul parallélisme disponible sans restructuration
+profonde se trouve \emph{à l'intérieur} de chaque produit
+matrice-vecteur creux -- mais ces produits sont appelés des dizaines de
+milliers de fois avec un travail minuscule à chaque fois, et le
+surcoût de synchronisation (mémoire partagée pour OpenMP, réseau/IPC
+pour MPI, lancement de kernel pour GPU -- dans cet ordre croissant de
+coût) domine systématiquement le travail utile. Un vrai gain
+nécessiterait de regrouper de nombreuses petites opérations en moins
+d'opérations plus grosses (tâches OpenMP à gros grain, CUDA Graphs) --
+un travail de conception substantiel, hors de portée de cette session.
+
+\textbf{Point crucial, à ne pas manquer} : ce diagnostic négatif est
+\emph{spécifique à la version globale}. Avec des matrices globales,
+CHAQUE produit matrice-vecteur touche potentiellement tout le maillage
+(les non-zéros de $K_{cc}$, $K_{cf}$, $K_{fc}$ couvrent le domaine
+entier), donc il n'y a \textbf{aucune localité spatiale à exploiter} --
+paralléliser une seule opération globale, c'est distribuer un travail
+déjà minuscule sur des cœurs qui n'ont individuellement presque rien à
+faire chacun, d'où le surcoût dominant. La restriction (\S
+\ref{sec:restrictedattempts}) n'est donc pas une alternative à la
+parallélisation : c'est son \textbf{préalable}. Si l'approche restreinte
+(coût $O(\text{taille de bande})$ par niveau) était rendue exacte, les
+différentes bandes -- ou différentes régions du maillage traitées à un
+même niveau de récursion -- deviendraient des unités de travail
+\emph{spatialement localisées et mutuellement indépendantes}, exactement
+le grain de parallélisme qui manque ici. C'est \emph{cette}
+combinaison (restriction d'abord, parallélisation ensuite -- pas
+l'inverse) qui donnerait un vrai gain, mais elle suppose d'avoir
+résolu le résidu $\sim$15--17$\times$ documenté en
+\S\ref{sec:restrictedattempts}--\ref{sec:diagn2}, ce qui n'a pas été
+possible ce soir.
+
+\section{État final de la session}
+
+\begin{itemize}
+  \item \textbf{Acquis} : algorithme multi-niveaux exact (matrices
+  globales), validé à la fois par précision machine sur cas contrôlés
+  et par correspondance à 9 chiffres avec la solution analytique sur un
+  cas réel ($N=2$) ; recalibrage CFL donnant un gain $\sim$25$\times$
+  confirmé et indépendant.
+  \item \textbf{Non résolu} : aucune optimisation algorithmique
+  (restriction, parallélisation) n'a amélioré le compromis
+  précision/vitesse de la version globale exacte, malgré six tentatives
+  documentées au total dans ce rapport.
+  \item \textbf{En cours} : calcul de $N=3$ avec la version globale
+  exacte + CFL recalibré, lancé en arrière-plan (ETA estimée plusieurs
+  heures).
+  \item \textbf{Résultat scientifique acquis} : 3 points de convergence
+  ($N=0,1,2$) pour $k=3$, ordre $\approx4{,}60$, cohérent avec le
+  résultat obtenu en début de session par une méthode indépendante.
+\end{itemize}
+
+\section{Le multiniveau réduit-il vraiment le coût ? Une vérification directe}
+\label{sec:l2vsl5}
+
+Question testée directement : sur le \emph{même} maillage $N=2$, avec le
+\emph{même} algorithme exact (matrices globales), un découpage forcé à
+$L=2$ (2-niveaux classique, sans niveaux intermédiaires) coûte-t-il plus
+cher qu'un découpage automatique à $L=5$ ?
+
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Configuration & Temps ($N=2$) & Erreur $L_2$ \\
+\midrule
+$L=2$ (forcé) & 104,98\,s & $1{,}144980932\times10^{-5}$ \\
+$L=5$ (automatique) & 96--111\,s & $1{,}144978339\times10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Les deux configurations donnent un temps \textbf{quasi identique} (dans
+le bruit de mesure) et la même erreur (correcte). \textbf{Explication} :
+dans l'implémentation actuelle, le calcul \og propre \fg{} de chaque
+niveau (\texttt{erk\_weight\_LTS\_coarse\_global}) utilise les matrices
+\emph{globales} -- coût $O(n_{\text{dof}})$ à \emph{chaque} appel, quel
+que soit le niveau. Le nombre total d'appels à ce calcul, sommé sur tous
+les niveaux ancêtres $i=0,\dots,L-2$, vaut
+\[
+  \sum_{i=0}^{L-2} \prod_{j<i} p_j \;=\; p_0 + p_0 p_1 + p_0 p_1 p_2 + \cdots + p_0 p_1 \cdots p_{L-3} ,
+\]
+une somme de type géométrique \textbf{dominée par son dernier terme} --
+qui est du même ordre de grandeur que $p_{\text{global}}$, la fréquence
+d'appel unique du niveau coarse dans un schéma 2-niveaux classique
+(pour $N=2$ : $p_0{=}4, p_0p_1{=}16, p_0p_1p_2{=}64, p_0p_1p_2p_3{=}256$,
+somme $=340$, à comparer à $p_{\text{global}}{=}1024$ pour $L=2$ --
+un facteur $\sim$3, pas plusieurs ordres de grandeur). Ajouter des
+niveaux intermédiaires \emph{répartit} le même volume total de travail
+sur plus d'appels à des fréquences différentes, sans le réduire
+fondamentalement -- \textbf{le multiniveau ne devient réellement
+avantageux que combiné à la restriction} (coût $O(\text{taille de
+bande})$ au lieu de $O(n_{\text{dof}})$ par niveau), ce qui est
+précisément ce que \S\ref{sec:restrictedattempts}--\ref{sec:moreattempts}
+ont essayé d'obtenir sans y parvenir de façon exacte.
+
+\section{Diagnostic fin : où et comment grandit l'écart restreint/exact}
+\label{sec:diagn2}
+
+Pour comprendre \emph{précisément} où l'écart entre version restreinte
+(avec le correctif \texttt{advance\_uncovered\_full}, halo à 8 anneaux)
+et version globale exacte se forme, un outil de diagnostic dédié
+(\texttt{ERK4\_MLTS\_Lshape\_DiagN2\_test.hpp}) a été construit : il
+fait tourner \emph{les deux} algorithmes en parallèle, à partir du
+\emph{même} état initial, sur le \emph{vrai} maillage $N=2$ ($L=5$,
+$p_{\text{global}}=1024$), pour un nombre variable de pas de temps
+macro \texttt{nt}, puis compare bande par bande le degré de liberté où
+l'écart est maximal.
+
+\begin{center}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\texttt{nt} & band0 & band1 & band2 & band3 & band4 (terminal) \\
+\midrule
+1  & $1{,}17\times10^{-6}$ & $2{,}23\times10^{-6}$ & $2{,}13\times10^{-6}$ & $3{,}44\times10^{-6}$ & $7{,}71\times10^{-10}$ \\
+2  & $2{,}14\times10^{-6}$ & $3{,}69\times10^{-6}$ & $2{,}49\times10^{-6}$ & $3{,}99\times10^{-6}$ & $5{,}45\times10^{-9}$ \\
+3  & $2{,}96\times10^{-6}$ & $4{,}56\times10^{-6}$ & $2{,}45\times10^{-6}$ & $3{,}32\times10^{-6}$ & $2{,}00\times10^{-8}$ \\
+5  & $4{,}25\times10^{-6}$ & $5{,}07\times10^{-6}$ & $3{,}19\times10^{-6}$ & $2{,}27\times10^{-6}$ & $4{,}85\times10^{-8}$ \\
+30 & $1{,}04\times10^{-5}$ & $1{,}59\times10^{-5}$ & $1{,}21\times10^{-5}$ & $1{,}85\times10^{-5}$ & $1{,}90\times10^{-5}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+(valeurs : max$|x_{\text{restreint}} - x_{\text{global}}|$ sur les
+degrés de liberté \emph{cellule} propres de chaque bande ; ce test
+utilise \texttt{cfl\_factor}$=0{,}002$ par défaut, donc \texttt{nt}
+petits ne représentent qu'une fraction du temps final simulé --
+\texttt{cfl\_factor}$=0{,}002$ correspond à \texttt{nt}$=283$ pour
+atteindre $t_f=0{,}05$.)
+
+\textbf{Observations} :
+\begin{itemize}
+  \item L'écart après \emph{un seul} pas de temps macro est minuscule
+  ($\sim10^{-6}$ à $10^{-10}$) -- la restriction n'introduit donc
+  \emph{pas} d'erreur significative dans un pas isolé. Le bug (s'il y
+  en a un) doit être un effet qui s'accumule sur \emph{plusieurs} pas.
+  \item La croissance de \texttt{nt}$=1$ à \texttt{nt}$=30$ est
+  \textbf{sous-linéaire} (facteur $\sim$2,45 pour un facteur 6 en
+  \texttt{nt}, entre \texttt{nt}$=5$ et \texttt{nt}$=30$), \emph{pas}
+  accélérée -- ce qui \textbf{contredit} l'hypothèse d'une instabilité
+  qui s'aggrave avec le temps.
+  \item Extrapoler cette tendance sous-linéaire jusqu'à
+  \texttt{nt}$=283$ (le run complet à \texttt{cfl\_factor}$=0{,}002$)
+  donne une estimation grossière de $\sim3$--$5\times10^{-5}$ --
+  \textbf{loin} de l'écart final réellement observé entre la version
+  restreinte et la solution analytique dans le run de production complet
+  ($1{,}307\times10^{-4}$ à \texttt{cfl\_factor}$=0{,}002$,
+  $1{,}535\times10^{-4}$ à \texttt{cfl\_factor}$=0{,}05$).
+  \item \textbf{Ce résultat est non concluant, pas négatif} : soit il y
+  a un effet de seuil/discontinuité entre \texttt{nt}$=30$ et
+  \texttt{nt}$=283$ nécessitant plus de temps de calcul pour être
+  caractérisé, soit la comparaison \og restreint vs.\ trajectoire
+  globale identique \fg{} ne capture pas exactement le même phénomène
+  que la comparaison finale \og restreint vs.\ solution analytique
+  $\varphi(r,\theta)$ \fg{} utilisée dans les runs de production. Cette
+  piste reste ouverte.
+\end{itemize}
+
+\section{Toutes les tentatives, en un coup d'œil}
+
+\begin{center}
+\begin{tabular}{@{}p{5.2cm}p{4cm}p{4.8cm}@{}}
+\toprule
+Tentative & Résultat & Section \\
+\midrule
+Correctif halo (\texttt{advance\_uncovered\_full}) & Marche sur petit cas contrôlé (ratio $\to$1,0), résidu $\sim$15--17$\times$ sur $N{=}2$ réel & \ref{sec:restrictedattempts} \\
+Terme croisé \texttt{ancestor\_w} (Almquist-Mehlin) & Pire ($1{,}92\times10^{-4}$ vs $1{,}54\times10^{-4}$) & \ref{sec:moreattempts} \\
+Micro-opt.\ (calcul gaspillé + scan redondant) & Correct, mais aucun gain de temps mesurable & \ref{sec:moreattempts} \\
+OpenMP (parallélisme par appel) & Beaucoup plus lent (surcoût de synchronisation) & \ref{sec:parallel} \\
+Hybride (ancêtres exacts, terminal seul restreint) & Pire sur les deux plans (précision \emph{et} vitesse) & \ref{sec:moreattempts} \\
+Comparaison $L{=}2$ vs $L{=}5$ (matrices globales) & Coût quasi identique -- confirme que la restriction, pas le multiniveau seul, est la clé & \ref{sec:l2vsl5} \\
+Diagnostic croissance par bande & Sous-linéaire jusqu'à \texttt{nt}$=30$, n'explique pas l'écart final -- non concluant & \ref{sec:diagn2} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Mise à jour finale : le bug d'ordre trouvé, un résidu persiste}
+\label{sec:orderingfix}
+
+Après l'écriture des sections précédentes, une nouvelle piste a été
+identifiée et validée : un \textbf{bug d'ordre des opérations}, réel et
+partiellement corrigé.
+
+\textbf{Le bug} : dans le driver restreint, \texttt{advance\_uncovered\_full}
+(la mise à jour directe en forme fermée des degrés de liberté propres
+d'une bande $i$) était appelée \emph{avant} de récurser dans la bande
+$i+1$. Or dans l'algorithme global exact, \texttt{xn} n'est \emph{jamais}
+écrit par un niveau ancêtre -- seul le niveau terminal écrit, et tout
+calcul de \texttt{own\_w} est une lecture pure de l'état tel qu'il était
+\emph{avant} cet intervalle macro. Écrire dans \texttt{xn} avant de
+récurser permettait au calcul de \texttt{own\_w\_\{i+1\}} de la bande
+$i+1$ de lire un état déjà contaminé par l'écriture directe de la bande
+$i$ -- un bug d'ordre absent de la version globale par construction.
+
+\textbf{Le correctif} : déplacer l'appel à
+\texttt{erk\_weight\_LTS\_coarse\_advance\_uncovered\_full} pour qu'il
+ait lieu \emph{après} l'appel récursif \texttt{recurse(i+1, ...)}, pas
+avant, à chaque niveau de la récursion.
+
+\textbf{Résultat sur $N=2$ réel} (\texttt{cfl\_factor}$=0{,}05$) :
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+& Erreur $L_2$ & Temps \\
+\midrule
+Avant correctif d'ordre & $1{,}535\times10^{-4}$ & 88,8\,s \\
+\textbf{Après correctif d'ordre} & $\mathbf{8{,}35\times10^{-5}}$ & \textbf{40,9\,s} \\
+Référence (exacte) & $1{,}145\times10^{-5}$ & -- \\
+\bottomrule
+\end{tabular}
+\end{center}
+Une réduction d'erreur de \textbf{45\%} et un gain de vitesse de
+\textbf{2$\times$}, sans aucune régression sur les cas contrôlés
+($N=0,1$ restent exacts).
+
+\textbf{Hypothèses testées ensuite pour fermer le résidu restant
+($\sim$7,3$\times$ la référence), toutes négatives} :
+\begin{itemize}
+  \item \textbf{Largeur du halo} (8 $\to$ 20 anneaux) : quasi aucun effet
+  ($7{,}96\times10^{-5}$ vs $8{,}35\times10^{-5}$) -- confirme que le
+  halo n'est pas le facteur limitant (cohérent avec la précision machine
+  déjà mesurée pour \texttt{own\_w\_i}, \S\ref{sec:diagn2}).
+  \item \textbf{Supprimer l'avance directe des bandes intermédiaires}
+  (ne garder que band0) : \textbf{explosion catastrophique}
+  ($L_2\sim10^{24}$) -- confirme que chaque bande non-terminale a
+  \emph{absolument besoin} de sa propre avance directe ; ce n'est pas
+  redondant avec la fuite du terminal.
+\end{itemize}
+
+\textbf{État du code à la fin de la session} : le fichier
+\texttt{ERK4\_MLTS\_Lshape\_RestrictedExact\_conv\_test.hpp} contient le
+correctif d'ordre (actif), \texttt{halo\_rings}$=8$ (restauré, la
+largeur 20 n'apportait rien), et l'avance directe active pour
+\emph{toutes} les bandes non-terminales. C'est le \textbf{meilleur état
+validé} à ce jour : rapide, sans régression sur les cas contrôlés, mais
+avec un résidu $\sim$7$\times$ la référence sur $N=2$ réel, cause
+encore non identifiée.
+
+\textbf{Piste ouverte pour la prochaine session} : le résidu ne vient ni
+de la précision de \texttt{own\_w\_i} (prouvée exacte), ni du halo, ni
+d'une bande superflue -- il reste soit un second bug d'ordre/lecture
+plus subtil (peut-être entre bandes \emph{sœurs}, pas seulement
+ancêtre-descendant), soit une interaction fine entre l'accumulation
+\texttt{combined = shifted + own\_w\_i} et le moment précis où chaque
+bande \og voit \fg{} les contributions des autres. Le diagnostic
+\texttt{ERK4\_MLTS\_Lshape\_DiagN2\_test.hpp} (comparaison directe,
+bande par bande, contre la version globale exacte, sur le vrai maillage
+$N=2$) reste l'outil le plus efficace pour investiguer -- il isole le
+problème en quelques secondes à quelques minutes de calcul, sans
+attendre un run complet.
+
+\section{Nouvelle session : bug de régression identifié par comparaison
+inter-fichiers, correctif stable trouvé}
+\label{sec:regressionfix}
+
+Cette section documente une nouvelle session d'analyse, menée en
+s'appuyant explicitement sur une relecture ciblée de Almquist--Mehlin
+(CRC Preprint 2016/16) et Diaz--Grote (CMAME 2015), pour auditer
+\texttt{ERK4\_MLTS\_Lshape\_RestrictedExact\_conv\_test.hpp} --- le
+\og meilleur état validé \fg{} hérité de la session précédente
+(\S\ref{sec:orderingfix}), avec son résidu $\sim$7,3$\times$ non
+expliqué sur $N=2$ réel.
+
+\subsection{Diagnostic : une régression trouvée par grep, pas par
+raisonnement seul}
+\label{sec:regressiondiag}
+
+Un grep de tous les appels à \texttt{erk\_weight\_LTS\_coarse\_advance\_-
+uncovered[\_full]} dans le dossier \texttt{prototypes/LTS/} révèle un
+pattern net :
+
+\begin{center}
+\begin{tabular}{@{}p{7.5cm}p{3cm}p{2.2cm}@{}}
+\toprule
+Fichier & Argument passé & Statut \\
+\midrule
+\texttt{ERK4\_MLTS\_L2\_validation\_test.hpp:238} & \texttt{combined} & correct \\
+\texttt{ERK4\_MLTS\_L3\_validation\_test.hpp:295} & \texttt{combined} & correct \\
+\texttt{ERK4\_MLTS\_L5small\_validation\_test.hpp:295} & \texttt{combined} & correct \\
+\textbf{\texttt{...RestrictedExact\_conv\_test.hpp:354}} & \textbf{\texttt{own\_w\_i}} & \textbf{régression} \\
+\texttt{ERK4\_MLTS\_RestrictedGD\_test.hpp:399} & \texttt{own\_w\_i} & même régression \\
+\texttt{ERK4\_MLTS\_Lshape\_DiagN2\_test.hpp:387} & \texttt{own\_w\_i} & même régression \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Les fichiers \texttt{*\_validation\_test.hpp} (ceux qui avaient validé
+la récursion générique à précision quasi machine, \S\ref{sec:mlts}) font
+tous \texttt{combined = ancestor\_w + own\_w} avant d'appeler
+\texttt{advance\_uncovered}. Les fichiers plus récents avaient régressé
+vers \texttt{own\_w\_i} seul --- vraisemblablement en généralisant depuis
+les variantes \texttt{*\_v2design} où seule \texttt{blocks[0]} (la
+racine, sans ancêtre) était traitée, cas où \texttt{own\_w == combined}
+par coïncidence, ce qui masquait la régression.
+
+\textbf{Justification théorique (Almquist--Mehlin, éq. 18--22)} :
+\texttt{erk\_weight\_LTS\_coarse\_v2} est appelé avec
+\texttt{ancestor\_w = nullptr} par défaut ; son propre commentaire
+indique que la vraie ODE locale d'une bande est
+$\dot x = B(x) + M_c^{-1}F(t) + \text{ancestor\_w}(t)$, donc
+\texttt{own\_w\_i} seul ne représente que les deux premiers termes.
+L'équation (21) de l'article confirme la structure additive attendue :
+$F_L(t^{[L]}) = \dots + \sum_{\ell=0}^{L-1}(P_\ell-P_{\ell+1})\,
+r_\ell(\dots)$ --- chaque bande ancêtre $\ell$ doit contribuer à ses
+\emph{propres} degrés de liberté (sélectionnés par $P_\ell-P_{\ell+1}$),
+en plus de sa propre polynôme. Pour la bande 0 (racine), \texttt{shifted}
+est toujours nul (pas d'ancêtre) : \texttt{combined == own\_w\_i}
+exactement, ce qui explique pourquoi la magnitude de band0 était
+toujours correcte alors que les bandes intermédiaires ($i\geq1$, où
+\texttt{shifted}$\neq0$) étaient silencieusement sous-forcées ---
+cohérent avec le résidu croissant avec $L$ et non avec $p_{global}$
+(\S\ref{sec:lgrowth}).
+
+\subsection{Premier correctif (addition naïve) : rejeté, cause une
+explosion}
+\label{sec:naivefail}
+
+Un premier correctif, minimal, remplace simplement \texttt{own\_w\_i}
+par \texttt{combined = shifted + own\_w\_i} (déjà calculé, déjà en
+scope) dans l'appel à \texttt{advance\_uncovered\_full}. Testé sur
+$N=1$ (trivial, $L=2$, sans ancêtre donc sans effet) puis sur $N=2$
+réel ($L=5$) : \textbf{explosion catastrophique},
+$L_2\sim8{,}9\times10^{19}$.
+
+\textbf{Diagnostic} : contrairement à ce que suggère la référence
+globale exacte (\S\ref{sec:globalfix}, qui utilise elle aussi une
+addition naïve \texttt{combined = shifted + own\_w\_i} sans jamais
+planter), la fonction \texttt{advance\_uncovered\_full} n'utilise PAS
+\texttt{combined} comme un simple terme de forçage échantillonné
+ponctuellement (ce que fait RK4 aux points de quadrature) : elle
+l'utilise comme les coefficients de Taylor \emph{exacts} d'une
+intégrale de Simpson fermée,
+$\Delta x = w_0\,dt + w_1\,dt^2/2 + w_2\,dt^3/6 + w_3\,dt^4/24$. Si
+\texttt{combined} n'est pas le \emph{vrai} polynôme cubique de la
+dynamique couplée (parce que l'addition naïve ignore que le forçage
+ancêtre $g(t)$ doit lui-même être re-propagé à travers l'opérateur $B$
+--- termes croisés $Bg_0$, $B^2g_0$, $Bg_1$, exactement comme le fait
+$F(t)$ dans le même calcul), l'intégrale de Simpson amplifie cette
+erreur d'ordre supérieur au lieu de simplement l'échantillonner ---
+un mécanisme d'instabilité spécifique au raccourci en forme fermée,
+absent de la version globale (qui ne fait jamais d'intégrale directe :
+seul le niveau terminal écrit \texttt{xn}, via RK4, jamais un
+quadrature en forme close).
+
+\subsection{Correctif retenu : termes croisés via \texttt{ancestor\_w},
+pas d'addition séparée}
+\label{sec:crossfermfix}
+
+Le correctif stable fait transiter \texttt{shifted} \emph{dans}
+\texttt{erk\_weight\_LTS\_coarse\_v2} via son paramètre
+\texttt{ancestor\_w} (déjà implémenté et documenté dans
+\texttt{erk\_coupling\_hho\_scheme.hpp}, mais jamais branché
+correctement jusqu'ici) :
+
+\begin{lstlisting}[language=C++]
+erk_an.erk_weight_LTS_coarse_v2(xn, blocks[i], own_w_i,
+    Fn, Fn12, Fn1, dtau_i, &shifted);   // ancestor_w passe en 8e argument
+recurse(i + 1, t_start + tm, dtau_i, xn, own_w_i);   // deja complet
+erk_an.erk_weight_LTS_coarse_advance_uncovered_full(
+    xn, blocks[i], own_w_i, blocks[L-1].active_c, blocks[L-1].active_f, dtau_i);
+\end{lstlisting}
+
+\texttt{own\_w\_i} devient alors directement le polynôme total
+correct (avec termes croisés), utilisé \emph{tel quel} --- à la fois
+comme forçage transmis à la récursion et pour l'avance en forme
+fermée --- sans aucune addition séparée. C'est important : une
+tentative antérieure de la session précédente (\S\ref{sec:moreattempts},
+point 1, \og terme croisé ancestor\_w \fg{}) avait déjà essayé de
+brancher \texttt{ancestor\_w} et trouvé un résultat \emph{pire}
+($1{,}92\times10^{-4}$ contre $1{,}54\times10^{-4}$) --- diagnostic
+confirmé après coup : cette tentative gardait \emph{en plus} une
+addition \texttt{combined = shifted + own\_w\_i} après l'appel, ce
+qui double-comptait le terme d'ordre 0 de \texttt{shifted} (déjà inclus
+dans \texttt{own\_w\_i} via \texttt{MinvF0\_tot}). Le correctif retenu
+ici supprime cette addition redondante.
+
+\subsection{Résultats}
+
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Configuration ($N=2$, $L=5$, $p_{global}=1024$, \texttt{cfl}$=0{,}05$) & Erreur $L_2$ & Ratio/réf. & Temps \\
+\midrule
+Avant cette session (bug \texttt{own\_w\_i}, ordre déjà corrigé) & $8{,}35\times10^{-5}$ & $\times7{,}3$ & 40,9 s \\
+Addition naïve \texttt{combined} (rejetée) & $8{,}9\times10^{19}$ & explosion & -- \\
+\textbf{\texttt{ancestor\_w}, sans addition séparée (retenu)} & $\mathbf{6{,}74\times10^{-5}}$ & $\mathbf{\times5{,}9}$ & \textbf{43,9 s} \\
+Référence (globale exacte) & $1{,}145\times10^{-5}$ & $\times1$ & $\sim$100 s \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Amélioration nette et stable (résidu $\times7{,}3\to\times5{,}9$, aucune
+instabilité), sans régression sur $N=0,1$ (exacts par construction, un
+seul niveau ou zéro ancêtre). Correctif propagé également à
+\texttt{ERK4\_MLTS\_RestrictedGD\_test.hpp} et
+\texttt{ERK4\_MLTS\_Lshape\_DiagN2\_test.hpp}, qui partageaient soit la
+même régression, soit le même risque d'explosion.
+
+\textbf{Élargissement du halo re-testé (8$\to$20 anneaux)} : confirmé
+nuisible ($1{,}52\times10^{-3}$, bien pire, et 84 s au lieu de 44 s) ---
+cohérent avec le rapport précédent, cette piste reste définitivement
+écartée. Le résidu $\times5{,}9$ restant n'est donc pas expliqué par la
+troncature du halo ; sa cause exacte demeure ouverte pour une future
+session (candidats : la nature intrinsèquement différente d'une
+intégrale de Simpson en forme fermée par bande, appliquée à la
+fréquence \emph{propre} de chaque bande, comparée à l'échantillonnage
+RK4 du niveau terminal à la fréquence \emph{la plus fine} dans la
+version globale).
+
+\subsection{Gain de performance mis en dur}
+
+Le \texttt{cfl\_factor} par défaut des deux drivers
+(\texttt{...RestrictedExact\_conv\_test.hpp} et
+\texttt{...GlobalExact\_conv\_test.hpp}) est passé de $0{,}002$ à
+$0{,}05$ --- gain $\times25$ déjà validé (\S\ref{sec:cflfix}), plus
+besoin de la variable d'environnement \texttt{MLTS\_CFL\_FACTOR} pour
+en bénéficier.
+
+Avec ce correctif et le CFL recalibré, le point $N=2$ complet
+(restreint, corrigé) s'exécute en $\sim$44 s, contre $\sim$100 s pour
+la version globale exacte à $\texttt{cfl}=0{,}05$ --- un gain
+$\times2{,}2$ tout en étant \emph{plus précis} qu'avant ce correctif.
+Un balayage $N=3$ ($L=8$ niveaux, $p_{global}=32768$, précédemment
+estimé à plusieurs jours avec la version globale non recalibrée) a été
+lancé pour évaluer si l'algorithme restreint corrigé rend enfin ce
+point de maillage praticable.
 
 \end{document}

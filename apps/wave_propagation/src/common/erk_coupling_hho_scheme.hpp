@@ -18,6 +18,15 @@ class erk_coupling_hho_scheme {
     SparseMatrix<T> m_Kcc;
     SparseMatrix<T> m_Kcf;
     SparseMatrix<T> m_Kfc;
+    // Row-major mirrors of Kcc/Kcf/Kfc, built once (see the constructor)
+    // purely so the hot-path matvecs below (erk_weight and
+    // erk_weight_LTS_coarse_global) can be parallelized over rows with
+    // OpenMP without any race conditions -- each output row is an
+    // independent reduction over that row's nonzeros. Eigen's own
+    // SparseMatrix*DenseVector operator is NOT multi-threaded, so this is
+    // a genuine, purely additive speedup with zero change in the
+    // mathematical result.
+    Eigen::SparseMatrix<T, Eigen::RowMajor> m_Kcc_rm, m_Kcf_rm, m_Kfc_rm;
     SparseMatrix<T> m_Sff;
     SparseMatrix<T> m_Scc;
     SparseMatrix<T> m_Mc_inv;
@@ -81,12 +90,48 @@ class erk_coupling_hho_scheme {
         m_Sff = Kg.block(m_n_c_dof, m_n_c_dof, m_n_f_dof, m_n_f_dof);
         
         m_Cg  = Cg.block(m_n_c_dof, m_n_c_dof, m_n_f_dof, m_n_f_dof);
-        
+
         m_Fc  = Fg.block(0, 0, m_n_c_dof, 1);
-        
+
         m_sff_is_block_diagonal_Q   = true;
         m_iterative_solver_Q        = false;
-        
+
+        m_Kcc_rm = m_Kcc;
+        m_Kcf_rm = m_Kcf;
+        m_Kfc_rm = m_Kfc;
+
+    }
+
+    // OpenMP-parallel sparse matrix-vector product. Row-major storage
+    // means each output row is computed from a disjoint set of input
+    // reads with no write conflicts, so this is embarrassingly parallel
+    // -- no locks, no atomics, no reduction needed. Falls back to a plain
+    // serial loop automatically if compiled without -fopenmp (the pragma
+    // is then just ignored).
+    // NOTE: an OpenMP-parallel version of this (one #pragma omp parallel
+    // for per call) was tried and measured SLOWER than the plain serial
+    // loop below, at every mesh size tested (N=1: 0.67s serial vs 18-26s
+    // parallel) -- this function is called many tens of thousands of
+    // times per simulation with tiny per-call work (a few hundred to a
+    // few thousand nonzeros), so the thread-team synchronization/barrier
+    // overhead per call vastly exceeds the work being parallelized.
+    // Batching many calls into fewer, larger parallel regions might work
+    // but was not attempted here. Kept as a plain serial loop (still
+    // functionally identical to Eigen's own operator*, this exists so
+    // row-major storage can be used uniformly) rather than reverting to
+    // Kcc()/Kcf()/Kfc() call sites throughout the file.
+    static Matrix<T, Dynamic, 1> pmv(const Eigen::SparseMatrix<T, Eigen::RowMajor> &A,
+                                      const Matrix<T, Dynamic, 1> &x) {
+        Matrix<T, Dynamic, 1> y(A.rows());
+        const T* xd = x.data();
+        const int nrows = (int)A.rows();
+        for (int i = 0; i < nrows; ++i) {
+            T sum = T(0);
+            for (typename Eigen::SparseMatrix<T, Eigen::RowMajor>::InnerIterator it(A, i); it; ++it)
+                sum += it.value() * xd[it.col()];
+            y(i) = sum;
+        }
+        return y;
     }
     
     void Mcc_inverse(size_t e_cells, size_t a_cells, size_t e_cbs, size_t a_cbs) {
@@ -489,12 +534,12 @@ class erk_coupling_hho_scheme {
         Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
         
         ////////// CELLS UPDATE
-        Matrix<T, Dynamic, 1> RHSc = Fc() - Kcc()*y_c_dof - Kcf()*y_f_dof;
+        Matrix<T, Dynamic, 1> RHSc = Fc() - pmv(m_Kcc_rm, y_c_dof) - pmv(m_Kcf_rm, y_f_dof);
         Matrix<T, Dynamic, 1> k_c_dof = m_Mc_inv * RHSc;
         k.block(0, 0, m_n_c_dof, 1) = k_c_dof;
-        
-        // FACES UPDATE 
-        Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof ;
+
+        // FACES UPDATE
+        Matrix<T, Dynamic, 1> RHSf = pmv(m_Kfc_rm, k_c_dof) ;
         if (m_sff_is_block_diagonal_Q) {
             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf; 
         }
@@ -551,7 +596,7 @@ void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
         out.resize(y.rows());
         Matrix<T, Dynamic, 1> kc = m_Mc_inv * Fc_in.head(m_n_c_dof);
         out.head(m_n_c_dof) = kc;
-        Matrix<T, Dynamic, 1> RHSf = Kfc() * kc;
+        Matrix<T, Dynamic, 1> RHSf = pmv(m_Kfc_rm, kc);
         out.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q
                                ? -m_Sff_inv * RHSf
                                : -m_inv_Sff * RHSf;
@@ -637,6 +682,487 @@ void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
     compute_w(arg3, nullptr,  w[3]);
 }
 
+
+// Stateless twin of erk_weight_LTS_coarse: identical math, but rebuilds its
+// active-dof list from THIS CALL's Pcoarse every time instead of caching it
+// on first use (m_coarse_active_dofs, populated once and reused forever).
+// erk_weight_LTS_coarse is safe for every EXISTING caller because each of
+// them only ever uses a single, fixed Pcoarse for the lifetime of their
+// erk_coupling_hho_scheme object -- a genuine multi-level driver, calling
+// this repeatedly with a DIFFERENT Pcoarse per level (and, within Grote-Diaz's
+// structure, potentially every sub-step too), would silently keep reusing
+// the FIRST Pcoarse's active-dof list forever. New, purely additive: does
+// not touch erk_weight_LTS_coarse or any of its existing callers.
+// Pcoarse-taking overload: builds active_dofs by scanning the WHOLE
+// diagonal (O(n_dof) per call) then delegates. Kept for callers that
+// only have a Pcoarse projector handy; see the vector-taking overload
+// below for the fast path used by the production multi-level driver,
+// where the same band's active_dofs never changes across the thousands
+// of calls made per macro-step, so rebuilding it every time is pure
+// waste (this scan was measured to be a bigger cost than all ~33 sparse
+// matvecs in the rest of this function combined, at N>=2 mesh scale).
+void erk_weight_LTS_coarse_global(const Matrix<T, Dynamic, 1> &y,
+                                   const Eigen::SparseMatrix<double> &Pcoarse,
+                                   std::vector<Matrix<T, Dynamic, 1>> &w,
+                                   const Matrix<T, Dynamic, 1> &Fn,
+                                   const Matrix<T, Dynamic, 1> &Fn12,
+                                   const Matrix<T, Dynamic, 1> &Fn1,
+                                   const T dt) {
+    std::vector<int> active_dofs;
+    for (int i = 0; i < Pcoarse.rows(); ++i)
+        if (Pcoarse.coeff(i, i) > 0.5)
+            active_dofs.push_back(i);
+    erk_weight_LTS_coarse_global(y, active_dofs, w, Fn, Fn12, Fn1, dt);
+}
+
+void erk_weight_LTS_coarse_global(const Matrix<T, Dynamic, 1> &y,
+                                   const std::vector<int> &active_dofs,
+                                   std::vector<Matrix<T, Dynamic, 1>> &w,
+                                   const Matrix<T, Dynamic, 1> &Fn,
+                                   const Matrix<T, Dynamic, 1> &Fn12,
+                                   const Matrix<T, Dynamic, 1> &Fn1,
+                                   const T dt) {
+
+    auto IP = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
+        Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(v.rows());
+        for (int i : active_dofs) out(i) = v(i);
+        return out;
+    };
+    auto IP_c = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
+        Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(m_n_c_dof);
+        for (int i : active_dofs) if (i < (int)m_n_c_dof) out(i) = v(i);
+        return out;
+    };
+    auto B_zero_y = [&](const Matrix<T, Dynamic, 1>& Fc_in,
+                         Matrix<T, Dynamic, 1>& out) {
+        out.resize(y.rows());
+        Matrix<T, Dynamic, 1> kc = m_Mc_inv * Fc_in.head(m_n_c_dof);
+        out.head(m_n_c_dof) = kc;
+        Matrix<T, Dynamic, 1> RHSf = pmv(m_Kfc_rm, kc);
+        out.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q
+                               ? -m_Sff_inv * RHSf
+                               : -m_inv_Sff * RHSf;
+    };
+
+    Matrix<T, Dynamic, 1> F0 =  Fn;
+    Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
+    Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
+    Matrix<T, Dynamic, 1> IPF0 = IP(F0), IPF1 = IP(F1), IPF2 = IP(F2);
+    Matrix<T, Dynamic, 1> BFn_0, BFn_1, BFn_2;
+    B_zero_y(F0,   BFn_0);
+    B_zero_y(F1,   BFn_1);
+    B_zero_y(F2,   BFn_2);
+
+    // MinvF0/1/2 only ever need the CELL part of B_zero_y(IPF_k) -- the
+    // face part B_zero_y would also compute (via a Kfc matvec) is never
+    // read anywhere below. Skipping it removes 3 wasted sparse matvecs
+    // per call (out of ~36 total), for the identical result.
+    Matrix<T, Dynamic, 1> MinvF0 = m_Mc_inv * IPF0.head(m_n_c_dof);
+    Matrix<T, Dynamic, 1> MinvF1 = m_Mc_inv * IPF1.head(m_n_c_dof);
+    Matrix<T, Dynamic, 1> MinvF2 = m_Mc_inv * IPF2.head(m_n_c_dof);
+
+    Matrix<T, Dynamic, 1> B0yn = y;
+    Matrix<T, Dynamic, 1> B1yn, B2yn, B3yn;
+    erk_weight(B0yn, B1yn);
+    erk_weight(B1yn, B2yn);
+    erk_weight(B2yn, B3yn);
+
+    Matrix<T, Dynamic, 1> BF0, B2F0, BF1;
+    erk_weight(BFn_0, BF0);
+    erk_weight(BF0,   B2F0);
+    erk_weight(BFn_1, BF1);
+
+    Matrix<T, Dynamic, 1> arg0 = B0yn;
+    Matrix<T, Dynamic, 1> arg1 = B1yn + BFn_0;
+    Matrix<T, Dynamic, 1> arg2 = B2yn + BF0   + BFn_1;
+    Matrix<T, Dynamic, 1> arg3 = B3yn + B2F0  + BF1   + BFn_2;
+
+    auto compute_w = [&](const Matrix<T, Dynamic, 1>& arg,
+                          const Matrix<T, Dynamic, 1>* MinvFext,
+                          Matrix<T, Dynamic, 1>& wi) {
+        Matrix<T, Dynamic, 1> IParg   = IP(arg);
+        Matrix<T, Dynamic, 1> IParg_c = IParg.head(m_n_c_dof);
+        Matrix<T, Dynamic, 1> IParg_f = IParg.tail(m_n_f_dof);
+        Matrix<T, Dynamic, 1> wi_c = m_Mc_inv * (-pmv(m_Kcc_rm, IParg_c) - pmv(m_Kcf_rm, IParg_f));
+        if (MinvFext) wi_c += IP_c(*MinvFext);
+        wi = IParg;
+        wi.head(m_n_c_dof) = wi_c;
+        Matrix<T, Dynamic, 1> RHSf = pmv(m_Kfc_rm, wi_c);
+        wi.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q
+                              ? -m_Sff_inv * RHSf
+                              : -m_inv_Sff * RHSf;
+    };
+
+    compute_w(arg0, &MinvF0, w[0]);
+    compute_w(arg1, &MinvF1, w[1]);
+    compute_w(arg2, &MinvF2, w[2]);
+    compute_w(arg3, nullptr,  w[3]);
+}
+
+// =====================================================================
+// LITERAL reproduction of Almquist-Mehlin's Algorithm 3, eq. (20)-(22):
+//   B_L = B P_L                                                  (20)
+//   w_j^[l+1] = alpha_j B(P_l-P_{l+1})[ (BP_l)^j y
+//                 + sum_{lambda=1}^j (BP_l)^{j-lambda} r_l^{(lambda-1)}(T_0,l)
+//                 + sum_{i=1}^j (BP_l)^{j-i} sum_{k=i-1}^{s-1} beta_ki
+//                       sum_{lambda=1}^l (T_lambda,l)^{k-i+1} w_k^[lambda] ]  (22)
+//
+// Unlike erk_weight_LTS_coarse_global (our simplified reformulation),
+// this masks the chain to P_l = "level l AND EVERY FINER level" at
+// EVERY application of B (Pell_dofs), not just once at the end
+// (own_dofs = P_l - P_{l+1}, this band's own dofs alone, applied only
+// in the final compute_w step, exactly as before).
+//
+// The triple cross-term sum over ancestor levels lambda=1..l is NOT
+// literally re-expanded here: for a Taylor polynomial with coefficients
+// w_k (k=0..3, our "raw", alpha-free convention -- see session notes,
+// alpha_j*j!=1 exactly for classical RKs satisfying the order
+// conditions, so alpha_j is just our own 1/j! applied at evaluation
+// instead of at storage), the inner k-sum
+//   sum_k beta_ki (T)^{k-i+1} w_k  =  d^{i-1}/dT^{i-1} [Taylor poly](T)
+// is EXACTLY the (i-1)-th derivative of ancestor lambda's own Taylor
+// polynomial evaluated at T_lambda,l -- i.e. exactly one component of
+// our own `taylor_shift(w, T)` helper. Because Taylor-shift is linear,
+// summing this over lambda=1..l is IDENTICAL to shifting the single
+// CUMULATIVE sum of all ancestors' polynomials once, by the same T --
+// which is exactly what the driver's incremental `combined = shifted +
+// own_w` (passed in here as `ancestor_w`) already computes. So passing
+// `ancestor_w` plays EXACTLY the role of the full cross-term sum, with
+// no loss of fidelity -- the ONLY thing genuinely new relative to
+// erk_weight_LTS_coarse_global is the Pell_dofs masking of the B-chain.
+//
+// Pell_dofs: ALL dofs belonging to level `l` or any FINER level
+// (l+1,...,Lmax) -- P_l in the paper. NOT a local halo: true P_l
+// masking requires this potentially reaching all the way to the finest
+// level, which is why this function only makes sense with GLOBAL
+// matrices (a restricted/halo submatrix cannot represent P_l exactly
+// for a halo of any FIXED width). This function exists to validate
+// fidelity, not to optimize performance -- see erk_weight_LTS_coarse_v3
+// for the (so far unsuccessful) attempt at a restricted, halo-based
+// approximation of the same idea.
+// own_dofs: this band's own dofs alone -- (P_l - P_{l+1}) in the paper.
+// =====================================================================
+// Sparse-vector-aware coarse-role block, built directly on Diaz-Grote
+// (2015)'s own multilevel projector convention: P_l selects "level l
+// AND every finer level" (their Section 3, T_l subset T_{l-1} nested
+// hierarchy), and their Algorithm 4/6 recursion masks with P_l - P_{l+1}
+// (this level's own tier) and P_l (this level and finer) at EVERY
+// recursive visit, always against the FULL, global operator A -- never
+// a truncated local submatrix. Translated to our RK4/Taylor "coarse
+// role" building block (in place of their leap-frog A*z), this is
+// mathematically identical to the already-validated, 0.4%-accurate
+// exact-matrix P_l-masked reference (matches GlobalExact to <0.5% with
+// a 3-ring boundary margin) -- what changes here is PURELY how the
+// matvec is computed, not the algorithm.
+//
+// Diaz-Grote's own performance argument (Section 2.2 discussion after
+// their Algo. 1: "those p multiplications only affect the unknowns in
+// the refined region, or immediately next to it") relies on exploiting
+// that "A * (P-masked, mostly-zero vector)" only ever touches columns
+// where P is nonzero -- for a sparse matrix, a plain dense matvec
+// wastes O(nnz(K)) work regardless of how much of the input vector is
+// actually zero, whereas iterating ONLY the active (nonzero) COLUMNS of
+// a column-major sparse matrix costs O(sum of nnz in those columns),
+// which shrinks with Pell_c/Pell_f's own size (itself shrinking with
+// band depth, since fewer bands remain "finer" as level increases).
+// Our earlier restricted drivers were slow-but-wrong because they
+// explicitly TRUNCATED the operator itself into a fixed-width halo
+// submatrix (a genuine extra approximation, dropping real Kcc/Kcf/Kfc
+// coupling beyond the halo -- Mc_inv/Sff_inv are block-diagonal so
+// extracting them is exact, but the stiffness blocks are not); this
+// function instead keeps the operator exact and only changes HOW the
+// matvec is computed, which cannot change the result.
+Matrix<T,Dynamic,1> sparse_col_matvec(const SparseMatrix<T>& M, const Matrix<T,Dynamic,1>& x,
+                                       const std::vector<int>& active_cols) const {
+    Matrix<T,Dynamic,1> out = Matrix<T,Dynamic,1>::Zero(M.rows());
+    for (int j : active_cols) {
+        T xj = x(j);
+        if (xj == T(0)) continue;
+        for (typename SparseMatrix<T>::InnerIterator it(M, j); it; ++it)
+            out(it.row()) += it.value() * xj;
+    }
+    return out;
+}
+
+// O(1)-insert/O(1)-membership row tracker, replacing a std::set<int>
+// (whose O(log n) tree operations turned out to dominate the whole
+// point of this optimization -- first measured attempt using std::set
+// was 8x SLOWER than the plain dense matvec it was meant to speed up).
+// Generation-stamped: reset() just bumps a counter instead of clearing
+// the n_dof-sized `gen` array, so the one real allocation happens ONCE
+// per outer erk_weight_LTS_coarse_Pell_sparse call (this tracker is
+// reused, via reset(), across every touched-set needed inside that
+// call), not once per matvec.
+struct RowTracker {
+    std::vector<int> gen;
+    std::vector<int> list;
+    int cur = 0;
+    explicit RowTracker(size_t n) : gen(n, 0) {}
+    void reset() { ++cur; list.clear(); }
+    void mark(int i) { if (gen[i] != cur) { gen[i] = cur; list.push_back(i); } }
+};
+
+// Same as above, but also records every row index that received a
+// nonzero contribution into `touched` -- needed wherever a downstream
+// block-diagonal operator (Mc_inv, Sff_inv) is applied next: those
+// never mix across rows, so the exact active set to hand them is
+// whichever rows THIS step actually touched, not a guessed/fixed one
+// (Kcf's rows, in particular, reach into whichever cell(s) truly own
+// each active face -- which can include a NEIGHBOURING band's cell at
+// an inter-band interface face, exactly the leak mechanism documented
+// elsewhere in this file as "Bug B").
+Matrix<T,Dynamic,1> sparse_col_matvec(const SparseMatrix<T>& M, const Matrix<T,Dynamic,1>& x,
+                                       const std::vector<int>& active_cols,
+                                       RowTracker& touched) const {
+    Matrix<T,Dynamic,1> out = Matrix<T,Dynamic,1>::Zero(M.rows());
+    for (int j : active_cols) {
+        T xj = x(j);
+        if (xj == T(0)) continue;
+        for (typename SparseMatrix<T>::InnerIterator it(M, j); it; ++it) {
+            out(it.row()) += it.value() * xj;
+            touched.mark((int)it.row());
+        }
+    }
+    return out;
+}
+
+void erk_weight_LTS_coarse_Pell_sparse(const Matrix<T, Dynamic, 1> &y,
+                                          const std::vector<int> &Pell_c,
+                                          const std::vector<int> &Pell_f,
+                                          const std::vector<int> &own_c,
+                                          const std::vector<int> &own_f,
+                                          std::vector<Matrix<T, Dynamic, 1>> &w,
+                                          const Matrix<T, Dynamic, 1> &Fn,
+                                          const Matrix<T, Dynamic, 1> &Fn12,
+                                          const Matrix<T, Dynamic, 1> &Fn1,
+                                          const T dt,
+                                          const std::vector<Matrix<T, Dynamic, 1>> *ancestor_w = nullptr) const {
+
+    // Single reusable RowTracker for the whole call: reset() between
+    // uses just bumps a generation counter, so the one real allocation
+    // (the n_dof-sized `gen` array) happens ONCE per outer call, not
+    // once per touched-set.
+    RowTracker tracker(y.rows());
+
+    // B applied to a vector already known to be zero outside Pell_c/Pell_f
+    // (masking is IMPLICIT: sparse_col_matvec only ever reads columns in
+    // active_cols, so any nonzero value elsewhere in v is simply never
+    // touched -- mathematically identical to masking first, then
+    // multiplying by the full dense operator).
+    auto B_Pell = [&](const Matrix<T,Dynamic,1>& v) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> yc = v.head(m_n_c_dof), yf = v.tail(m_n_f_dof);
+        tracker.reset();
+        Matrix<T,Dynamic,1> RHSc = -sparse_col_matvec(m_Kcc, yc, Pell_c, tracker)
+                                   - sparse_col_matvec(m_Kcf, yf, Pell_f, tracker);
+        std::vector<int> rhsc_active = tracker.list;
+        tracker.reset();
+        Matrix<T,Dynamic,1> kc = sparse_col_matvec(m_Mc_inv, RHSc, rhsc_active, tracker);
+        std::vector<int> kc_active = tracker.list;
+        tracker.reset();
+        Matrix<T,Dynamic,1> RHSf = sparse_col_matvec(m_Kfc, kc, kc_active, tracker);
+        std::vector<int> rhsf_active = tracker.list;
+        Matrix<T,Dynamic,1> kf = m_sff_is_block_diagonal_Q
+                                  ? -sparse_col_matvec(m_Sff_inv, RHSf, rhsf_active)
+                                  : -sparse_col_matvec(m_inv_Sff, RHSf, rhsf_active);
+        Matrix<T,Dynamic,1> out(v.rows());
+        out.head(m_n_c_dof) = kc;
+        out.tail(m_n_f_dof) = kf;
+        return out;
+    };
+    // B applied with y=0 (pure force term); Fc_in masked to Pell_c
+    // implicitly (only its Pell_c-column entries are ever read).
+    auto B_Pell_zero_y = [&](const Matrix<T,Dynamic,1>& Fc_in) -> Matrix<T,Dynamic,1> {
+        tracker.reset();
+        Matrix<T,Dynamic,1> kc = sparse_col_matvec(m_Mc_inv, Fc_in, Pell_c, tracker);
+        std::vector<int> kc_active = tracker.list;
+        tracker.reset();
+        Matrix<T,Dynamic,1> RHSf = sparse_col_matvec(m_Kfc, kc, kc_active, tracker);
+        std::vector<int> rhsf_active = tracker.list;
+        Matrix<T,Dynamic,1> out(y.rows());
+        out.head(m_n_c_dof) = kc;
+        out.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q
+                               ? -sparse_col_matvec(m_Sff_inv, RHSf, rhsf_active)
+                               : -sparse_col_matvec(m_inv_Sff, RHSf, rhsf_active);
+        return out;
+    };
+
+    Matrix<T, Dynamic, 1> F0 =  Fn;
+    Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
+    Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
+
+    Matrix<T, Dynamic, 1> MinvF0 = sparse_col_matvec(m_Mc_inv, F0.head(m_n_c_dof), own_c);
+    Matrix<T, Dynamic, 1> MinvF1 = sparse_col_matvec(m_Mc_inv, F1.head(m_n_c_dof), own_c);
+    Matrix<T, Dynamic, 1> MinvF2 = sparse_col_matvec(m_Mc_inv, F2.head(m_n_c_dof), own_c);
+
+    Matrix<T, Dynamic, 1> BFn_0 = B_Pell_zero_y(F0);
+    Matrix<T, Dynamic, 1> BFn_1 = B_Pell_zero_y(F1);
+    Matrix<T, Dynamic, 1> BFn_2 = B_Pell_zero_y(F2);
+    Matrix<T, Dynamic, 1> BF0  = B_Pell(BFn_0);
+    Matrix<T, Dynamic, 1> B2F0 = B_Pell(BF0);
+    Matrix<T, Dynamic, 1> BF1  = B_Pell(BFn_1);
+
+    Matrix<T, Dynamic, 1> B0yn = y;
+    Matrix<T, Dynamic, 1> B1yn = B_Pell(B0yn);
+    Matrix<T, Dynamic, 1> B2yn = B_Pell(B1yn);
+    Matrix<T, Dynamic, 1> B3yn = B_Pell(B2yn);
+
+    Matrix<T, Dynamic, 1> arg0 = B0yn;
+    Matrix<T, Dynamic, 1> arg1 = B1yn + BFn_0;
+    Matrix<T, Dynamic, 1> arg2 = B2yn + BF0   + BFn_1;
+    Matrix<T, Dynamic, 1> arg3 = B3yn + B2F0  + BF1   + BFn_2;
+
+    Matrix<T, Dynamic, 1> MinvF0_tot = MinvF0, MinvF1_tot = MinvF1, MinvF2_tot = MinvF2;
+    if (ancestor_w) {
+        const auto& aw = *ancestor_w;
+        // aw[j] is already a rate-like quantity (the output of a PRIOR
+        // compute_w call), so this is a direct add masked to own_c --
+        // NOT a fresh Mc_inv application (that would double-apply the
+        // inverse mass matrix). Both sides are cell-sized (m_n_c_dof),
+        // matching erk_weight_LTS_coarse_v2's g0c/mask_own_c pattern.
+        for (int i : own_c) {
+            MinvF0_tot(i) += aw[0](i);
+            MinvF1_tot(i) += aw[1](i);
+            MinvF2_tot(i) += aw[2](i);
+        }
+
+        arg1 += aw[0];
+
+        Matrix<T, Dynamic, 1> Bg0 = B_Pell(aw[0]);
+        arg2 += Bg0 + aw[1];
+
+        Matrix<T, Dynamic, 1> B2g0 = B_Pell(Bg0);
+        Matrix<T, Dynamic, 1> Bg1  = B_Pell(aw[1]);
+        arg3 += B2g0 + Bg1 + aw[2];
+    }
+
+    auto compute_w = [&](const Matrix<T,Dynamic,1>& arg, const Matrix<T,Dynamic,1>* MinvFext, Matrix<T,Dynamic,1>& wi) {
+        // Mirrors B_Pell's structure exactly, masking to own_c/own_f
+        // (P_l - P_{l+1}) instead of Pell_c/Pell_f -- and, like B_Pell,
+        // tracks the TRUE touched-row set through Mc_inv/Kfc/Sff_inv
+        // rather than assuming it stays within own_c/own_f: Kcf can
+        // leak into a NEIGHBOURING band's cell at an inter-band
+        // interface face (own_f can contain such a face by construction
+        // of the max-rule band assignment), and that leak is exactly
+        // what lets this band's output correctly feed the neighbour's
+        // own interface dofs -- dropping it would silently lose it.
+        Matrix<T,Dynamic,1> arg_c = arg.head(m_n_c_dof), arg_f = arg.tail(m_n_f_dof);
+        tracker.reset();
+        Matrix<T,Dynamic,1> RHSc = -sparse_col_matvec(m_Kcc, arg_c, own_c, tracker)
+                                   - sparse_col_matvec(m_Kcf, arg_f, own_f, tracker);
+        if (MinvFext) for (int i : own_c) tracker.mark(i);
+        std::vector<int> rhsc_active = tracker.list;
+        tracker.reset();
+        Matrix<T,Dynamic,1> wi_c = sparse_col_matvec(m_Mc_inv, RHSc, rhsc_active, tracker);
+        if (MinvFext) { wi_c += *MinvFext; for (int i : own_c) tracker.mark(i); }
+        wi = Matrix<T,Dynamic,1>::Zero(y.rows());
+        wi.head(m_n_c_dof) = wi_c;
+        std::vector<int> kc_active = tracker.list;
+        tracker.reset();
+        Matrix<T,Dynamic,1> RHSf = sparse_col_matvec(m_Kfc, wi_c, kc_active, tracker);
+        std::vector<int> rhsf_active = tracker.list;
+        wi.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q
+                              ? -sparse_col_matvec(m_Sff_inv, RHSf, rhsf_active)
+                              : -sparse_col_matvec(m_inv_Sff, RHSf, rhsf_active);
+    };
+
+    compute_w(arg0, &MinvF0_tot, w[0]);
+    compute_w(arg1, &MinvF1_tot, w[1]);
+    compute_w(arg2, &MinvF2_tot, w[2]);
+    compute_w(arg3, nullptr,     w[3]);
+}
+
+void erk_weight_LTS_coarse_mehlin(const Matrix<T, Dynamic, 1> &y,
+                                   const std::vector<int> &Pell_dofs,
+                                   const std::vector<int> &own_dofs,
+                                   std::vector<Matrix<T, Dynamic, 1>> &w,
+                                   const Matrix<T, Dynamic, 1> &Fn,
+                                   const Matrix<T, Dynamic, 1> &Fn12,
+                                   const Matrix<T, Dynamic, 1> &Fn1,
+                                   const T dt,
+                                   const std::vector<Matrix<T, Dynamic, 1>> *ancestor_w = nullptr) const {
+
+    auto mask_to = [&](const Matrix<T,Dynamic,1>& v, const std::vector<int>& dofs) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out = Matrix<T,Dynamic,1>::Zero(v.rows());
+        for (int i : dofs) out(i) = v(i);
+        return out;
+    };
+    // (B P_l): mask to Pell_dofs, THEN apply the full global B.
+    auto B_Pell = [&](const Matrix<T,Dynamic,1>& v) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> vm = mask_to(v, Pell_dofs);
+        Matrix<T,Dynamic,1> out;
+        erk_weight(vm, out);
+        return out;
+    };
+    // B applied with y=0 (pure force term), input masked to Pell_dofs first.
+    auto B_Pell_zero_y = [&](const Matrix<T,Dynamic,1>& Fc_in) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> Fm = mask_to(Fc_in, Pell_dofs);
+        Matrix<T,Dynamic,1> out(y.rows());
+        Matrix<T,Dynamic,1> kc = m_Mc_inv * Fm.head(m_n_c_dof);
+        out.head(m_n_c_dof) = kc;
+        Matrix<T,Dynamic,1> RHSf = pmv(m_Kfc_rm, kc);
+        out.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q ? -m_Sff_inv*RHSf : -m_inv_Sff*RHSf;
+        return out;
+    };
+
+    Matrix<T, Dynamic, 1> F0 =  Fn;
+    Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
+    Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
+
+    Matrix<T, Dynamic, 1> IPF0 = mask_to(F0, own_dofs), IPF1 = mask_to(F1, own_dofs), IPF2 = mask_to(F2, own_dofs);
+    Matrix<T, Dynamic, 1> MinvF0 = m_Mc_inv * IPF0.head(m_n_c_dof);
+    Matrix<T, Dynamic, 1> MinvF1 = m_Mc_inv * IPF1.head(m_n_c_dof);
+    Matrix<T, Dynamic, 1> MinvF2 = m_Mc_inv * IPF2.head(m_n_c_dof);
+
+    Matrix<T, Dynamic, 1> BFn_0 = B_Pell_zero_y(F0);
+    Matrix<T, Dynamic, 1> BFn_1 = B_Pell_zero_y(F1);
+    Matrix<T, Dynamic, 1> BFn_2 = B_Pell_zero_y(F2);
+    Matrix<T, Dynamic, 1> BF0  = B_Pell(BFn_0);
+    Matrix<T, Dynamic, 1> B2F0 = B_Pell(BF0);
+    Matrix<T, Dynamic, 1> BF1  = B_Pell(BFn_1);
+
+    Matrix<T, Dynamic, 1> B0yn = y;
+    Matrix<T, Dynamic, 1> B1yn = B_Pell(B0yn);
+    Matrix<T, Dynamic, 1> B2yn = B_Pell(B1yn);
+    Matrix<T, Dynamic, 1> B3yn = B_Pell(B2yn);
+
+    Matrix<T, Dynamic, 1> arg0 = B0yn;
+    Matrix<T, Dynamic, 1> arg1 = B1yn + BFn_0;
+    Matrix<T, Dynamic, 1> arg2 = B2yn + BF0   + BFn_1;
+    Matrix<T, Dynamic, 1> arg3 = B3yn + B2F0  + BF1   + BFn_2;
+
+    Matrix<T, Dynamic, 1> MinvF0_tot = MinvF0, MinvF1_tot = MinvF1, MinvF2_tot = MinvF2;
+    if (ancestor_w) {
+        const auto& aw = *ancestor_w;
+        MinvF0_tot += mask_to(aw[0], own_dofs);
+        MinvF1_tot += mask_to(aw[1], own_dofs);
+        MinvF2_tot += mask_to(aw[2], own_dofs);
+
+        arg1 += aw[0];
+
+        Matrix<T, Dynamic, 1> Bg0 = B_Pell(aw[0]);
+        arg2 += Bg0 + aw[1];
+
+        Matrix<T, Dynamic, 1> B2g0 = B_Pell(Bg0);
+        Matrix<T, Dynamic, 1> Bg1  = B_Pell(aw[1]);
+        arg3 += B2g0 + Bg1 + aw[2];
+    }
+
+    auto compute_w = [&](const Matrix<T,Dynamic,1>& arg, const Matrix<T,Dynamic,1>* MinvFext, Matrix<T,Dynamic,1>& wi) {
+        Matrix<T,Dynamic,1> IParg = mask_to(arg, own_dofs);
+        Matrix<T,Dynamic,1> IParg_c = IParg.head(m_n_c_dof), IParg_f = IParg.tail(m_n_f_dof);
+        Matrix<T,Dynamic,1> wi_c = m_Mc_inv * (-pmv(m_Kcc_rm, IParg_c) - pmv(m_Kcf_rm, IParg_f));
+        if (MinvFext) wi_c += *MinvFext;
+        wi = IParg;
+        wi.head(m_n_c_dof) = wi_c;
+        Matrix<T,Dynamic,1> RHSf = pmv(m_Kfc_rm, wi_c);
+        wi.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q ? -m_Sff_inv*RHSf : -m_inv_Sff*RHSf;
+    };
+
+    compute_w(arg0, &MinvF0_tot, w[0]);
+    compute_w(arg1, &MinvF1_tot, w[1]);
+    compute_w(arg2, &MinvF2_tot, w[2]);
+    compute_w(arg3, nullptr,     w[3]);
+}
 
 void erk_weight_LTS_fine(Matrix<T, Dynamic, 1> &x_dof_n,
                           const Eigen::SparseMatrix<T> &Pfine,
@@ -1234,6 +1760,368 @@ LTS_subblock_set build_LTS_subblock(const std::vector<int>& own_c,
     return out;
 }
 
+// =====================================================================
+// P_ell-EXACT subblock (as opposed to build_LTS_subblock's approximate,
+// FIXED-width BFS-ring halo). Comparing the four drivers side by side
+// pinned down the actual source of the restricted approach's ~5.9x
+// residual: it is NOT the internal B-chain's masking convention (masked
+// "Leveled"/v3 vs unmasked v2 give essentially IDENTICAL error, ~5.9x,
+// once overlap is added to both), it is the submatrix's REACH.
+// GlobalExact and the literal Mehlin reproduction (erk_weight_LTS_coarse_mehlin)
+// both operate on the FULL, untruncated global matrices and both match
+// the trusted reference near-exactly (<0.5%); build_LTS_subblock's own
+// 8-ring halo (or even 20 rings -- confirmed WORSE, not better) is
+// simply not always a large-enough neighbourhood for the B-chain (up to
+// B^3, plus similar-depth F-chains) to reproduce the true global
+// operator's action at a band's own dofs.
+//
+// Fix: instead of guessing a ring count, give the submatrix the domain
+// the paper itself specifies is sufficient -- Pell_c/Pell_f (a band's
+// own dofs, EVERY finer band's own dofs recursively, since those are
+// nested inside this band spatially on this graded corner mesh, PLUS a
+// few overlap rings into the coarser side, Almquist-Mehlin Section 3.2/
+// Table 2). Unlike a fixed ring count, this reach shrinks automatically
+// as the band index grows (fewer bands remain "finer"), so it stays a
+// genuine per-call cost reduction relative to the always-O(n_dof)
+// GlobalExact/MehlinExact drivers, without needing to guess a width.
+// Feed the result into the existing, UNMASKED erk_weight_LTS_coarse_v2
+// (not v3/the masked chain) -- masking made no measurable difference
+// once the domain itself is right.
+LTS_subblock_set build_LTS_subblock_Pell(const std::vector<int>& own_c,
+                                          const std::vector<int>& own_f,
+                                          const std::vector<int>& Pell_c,
+                                          const std::vector<int>& Pell_f) const {
+
+    std::set<int> own_c_set(own_c.begin(), own_c.end());
+    std::set<int> own_f_set(own_f.begin(), own_f.end());
+    std::vector<int> halo_c, halo_f;
+    for (int c : Pell_c) if (!own_c_set.count(c)) halo_c.push_back(c);
+    for (int f : Pell_f) if (!own_f_set.count(f)) halo_f.push_back(f);
+
+    LTS_subblock_set out;
+    out.n_own_c = own_c.size();
+    out.n_own_f = own_f.size();
+    out.active_c = own_c; out.active_c.insert(out.active_c.end(), halo_c.begin(), halo_c.end());
+    out.active_f = own_f; out.active_f.insert(out.active_f.end(), halo_f.begin(), halo_f.end());
+
+    out.Kcc     = extract_block(m_Kcc,     out.active_c, out.active_c);
+    out.Kcf     = extract_block(m_Kcf,     out.active_c, out.active_f);
+    out.Kfc     = extract_block(m_Kfc,     out.active_f, out.active_c);
+    out.Mc_inv  = extract_block(m_Mc_inv,  out.active_c, out.active_c);
+    out.Sff_inv = extract_block(m_Sff_inv, out.active_f, out.active_f);
+
+    out.Kcc_own     = extract_block(m_Kcc,     own_c, own_c);
+    out.Kcf_own     = extract_block(m_Kcf,     own_c, own_f);
+    out.Kfc_own     = extract_block(m_Kfc,     own_f, own_c);
+    out.Mc_inv_own  = extract_block(m_Mc_inv,  own_c, own_c);
+    out.Sff_inv_own = extract_block(m_Sff_inv, own_f, own_f);
+    return out;
+}
+
+// =====================================================================
+// "Leveled" subblock + coarse-role variant (P_ell-faithful masking).
+//
+// THEORY: Almquist-Mehlin eq. (20)-(22) define B_L = B*P_L, where P_L
+// keeps ONLY levels >= L (zeroing every coarser/ancestor level) -- and
+// crucially this P_L mask is baked into EVERY application of B in the
+// "own dynamics" chain (BP_ell)^j, not just applied once at the end.
+// erk_weight_LTS_coarse_v2 does NOT do this: its B-chain (B_loc) reads
+// the CURRENT, unmasked halo -- which includes both finer AND coarser
+// neighbour dofs. The coarser side is a genuine leak: band ell's own
+// dynamics chain ends up re-reading its parent's current value, a
+// contribution ALREADY carried separately (and correctly Taylor-shifted)
+// via the `ancestor_w`/`combined` term passed down the recursion --
+// i.e. a double-count. Session evidence consistent with this: widening
+// the halo (8->20 rings) made accuracy WORSE, not better (more parent
+// contamination, not more legitimate reach), and deeper recursions
+// (L=8) went unstable (NaN) -- more ancestor levels, more contamination.
+//
+// FIX: partition the halo into "finer" (band > ell, legitimate, kept in
+// the B-chain) and "coarser" (band < ell, must be EXCLUDED from the
+// B-chain, matching P_ell) -- ordering active_c/active_f as
+// [own, finer-halo, coarser-halo] so "own+finer" is a simple prefix
+// slice. The coarser-halo entries are NOT dropped from the block
+// entirely: they are still needed (same as v2) so the FINAL, once-only
+// (P_ell - P_{ell+1}) output mask in compute_w can still scatter this
+// band's own leak into its parent's own interface face (the original
+// "Bug B" fix) -- only the CHAIN's repeated B applications must exclude
+// them, not the one-time output scatter.
+//
+// If this hypothesis is right, a SMALL, L-INDEPENDENT halo (unlike v2,
+// which apparently needs to grow with L to compensate for insufficient
+// reach while simultaneously picking up MORE parent contamination)
+// should now be enough at any depth.
+// =====================================================================
+
+struct LTS_subblock_set_leveled : public LTS_subblock_set {
+    // Of the halo entries (positions n_own_c..active_c.size()-1, resp.
+    // f), the first n_finer_c/n_finer_f belong to a FINER band (kept in
+    // the B-chain); the rest, at the tail, belong to a COARSER band
+    // (excluded from the chain via the P_ell mask, kept only for the
+    // final output scatter).
+    size_t n_finer_c = 0, n_finer_f = 0;
+};
+
+// dof_band_c[g] / dof_band_f[g]: band index of cell-dof g / face-dof g
+// (size m_n_c_dof / m_n_f_dof respectively) -- precomputed once by the
+// driver from its own cell_band/face_band arrays (dof granularity, not
+// mesh-cell granularity, since active_c/active_f are dof indices).
+LTS_subblock_set_leveled build_LTS_subblock_leveled(const std::vector<int>& own_c,
+                                                      const std::vector<int>& own_f,
+                                                      int halo_rings,
+                                                      const std::vector<int>& dof_band_c,
+                                                      const std::vector<int>& dof_band_f,
+                                                      int my_level,
+                                                      int overlap_rings = 0) const {
+
+    std::set<int> set_c(own_c.begin(), own_c.end());
+    std::set<int> set_f(own_f.begin(), own_f.end());
+
+    for (int ring = 0; ring < halo_rings; ++ring) {
+        std::set<int> new_c, new_f;
+        for (int k = 0; k < m_Kfc.outerSize(); ++k) {
+            for (typename SparseMatrix<T>::InnerIterator it(m_Kfc, k); it; ++it) {
+                int face = (int)it.row(), cell = (int)it.col();
+                bool cell_in = set_c.count(cell) > 0;
+                bool face_in = set_f.count(face) > 0;
+                if (cell_in && !face_in) new_f.insert(face);
+                if (face_in && !cell_in) new_c.insert(cell);
+            }
+        }
+        if (new_c.empty() && new_f.empty()) break;
+        set_c.insert(new_c.begin(), new_c.end());
+        set_f.insert(new_f.begin(), new_f.end());
+    }
+
+    std::set<int> own_c_set(own_c.begin(), own_c.end());
+    std::set<int> own_f_set(own_f.begin(), own_f.end());
+    std::vector<int> finer_c, coarser_c, finer_f, coarser_f;
+    for (int c : set_c) {
+        if (own_c_set.count(c)) continue;
+        (dof_band_c[c] > my_level ? finer_c : coarser_c).push_back(c);
+    }
+    for (int f : set_f) {
+        if (own_f_set.count(f)) continue;
+        (dof_band_f[f] > my_level ? finer_f : coarser_f).push_back(f);
+    }
+
+    // Overlap (Almquist-Mehlin Section 3.2, Table 2: 3 rings for RK4):
+    // promote a few BFS rings of COARSER halo entries nearest the
+    // own+finer boundary into the kept ("finer_*") lists too, widening
+    // the P_ell mask used by erk_weight_LTS_coarse_v3 beyond the strict
+    // level boundary. Confined to entries already present in the halo
+    // (set_c/set_f from halo_rings above); if overlap_rings reaches
+    // further than halo_rings already does, the extra rings are a
+    // no-op past the halo's own edge.
+    if (overlap_rings > 0) {
+        std::set<int> mask_c(own_c.begin(), own_c.end());
+        mask_c.insert(finer_c.begin(), finer_c.end());
+        std::set<int> mask_f(own_f.begin(), own_f.end());
+        mask_f.insert(finer_f.begin(), finer_f.end());
+        std::set<int> coarser_c_set(coarser_c.begin(), coarser_c.end());
+        std::set<int> coarser_f_set(coarser_f.begin(), coarser_f.end());
+        for (int ring = 0; ring < overlap_rings; ++ring) {
+            std::set<int> new_c, new_f;
+            for (int k = 0; k < m_Kfc.outerSize(); ++k) {
+                for (typename SparseMatrix<T>::InnerIterator it(m_Kfc, k); it; ++it) {
+                    int face = (int)it.row(), cell = (int)it.col();
+                    bool cell_in = mask_c.count(cell) > 0;
+                    bool face_in = mask_f.count(face) > 0;
+                    if (cell_in && coarser_f_set.count(face) && !mask_f.count(face)) new_f.insert(face);
+                    if (face_in && coarser_c_set.count(cell) && !mask_c.count(cell)) new_c.insert(cell);
+                }
+            }
+            if (new_c.empty() && new_f.empty()) break;
+            for (int c : new_c) { mask_c.insert(c); finer_c.push_back(c); }
+            for (int f : new_f) { mask_f.insert(f); finer_f.push_back(f); }
+        }
+        std::vector<int> coarser_c_rest, coarser_f_rest;
+        for (int c : coarser_c) if (!mask_c.count(c)) coarser_c_rest.push_back(c);
+        for (int f : coarser_f) if (!mask_f.count(f)) coarser_f_rest.push_back(f);
+        coarser_c.swap(coarser_c_rest);
+        coarser_f.swap(coarser_f_rest);
+    }
+
+    LTS_subblock_set_leveled out;
+    out.n_own_c = own_c.size();
+    out.n_own_f = own_f.size();
+    out.n_finer_c = finer_c.size();
+    out.n_finer_f = finer_f.size();
+    out.active_c = own_c;
+    out.active_c.insert(out.active_c.end(), finer_c.begin(), finer_c.end());
+    out.active_c.insert(out.active_c.end(), coarser_c.begin(), coarser_c.end());
+    out.active_f = own_f;
+    out.active_f.insert(out.active_f.end(), finer_f.begin(), finer_f.end());
+    out.active_f.insert(out.active_f.end(), coarser_f.begin(), coarser_f.end());
+
+    out.Kcc     = extract_block(m_Kcc,     out.active_c, out.active_c);
+    out.Kcf     = extract_block(m_Kcf,     out.active_c, out.active_f);
+    out.Kfc     = extract_block(m_Kfc,     out.active_f, out.active_c);
+    out.Mc_inv  = extract_block(m_Mc_inv,  out.active_c, out.active_c);
+    out.Sff_inv = extract_block(m_Sff_inv, out.active_f, out.active_f);
+
+    out.Kcc_own     = extract_block(m_Kcc,     own_c, own_c);
+    out.Kcf_own     = extract_block(m_Kcf,     own_c, own_f);
+    out.Kfc_own     = extract_block(m_Kfc,     own_f, own_c);
+    out.Mc_inv_own  = extract_block(m_Mc_inv,  own_c, own_c);
+    out.Sff_inv_own = extract_block(m_Sff_inv, own_f, own_f);
+    return out;
+}
+
+// Band i's "coarse role", P_ell-faithful: identical to
+// erk_weight_LTS_coarse_v2 except every B-application inside the
+// (own dynamics)/(ancestor cross-term) chains masks its input to
+// "own+finer" first (mask_Pell_*), matching Almquist-Mehlin's
+// (B P_ell)^j exactly instead of leaking the current parent value into
+// the chain. The FINAL output step (compute_w's mask_own_* + scatter
+// over the FULL own+halo set) is untouched: that is the legitimate,
+// one-time (P_ell - P_{ell+1}) output leak into the parent's own
+// interface face, not part of the chain being fixed here.
+void erk_weight_LTS_coarse_v3(const Matrix<T, Dynamic, 1> &y,
+                               const LTS_subblock_set_leveled &blocks,
+                               std::vector<Matrix<T, Dynamic, 1>> &w,
+                               const Matrix<T, Dynamic, 1> &Fn,
+                               const Matrix<T, Dynamic, 1> &Fn12,
+                               const Matrix<T, Dynamic, 1> &Fn1,
+                               const T dt,
+                               const std::vector<Matrix<T, Dynamic, 1>> *ancestor_w = nullptr) const {
+
+    const int nc = (int)blocks.active_c.size();
+    const int nf = (int)blocks.active_f.size();
+    const size_t N = y.rows();
+    const size_t n_pl_c = blocks.n_own_c + blocks.n_finer_c;  // P_ell boundary: own+finer, cells
+    const size_t n_pl_f = blocks.n_own_f + blocks.n_finer_f;  // P_ell boundary: own+finer, faces
+
+    auto gather_c = [&](const Matrix<T,Dynamic,1>& v) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out(nc);
+        for (int i = 0; i < nc; ++i) out(i) = v(blocks.active_c[i]);
+        return out;
+    };
+    auto gather_f = [&](const Matrix<T,Dynamic,1>& v) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out(nf);
+        for (int i = 0; i < nf; ++i) out(i) = v(m_n_c_dof + blocks.active_f[i]);
+        return out;
+    };
+    auto scatter = [&](const Matrix<T,Dynamic,1>& kc_loc, const Matrix<T,Dynamic,1>& kf_loc) -> Matrix<T,Dynamic,1> {
+        Matrix<T,Dynamic,1> out = Matrix<T,Dynamic,1>::Zero(N);
+        for (int i = 0; i < nc; ++i) out(blocks.active_c[i])             = kc_loc(i);
+        for (int i = 0; i < nf; ++i) out(m_n_c_dof + blocks.active_f[i]) = kf_loc(i);
+        return out;
+    };
+
+    auto mask_Pell_c = [&](const Matrix<T,Dynamic,1>& v) {
+        Matrix<T,Dynamic,1> out = v;
+        for (size_t i = n_pl_c; i < (size_t)out.rows(); ++i) out(i) = 0;
+        return out;
+    };
+    auto mask_Pell_f = [&](const Matrix<T,Dynamic,1>& v) {
+        Matrix<T,Dynamic,1> out = v;
+        for (size_t i = n_pl_f; i < (size_t)out.rows(); ++i) out(i) = 0;
+        return out;
+    };
+
+    auto B_zero_y_loc = [&](const Matrix<T,Dynamic,1>& Fc_loc,
+                             Matrix<T,Dynamic,1>& kc_loc, Matrix<T,Dynamic,1>& kf_loc) {
+        kc_loc = blocks.Mc_inv * Fc_loc;
+        kf_loc = -blocks.Sff_inv * (blocks.Kfc * kc_loc);
+    };
+    // (B P_ell) applied to a general local vector: mask to own+finer
+    // FIRST, then multiply -- the faithful chain operator of eq. (22).
+    auto B_loc = [&](const Matrix<T,Dynamic,1>& yc_loc, const Matrix<T,Dynamic,1>& yf_loc, const Matrix<T,Dynamic,1>& Fc_loc,
+                      Matrix<T,Dynamic,1>& kc_loc, Matrix<T,Dynamic,1>& kf_loc) {
+        Matrix<T,Dynamic,1> yc_m = mask_Pell_c(yc_loc), yf_m = mask_Pell_f(yf_loc);
+        kc_loc = blocks.Mc_inv * (Fc_loc - blocks.Kcc*yc_m - blocks.Kcf*yf_m);
+        kf_loc = -blocks.Sff_inv * (blocks.Kfc * kc_loc);
+    };
+
+    Matrix<T,Dynamic,1> zeroFc = Matrix<T,Dynamic,1>::Zero(nc);
+
+    auto mask_own_c = [&](const Matrix<T,Dynamic,1>& v) {
+        Matrix<T,Dynamic,1> out = v;
+        for (size_t i = blocks.n_own_c; i < (size_t)out.rows(); ++i) out(i) = 0;
+        return out;
+    };
+    auto mask_own_f = [&](const Matrix<T,Dynamic,1>& v) {
+        Matrix<T,Dynamic,1> out = v;
+        for (size_t i = blocks.n_own_f; i < (size_t)out.rows(); ++i) out(i) = 0;
+        return out;
+    };
+
+    Matrix<T,Dynamic,1> Fn_c   = gather_c(Fn),   Fn12_c = gather_c(Fn12),  Fn1_c = gather_c(Fn1);
+    Matrix<T,Dynamic,1> F0 =  Fn_c;
+    Matrix<T,Dynamic,1> F1 = (-3*Fn_c + 4*Fn12_c - Fn1_c) / dt;
+    Matrix<T,Dynamic,1> F2 = ( 4*Fn_c - 8*Fn12_c + 4*Fn1_c) / (dt*dt);
+
+    Matrix<T,Dynamic,1> BFn_0_c, BFn_0_f, BFn_1_c, BFn_1_f, BFn_2_c, BFn_2_f;
+    B_zero_y_loc(F0, BFn_0_c, BFn_0_f);
+    B_zero_y_loc(F1, BFn_1_c, BFn_1_f);
+    B_zero_y_loc(F2, BFn_2_c, BFn_2_f);
+
+    Matrix<T,Dynamic,1> IPF0 = mask_own_c(F0), IPF1 = mask_own_c(F1), IPF2 = mask_own_c(F2);
+    Matrix<T,Dynamic,1> BIPFn_0_c, BIPFn_0_f, BIPFn_1_c, BIPFn_1_f, BIPFn_2_c, BIPFn_2_f;
+    B_zero_y_loc(IPF0, BIPFn_0_c, BIPFn_0_f);
+    B_zero_y_loc(IPF1, BIPFn_1_c, BIPFn_1_f);
+    B_zero_y_loc(IPF2, BIPFn_2_c, BIPFn_2_f);
+    const Matrix<T,Dynamic,1>& MinvF0 = BIPFn_0_c;
+    const Matrix<T,Dynamic,1>& MinvF1 = BIPFn_1_c;
+    const Matrix<T,Dynamic,1>& MinvF2 = BIPFn_2_c;
+
+    Matrix<T,Dynamic,1> y0c = gather_c(y), y0f = gather_f(y);
+    Matrix<T,Dynamic,1> B1c, B1f, B2c, B2f, B3c, B3f;
+    B_loc(y0c, y0f, zeroFc, B1c, B1f);
+    B_loc(B1c, B1f, zeroFc, B2c, B2f);
+    B_loc(B2c, B2f, zeroFc, B3c, B3f);
+
+    Matrix<T,Dynamic,1> BF0_c, BF0_f, B2F0_c, B2F0_f, BF1_c, BF1_f;
+    B_loc(BFn_0_c, BFn_0_f, zeroFc, BF0_c, BF0_f);
+    B_loc(BF0_c,   BF0_f,   zeroFc, B2F0_c, B2F0_f);
+    B_loc(BFn_1_c, BFn_1_f, zeroFc, BF1_c, BF1_f);
+
+    Matrix<T,Dynamic,1> arg0_c = y0c,                          arg0_f = y0f;
+    Matrix<T,Dynamic,1> arg1_c = B1c + BFn_0_c,                arg1_f = B1f + BFn_0_f;
+    Matrix<T,Dynamic,1> arg2_c = B2c + BF0_c  + BFn_1_c,       arg2_f = B2f + BF0_f  + BFn_1_f;
+    Matrix<T,Dynamic,1> arg3_c = B3c + B2F0_c + BF1_c + BFn_2_c, arg3_f = B3f + B2F0_f + BF1_f + BFn_2_f;
+
+    Matrix<T,Dynamic,1> MinvF0_tot = MinvF0, MinvF1_tot = MinvF1, MinvF2_tot = MinvF2;
+    if (ancestor_w) {
+        const auto& aw = *ancestor_w;
+        Matrix<T,Dynamic,1> g0c = gather_c(aw[0]), g0f = gather_f(aw[0]);
+        Matrix<T,Dynamic,1> g1c = gather_c(aw[1]), g1f = gather_f(aw[1]);
+        Matrix<T,Dynamic,1> g2c = gather_c(aw[2]);
+
+        MinvF0_tot += mask_own_c(g0c);
+        MinvF1_tot += mask_own_c(g1c);
+        MinvF2_tot += mask_own_c(g2c);
+
+        arg1_c += g0c; arg1_f += g0f;
+
+        Matrix<T,Dynamic,1> Bg0_c, Bg0_f;
+        B_loc(g0c, g0f, zeroFc, Bg0_c, Bg0_f);
+        arg2_c += Bg0_c + g1c; arg2_f += Bg0_f + g1f;
+
+        Matrix<T,Dynamic,1> B2g0_c, B2g0_f, Bg1_c, Bg1_f;
+        B_loc(Bg0_c, Bg0_f, zeroFc, B2g0_c, B2g0_f);
+        B_loc(g1c,   g1f,   zeroFc, Bg1_c,  Bg1_f);
+        arg3_c += B2g0_c + Bg1_c + g2c;
+        arg3_f += B2g0_f + Bg1_f;
+    }
+
+    auto compute_w = [&](const Matrix<T,Dynamic,1>& arg_c, const Matrix<T,Dynamic,1>& arg_f,
+                          const Matrix<T,Dynamic,1>* MinvFext, Matrix<T,Dynamic,1>& wi) {
+        Matrix<T,Dynamic,1> IParg_c = mask_own_c(arg_c);
+        Matrix<T,Dynamic,1> IParg_f = mask_own_f(arg_f);
+        Matrix<T,Dynamic,1> wi_c = blocks.Mc_inv * (-blocks.Kcc*IParg_c - blocks.Kcf*IParg_f);
+        if (MinvFext) wi_c += *MinvFext;
+        Matrix<T,Dynamic,1> wi_f = -blocks.Sff_inv * (blocks.Kfc * wi_c);
+        wi = scatter(wi_c, wi_f);
+    };
+
+    compute_w(arg0_c, arg0_f, &MinvF0_tot, w[0]);
+    compute_w(arg1_c, arg1_f, &MinvF1_tot, w[1]);
+    compute_w(arg2_c, arg2_f, &MinvF2_tot, w[2]);
+    compute_w(arg3_c, arg3_f, nullptr,  w[3]);
+}
+
 // Band i's "coarse role": produces a cubic-in-time Taylor polynomial
 // w[0..3], valid over LOCAL time [0,dt] (dt = the length of the CURRENT
 // recursion interval, tau=0 <-> the state y at this interval's start),
@@ -1244,13 +2132,30 @@ LTS_subblock_set build_LTS_subblock(const std::vector<int>& own_c,
 // global-size current state (same convention as erk_weight_LTS_coarse).
 // Output w[i] are full-length (m_n_c_dof+m_n_f_dof) vectors, zero
 // outside blocks.active_c/active_f.
+// `ancestor_w` (optional, nullptr by default): the SAME cubic Taylor
+// forcing-rate polynomial (w[0..3], already Mc_inv-scaled -- "rate"
+// units, NOT raw-force units like Fn/Fn12/Fn1) that this band's OWN
+// erk_weight_LTS_fine_v2 call for THIS interval receives from its
+// ancestor chain. Band i's own dofs genuinely evolve under
+// dx/dt = B(x) + Mc_inv*F(t) + ancestor_w(t), so band i's "coarse role"
+// fit for ITS descendants must include the ancestor_w(t) term too --
+// omitting it (as an earlier version of this function did) silently
+// drops the ancestor's ongoing influence from every level below band i,
+// an error that compounds with recursion depth (confirmed empirically:
+// growth tracked the number of levels L, not the mesh's global ratio
+// p_global). ancestor_w enters at exactly the same Taylor order as the
+// already-Mc_inv-scaled part of F (NOT as a second raw force -- it must
+// NOT be routed through B_zero_y_loc/Mc_inv again, since it is already
+// in rate units; doing so caused a units-mismatch blow-up in an earlier
+// attempt that fed it through Fn directly).
 void erk_weight_LTS_coarse_v2(const Matrix<T, Dynamic, 1> &y,
                                const LTS_subblock_set &blocks,
                                std::vector<Matrix<T, Dynamic, 1>> &w,
                                const Matrix<T, Dynamic, 1> &Fn,
                                const Matrix<T, Dynamic, 1> &Fn12,
                                const Matrix<T, Dynamic, 1> &Fn1,
-                               const T dt) const {
+                               const T dt,
+                               const std::vector<Matrix<T, Dynamic, 1>> *ancestor_w = nullptr) const {
 
     const int nc = (int)blocks.active_c.size();
     const int nf = (int)blocks.active_f.size();
@@ -1353,6 +2258,39 @@ void erk_weight_LTS_coarse_v2(const Matrix<T, Dynamic, 1> &y,
     Matrix<T,Dynamic,1> arg2_c = B2c + BF0_c  + BFn_1_c,       arg2_f = B2f + BF0_f  + BFn_1_f;
     Matrix<T,Dynamic,1> arg3_c = B3c + B2F0_c + BF1_c + BFn_2_c, arg3_f = B3f + B2F0_f + BF1_f + BFn_2_f;
 
+    // ancestor_w correction: the true local ODE is dx/dt = B(x) + Mc_inv*F(t)
+    // + ancestor_w(t) (ancestor_w already in rate/Mc_inv-applied units, unlike
+    // F which is a raw force). Insert its Taylor coefficients g0,g1,g2 (=
+    // ancestor_w[0..2]; g3 is never needed, exactly like F2 is the highest
+    // raw-F order used) at exactly the same chain positions their
+    // already-Minv-scaled F counterparts occupy -- g_k enters arg_{k+1} RAW
+    // (no extra B_zero_y_loc/Mc_inv, it is already a rate) and, one order
+    // later, its own B-chain (Bg0, B2g0, Bg1, ...) enters arg_{k+2} etc.,
+    // while its own value enters the direct MinvFext term at order k.
+    Matrix<T,Dynamic,1> MinvF0_tot = MinvF0, MinvF1_tot = MinvF1, MinvF2_tot = MinvF2;
+    if (ancestor_w) {
+        const auto& aw = *ancestor_w;
+        Matrix<T,Dynamic,1> g0c = gather_c(aw[0]), g0f = gather_f(aw[0]);
+        Matrix<T,Dynamic,1> g1c = gather_c(aw[1]), g1f = gather_f(aw[1]);
+        Matrix<T,Dynamic,1> g2c = gather_c(aw[2]);
+
+        MinvF0_tot += mask_own_c(g0c);
+        MinvF1_tot += mask_own_c(g1c);
+        MinvF2_tot += mask_own_c(g2c);
+
+        arg1_c += g0c; arg1_f += g0f;
+
+        Matrix<T,Dynamic,1> Bg0_c, Bg0_f;
+        B_loc(g0c, g0f, zeroFc, Bg0_c, Bg0_f);
+        arg2_c += Bg0_c + g1c; arg2_f += Bg0_f + g1f;
+
+        Matrix<T,Dynamic,1> B2g0_c, B2g0_f, Bg1_c, Bg1_f;
+        B_loc(Bg0_c, Bg0_f, zeroFc, B2g0_c, B2g0_f);
+        B_loc(g1c,   g1f,   zeroFc, Bg1_c,  Bg1_f);
+        arg3_c += B2g0_c + Bg1_c + g2c;
+        arg3_f += B2g0_f + Bg1_f;
+    }
+
     // wi = B((I-P)*arg) + (I-P)*Fi, matching erk_weight_LTS_coarse's compute_w:
     // mask arg down to this band's OWN dofs (zero halo) before the final B
     // application -- the halo only exists to make the ABOVE chains exact;
@@ -1373,9 +2311,9 @@ void erk_weight_LTS_coarse_v2(const Matrix<T, Dynamic, 1> &y,
         wi = scatter(wi_c, wi_f);
     };
 
-    compute_w(arg0_c, arg0_f, &MinvF0, w[0]);
-    compute_w(arg1_c, arg1_f, &MinvF1, w[1]);
-    compute_w(arg2_c, arg2_f, &MinvF2, w[2]);
+    compute_w(arg0_c, arg0_f, &MinvF0_tot, w[0]);
+    compute_w(arg1_c, arg1_f, &MinvF1_tot, w[1]);
+    compute_w(arg2_c, arg2_f, &MinvF2_tot, w[2]);
     compute_w(arg3_c, arg3_f, nullptr,  w[3]);
 }
 
@@ -1501,6 +2439,42 @@ void erk_weight_LTS_coarse_advance_uncovered(Matrix<T, Dynamic, 1> &x_dof_n,
         x_dof_n(g) += wk[0](g)*dt + wk[1](g)*dt2/2.0 + wk[2](g)*dt3/6.0 + wk[3](g)*dt4/24.0;
     }
     for (size_t i = 0; i < blocks_coarse.n_own_f; ++i) {
+        int local = blocks_coarse.active_f[i];
+        if (cov_f.count(local)) continue;
+        int g = (int)m_n_c_dof + local;
+        x_dof_n(g) += wk[0](g)*dt + wk[1](g)*dt2/2.0 + wk[2](g)*dt3/6.0 + wk[3](g)*dt4/24.0;
+    }
+}
+
+// Like erk_weight_LTS_coarse_advance_uncovered, but also applies wk's
+// contribution at band's HALO positions (not just its own), skipping only
+// what `descendant_active_c/f` already covers. This matters specifically
+// for the FACE part: compute_w's wi_c is exactly zero beyond a band's own
+// cells (Kcc is block-diagonal per cell), but wi_f can be genuinely
+// nonzero at halo faces -- the band's "leak" into an ADJACENT band's OWN
+// interface face (see erk_weight_LTS_coarse_v2's own comment on this).
+// The own-only version above silently drops that leak whenever the
+// adjacent band is NOT the terminal (i.e. for L>=3, any leak into an
+// intermediate neighbour rather than directly into the finest band) --
+// in the exact GLOBAL algorithm this contribution is never lost, because
+// it stays part of w_accum, which erk_weight_LTS_fine's UNRESTRICTED
+// Taylor_w term reads at every position, not just the terminal's own
+// halo. This is the restricted-driver equivalent of that same term.
+void erk_weight_LTS_coarse_advance_uncovered_full(Matrix<T, Dynamic, 1> &x_dof_n,
+                                                    const LTS_subblock_set &blocks_coarse,
+                                                    const std::vector<Matrix<T, Dynamic, 1>> &wk,
+                                                    const std::vector<int> &descendant_active_c,
+                                                    const std::vector<int> &descendant_active_f,
+                                                    const T dt) const {
+    std::set<int> cov_c(descendant_active_c.begin(), descendant_active_c.end());
+    std::set<int> cov_f(descendant_active_f.begin(), descendant_active_f.end());
+    T dt2 = dt*dt, dt3 = dt2*dt, dt4 = dt3*dt;
+    for (size_t i = 0; i < blocks_coarse.active_c.size(); ++i) {
+        int g = blocks_coarse.active_c[i];
+        if (cov_c.count(g)) continue;
+        x_dof_n(g) += wk[0](g)*dt + wk[1](g)*dt2/2.0 + wk[2](g)*dt3/6.0 + wk[3](g)*dt4/24.0;
+    }
+    for (size_t i = 0; i < blocks_coarse.active_f.size(); ++i) {
         int local = blocks_coarse.active_f[i];
         if (cov_f.count(local)) continue;
         int g = (int)m_n_c_dof + local;

@@ -122,6 +122,13 @@ if (COMPILER_IS_CLANG OR COMPILER_IS_INTEL OR COMPILER_IS_GNU)
 endif()
 
 ######################################################################
+## Package: OpenMP support
+find_package(OpenMP)
+if (OpenMP_CXX_FOUND)
+  set(LINK_LIBS ${LINK_LIBS} OpenMP::OpenMP_CXX)
+endif()
+
+######################################################################
 ## Package: Intel MKL support
 find_package(MKL)
 if (MKL_FOUND)

@@ -243,7 +243,7 @@ void ERK4_MLTS_timing_test(int argc, char **argv)
 
     std::vector<erk_coupling_hho_scheme<RealType>::LTS_subblock_set> blocks(L);
     for (int i = 0; i < L; ++i) {
-        blocks[i] = erk_an.build_LTS_subblock(own_c[i], own_f[i], 6);
+        blocks[i] = erk_an.build_LTS_subblock(own_c[i], own_f[i], 3);
         std::cout << bold << cyan << "      band" << i << ": own_c=" << own_c[i].size()
                   << " own_f=" << own_f[i].size()
                   << " halo_c=" << (blocks[i].active_c.size() - blocks[i].n_own_c) << reset << std::endl;
@@ -301,49 +301,69 @@ void ERK4_MLTS_timing_test(int argc, char **argv)
 
     size_t n_dof = x_dof.rows();
 
+    // REVISED design (per user clarification -- validated in
+    // ERK4_MLTS_L3_v2design_validation_test.hpp: dropped the error ratio
+    // from 8.7x to 1.22x on the same controlled L=3 case): level 0
+    // (coarsest) is NEVER genuinely time-stepped -- only its own
+    // cubic-Taylor fit, closed-form-integrated for whatever isn't covered
+    // by level 1's halo. EVERY level i>=1 (not just the terminal one)
+    // gets a REAL RK4 step (erk_weight_LTS_fine_v2), using the frozen w
+    // handed down from level i-1 as the additive forcing -- exactly one
+    // such step per recursion node, of size `len` (that node's own
+    // interval, which by construction of p_level already equals level
+    // i's own characteristic dt_level[i]). Levels i<L-1 ALSO compute
+    // their own w_i (BEFORE their own fine_v2 update mutates the state)
+    // to hand down to level i+1. Since every level i>=1 now genuinely
+    // scatters over its own+halo, level 0's coverage check is against
+    // blocks[1] specifically (the immediate next level).
     std::function<void(int, RealType, RealType, Matrix<RealType,Dynamic,1>&, const std::vector<Matrix<RealType,Dynamic,1>>&)> recurse;
     recurse = [&](int i, RealType t_start, RealType len, Matrix<RealType,Dynamic,1>& xn,
                   const std::vector<Matrix<RealType,Dynamic,1>>& ancestor_w) {
 
-        std::vector<Matrix<RealType,Dynamic,1>> combined = ancestor_w;
-
-        if (i < L - 1) {
+        if (i == 0) {
             std::vector<Matrix<RealType,Dynamic,1>> own_w(4);
-            for (int j = 0; j < 4; ++j) { own_w[j] = Matrix<RealType,Dynamic,1>::Zero(n_dof); }
+            for (int j = 0; j < 4; ++j) own_w[j] = Matrix<RealType,Dynamic,1>::Zero(n_dof);
             Matrix<RealType, Dynamic, 1> Fn   = eval_F(t_start);
             Matrix<RealType, Dynamic, 1> Fn12 = eval_F(t_start + 0.5*len);
             Matrix<RealType, Dynamic, 1> Fn1  = eval_F(t_start + len);
-            erk_an.erk_weight_LTS_coarse_v2(xn, blocks[i], own_w, Fn, Fn12, Fn1, len);
-            for (int j = 0; j < 4; ++j) combined[j] = combined[j] + own_w[j];
+            erk_an.erk_weight_LTS_coarse_v2(xn, blocks[0], own_w, Fn, Fn12, Fn1, len);
+            erk_an.erk_weight_LTS_coarse_advance_uncovered(xn, blocks[0], own_w,
+                blocks[1].active_c, blocks[1].active_f, len);
 
-            // Coverage must be checked against the TERMINAL (base-case)
-            // band's halo, not the immediate next band's: only the
-            // terminal band actually scatters via erk_weight_LTS_fine_v2
-            // (a real write); every intermediate band only recurses, so
-            // its own halo is read-only B-chain context, never a scatter
-            // target. Using blocks[i+1] here for i<L-2 was a real bug
-            // (found and fixed via ERK4_MLTS_L3_validation_test.hpp: it
-            // dropped the L2-vs-reference error ratio from ~109x to ~9x
-            // at a small controlled p_global=32 case).
-            erk_an.erk_weight_LTS_coarse_advance_uncovered(xn, blocks[i], combined,
-                blocks[L-1].active_c, blocks[L-1].active_f, len);
+            int p_0 = p_level[0];
+            RealType dtau_0 = len / p_0;
+            for (int m = 0; m < p_0; ++m) {
+                RealType tm = m * dtau_0;
+                auto shifted = taylor_shift(own_w, tm);
+                recurse(1, t_start + tm, dtau_0, xn, shifted);
+            }
+            return;
         }
 
-        if (i == L - 1) return;
+        std::vector<Matrix<RealType,Dynamic,1>> own_w_i;
+        bool has_own_w = (i < L - 1);
+        if (has_own_w) {
+            own_w_i.resize(4);
+            for (int j = 0; j < 4; ++j) own_w_i[j] = Matrix<RealType,Dynamic,1>::Zero(n_dof);
+            Matrix<RealType, Dynamic, 1> Fn   = eval_F(t_start);
+            Matrix<RealType, Dynamic, 1> Fn12 = eval_F(t_start + 0.5*len);
+            Matrix<RealType, Dynamic, 1> Fn1  = eval_F(t_start + len);
+            erk_an.erk_weight_LTS_coarse_v2(xn, blocks[i], own_w_i, Fn, Fn12, Fn1, len);
+        }
+
+        Matrix<RealType, Dynamic, 1> Fm  = eval_F(t_start);
+        Matrix<RealType, Dynamic, 1> Fmh = eval_F(t_start + 0.5*len);
+        Matrix<RealType, Dynamic, 1> Fm1 = eval_F(t_start + len);
+        erk_an.erk_weight_LTS_fine_v2(xn, blocks[i], ancestor_w, Fm, Fmh, Fm1, 0.0, len);
+
+        if (!has_own_w) return; // i == L-1, terminal
 
         int p_i = p_level[i];
         RealType dtau_i = len / p_i;
         for (int m = 0; m < p_i; ++m) {
             RealType tm = m * dtau_i;
-            auto shifted = taylor_shift(combined, tm);
-            if (i + 1 == L - 1) {
-                Matrix<RealType, Dynamic, 1> Fm  = eval_F(t_start + tm);
-                Matrix<RealType, Dynamic, 1> Fmh = eval_F(t_start + tm + 0.5*dtau_i);
-                Matrix<RealType, Dynamic, 1> Fm1 = eval_F(t_start + tm + dtau_i);
-                erk_an.erk_weight_LTS_fine_v2(xn, blocks[i+1], shifted, Fm, Fmh, Fm1, 0.0, dtau_i);
-            } else {
-                recurse(i + 1, t_start + tm, dtau_i, xn, shifted);
-            }
+            auto shifted = taylor_shift(own_w_i, tm);
+            recurse(i + 1, t_start + tm, dtau_i, xn, shifted);
         }
     };
 
