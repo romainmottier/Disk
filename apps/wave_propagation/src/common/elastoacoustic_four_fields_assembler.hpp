@@ -544,6 +544,105 @@ public:
         }
         apply_bc(msh, explicit_scheme);
     }
+
+    // EXPERIMENTAL (not used by any validated driver): same as assemble_rhs,
+    // but the acoustic cell loop is restricted to `active_a_cells` (indexed
+    // by ORIGINAL mesh cell index, i.e. the same indexing as m_a_material's
+    // keys / a_chunk.first -- true = assemble this cell's RHS, false = skip
+    // it, leaving that cell's RHS entries at the zero set by RHS.setZero()
+    // above). Intended for MLTS non-terminal bands, whose own_w_i is masked
+    // to Pell_c[i]/Pell_f[i] downstream anyway -- assembling RHS on cells
+    // outside that mask is pure waste for those bands (this is NOT valid to
+    // use for the terminal band's own eval_F calls without separately
+    // checking apply_bc's boundary-cell path, not audited here).
+    void assemble_rhs_restricted(const Mesh& msh, std::function<disk::static_vector<T, 2>(const typename Mesh::point_type& )> e_rhs_fun, std::function<T(const typename Mesh::point_type& )> a_rhs_fun, bool explicit_scheme, const std::vector<char>& active_a_cells) {
+
+        RHS.setZero();
+        auto storage = msh.backend_storage();
+        for (auto e_chunk : m_e_material) {
+            size_t e_cell_ind = m_e_cell_index[e_chunk.first];
+            auto& cell = storage->surfaces[e_chunk.first];
+            Matrix<T, Dynamic, 1> f_loc = e_mixed_rhs(msh, cell, e_rhs_fun);
+            scatter_e_rhs_data(e_cell_ind, msh, cell, f_loc);
+        }
+
+        for (auto a_chunk : m_a_material) {
+            if (!active_a_cells[a_chunk.first]) continue;
+            size_t a_cell_ind = m_a_cell_index[a_chunk.first];
+            auto& cell = storage->surfaces[a_chunk.first];
+            Matrix<T, Dynamic, 1> f_loc = a_mixed_rhs(msh, cell, a_rhs_fun);
+            scatter_a_rhs_data(a_cell_ind, msh, cell, f_loc);
+        }
+        apply_bc(msh, explicit_scheme);
+    }
+
+    // EXPERIMENTAL (not used by any validated driver): same as assemble_rhs,
+    // but the acoustic cell loop runs under OpenMP. Safe without locks or a
+    // reduction: scatter_a_rhs_data writes into a cell-exclusive dof range
+    // (a_cell_ind*n_cbs offset, no two cells share a row), so concurrent
+    // writes never race, same argument as pmv()'s row-major disjointness
+    // (see that function's comment). UNLIKE pmv (thousands of calls, a few
+    // hundred flops each -- measured slower under OpenMP due to per-call
+    // thread-team overhead), each iteration here runs a_mixed_rhs (a
+    // quadrature loop + basis evaluation + outer products), several orders
+    // of magnitude more work per iteration -- the untested "batch into
+    // fewer, larger parallel regions" idea from pmv's comment, applied at
+    // the one call site in this file already coarse-grained enough to
+    // plausibly amortize the thread-team overhead. Falls back to serial if
+    // compiled without -fopenmp.
+    void assemble_rhs_parallel(const Mesh& msh, std::function<disk::static_vector<T, 2>(const typename Mesh::point_type& )> e_rhs_fun, std::function<T(const typename Mesh::point_type& )> a_rhs_fun, bool explicit_scheme) {
+
+        RHS.setZero();
+        auto storage = msh.backend_storage();
+        for (auto e_chunk : m_e_material) {
+            size_t e_cell_ind = m_e_cell_index[e_chunk.first];
+            auto& cell = storage->surfaces[e_chunk.first];
+            Matrix<T, Dynamic, 1> f_loc = e_mixed_rhs(msh, cell, e_rhs_fun);
+            scatter_e_rhs_data(e_cell_ind, msh, cell, f_loc);
+        }
+
+        std::vector<size_t> a_keys;
+        a_keys.reserve(m_a_material.size());
+        for (auto a_chunk : m_a_material) a_keys.push_back(a_chunk.first);
+        const int n = (int)a_keys.size();
+        #pragma omp parallel for schedule(static)
+        for (int k = 0; k < n; ++k) {
+            size_t cell_ind = a_keys[(size_t)k];
+            size_t a_cell_ind = m_a_cell_index[cell_ind];
+            auto& cell = storage->surfaces[cell_ind];
+            Matrix<T, Dynamic, 1> f_loc = a_mixed_rhs(msh, cell, a_rhs_fun);
+            scatter_a_rhs_data(a_cell_ind, msh, cell, f_loc);
+        }
+        apply_bc(msh, explicit_scheme);
+    }
+
+    // EXPERIMENTAL: restriction + OpenMP combined (see the two methods above
+    // for the individual rationale of each).
+    void assemble_rhs_restricted_parallel(const Mesh& msh, std::function<disk::static_vector<T, 2>(const typename Mesh::point_type& )> e_rhs_fun, std::function<T(const typename Mesh::point_type& )> a_rhs_fun, bool explicit_scheme, const std::vector<char>& active_a_cells) {
+
+        RHS.setZero();
+        auto storage = msh.backend_storage();
+        for (auto e_chunk : m_e_material) {
+            size_t e_cell_ind = m_e_cell_index[e_chunk.first];
+            auto& cell = storage->surfaces[e_chunk.first];
+            Matrix<T, Dynamic, 1> f_loc = e_mixed_rhs(msh, cell, e_rhs_fun);
+            scatter_e_rhs_data(e_cell_ind, msh, cell, f_loc);
+        }
+
+        std::vector<size_t> a_keys;
+        a_keys.reserve(m_a_material.size());
+        for (auto a_chunk : m_a_material) if (active_a_cells[a_chunk.first]) a_keys.push_back(a_chunk.first);
+        const int n = (int)a_keys.size();
+        #pragma omp parallel for schedule(static)
+        for (int k = 0; k < n; ++k) {
+            size_t cell_ind = a_keys[(size_t)k];
+            size_t a_cell_ind = m_a_cell_index[cell_ind];
+            auto& cell = storage->surfaces[cell_ind];
+            Matrix<T, Dynamic, 1> f_loc = a_mixed_rhs(msh, cell, a_rhs_fun);
+            scatter_a_rhs_data(a_cell_ind, msh, cell, f_loc);
+        }
+        apply_bc(msh, explicit_scheme);
+    }
     
     // Assembly of acoustic and elastic part separately; 
     void assemble(const Mesh& msh, std::function<disk::static_vector<T, 2>(const typename Mesh::point_type& )> e_rhs_fun, std::function<T(const typename Mesh::point_type& )> a_rhs_fun, bool explicit_scheme) {

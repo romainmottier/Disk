@@ -3,59 +3,46 @@
 //
 #include <filesystem>
 #include <functional>
-#include <sys/resource.h>
-//
-// CPU-time helper (getrusage: user+system time actually consumed by
-// THIS process, immune to wall-clock delays from unrelated system
-// load/contention -- unlike timecounter's std::chrono::steady_clock,
-// which measures wall time). Used alongside tc_run for an exact
-// classical-vs-multilevel CPU comparison.
-static inline double cpu_seconds_now() {
-    struct rusage ru;
-    getrusage(RUSAGE_SELF, &ru);
-    return (double)ru.ru_utime.tv_sec + 1e-6*ru.ru_utime.tv_usec
-         + (double)ru.ru_stime.tv_sec + 1e-6*ru.ru_stime.tv_usec;
-}
 //
 // Diaz-Grote (2015)-style multilevel recursion (Algorithm 4/6: nested
 // P_l projectors, own-tier term recomputed fresh at every visit),
 // translated to our RK4/Taylor "coarse role" building block in place of
-// their leap-frog A*z step. Same PellSparse machinery as
-// ERK4_MLTS_CenterSquareCoarse_PellSparse_conv_test.hpp, pointed at the
-// FIXED-BACKGROUND mesh family (centersquarefixedbg_graded, generated
-// by mesh_generation/center_square_fixed/generate_fixedbg_family.py:
-// n0=6, ell=0 FIXED (background never refines), halo=0.01,
-// extra=2*(N+1), so p_global DOUBLES-SQUARED with N -- 4, 16, 64, 256,
-// 1024, 4096, 16384 across N=0..6 -- while total cell count grows only
-// LINEARLY (60, 84, 108, 132, 156, 180, 204), unlike the older
-// centersquareadaptive_graded family (ell=N, background refines WITH N)
-// whose band0 exploded to 393,696 dofs by N=5 and had to be abandoned.
-// KNOWN, ACCEPTED TRADE-OFF: h_max never shrinks (background fixed), so
-// this does NOT give true global h-convergence -- see this file's
-// final_tests/square/README.md entry.
+// their leap-frog A*z step, applied to the SAME smooth square/
+// sinusoidal problem as ERK4_MLTS_Square_conv_test.hpp. Uses
+// erk_weight_LTS_coarse_Pell_sparse (P_l-masked, but against the FULL
+// GLOBAL Kcc/Kcf/Kfc -- no local submatrix truncation of any kind,
+// exact by construction and validated bit-identical to the dense
+// reference on the L-shape problem) for every non-terminal band, and
+// the GLOBAL, unrestricted erk_weight_LTS_fine for the terminal band.
 //
-// PURPOSE (the "p and L chosen intelligently, with a relation between
-// the two" design): L is left NATURAL/unforced (no MLTS_FORCE_L), so it
-// is entirely DERIVED from p_global by the same threshold rule used
-// throughout this investigation. With this family's p growth, that
-// derived L follows 1, 2, 3, 4, 5, 6, 7 across N=0..6 (verified: every
-// band well-populated, no empty bands -- each intermediate band spans
-// exactly 2 quadtree-refinement passes, a 2-cell-thick radial shell).
-//
-// L=1 (N=0 in this family) is NEVER used anywhere in this
-// investigation -- it is not a multilevel/LTS scheme at all (the
-// recursion collapses to a single direct global RK4 call at the finest
-// CFL step). Rather than computing it and filtering it out downstream,
-// the default sweep below SKIPS it outright: default level_N = {1, 2,
-// 3, 4, 5, 6} (L=2..7), not {0..6}.
+// PURPOSE: verify that this EXACT (not truncated-submatrix) restricted
+// construction recovers order ~k+1=4 convergence on the smooth square
+// problem, now that the earlier truncated-submatrix drivers'
+// ~5x/orders-of-magnitude residuals have been traced to genuine
+// Kcc/Kcf/Kfc coupling dropped beyond a fixed-width halo (Mc_inv/Sff_inv
+// are block-diagonal so extracting them is exact; the stiffness blocks
+// are not).
 //
 // Usage example: ../../../wave_propagation -k3 -s0 -r0 -c0 -f0 -e0
 
-void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv);
+// EXPERIMENTAL, throwaway copy of ERK4_MLTS_CenterSquare_FixedLevel_conv_test
+// (not used by any campaign) -- isolates two candidate RHS-assembly
+// optimizations for non-terminal bands (whose own_w_i is masked to
+// Pell_c[i]/Pell_f[i] downstream, so assembling the RHS on the OTHER
+// cells is pure waste): (1) restrict assemble_rhs to Pell_c[i]'s cells,
+// (2) run assemble_rhs's acoustic cell loop under OpenMP. Selected via
+// MLTS_RHS_MODE = "baseline" (default, identical to the original
+// driver) | "restrict" | "parallel" | "both". Terminal band and
+// ancestor-forcing eval_F calls are UNCHANGED in every mode (out of
+// scope here, not audited for correctness under restriction/apply_bc
+// interaction -- see assemble_rhs_restricted's comment).
+void ERK4_MLTS_CenterSquare_FixedLevel_RhsOpt_conv_test(int argc, char **argv);
 
-void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
+void ERK4_MLTS_CenterSquare_FixedLevel_RhsOpt_conv_test(int argc, char **argv)
 {
-    std::cout << std::endl << bold << red << "   MULTI-LEVEL LTS SQUARE SMOOTH-SOLUTION CONVERGENCE SWEEP (PellSparse)" << std::endl << std::endl;
+    std::cout << std::endl << bold << red << "   MULTI-LEVEL LTS SQUARE SMOOTH-SOLUTION CONVERGENCE SWEEP (PellSparse, RHS-OPT EXPERIMENT)" << std::endl << std::endl;
+    const std::string rhs_mode = std::getenv("MLTS_RHS_MODE") ? std::string(std::getenv("MLTS_RHS_MODE")) : "baseline";
+    std::cout << bold << yellow << "      MLTS_RHS_MODE=" << rhs_mode << reset << std::endl;
 
     using RealType = double;
     simulation_data sim_data = preprocessor::process_args(argc, argv);
@@ -82,36 +69,44 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
 
     const std::string mesh_dir = "/home/mottie0000/Github/Diskpp/Disk/apps/wave_propagation/src/mesh_generation/center_square_fixed/meshes/";
     const size_t mesh_k = sim_data.m_k_degree;
-    // Unlike the other mesh families in this investigation,
-    // centersquareslowbg_graded never produces an L=1 point (extra >= 2
-    // always, and band0/background is always distinct from the first
-    // local level) -- so N=0 is usable here, no exclusion needed.
-    // MLTS_N_MIN/MLTS_N_MAX can still narrow or widen this range.
-    int n_min_default = 0, n_max_default = 6;
-    std::vector<int> level_N;
-    if (const char* env_n = std::getenv("MLTS_N_MAX")) n_max_default = std::atoi(env_n);
-    if (const char* env_nmin = std::getenv("MLTS_N_MIN")) n_min_default = std::atoi(env_nmin);
-    for (int n = n_min_default; n <= n_max_default; ++n) level_N.push_back(n);
+    std::vector<int> level_N = {0, 1, 2, 3, 4};
+    if (const char* env_n = std::getenv("MLTS_N_MAX")) {
+        int nmax = std::atoi(env_n);
+        level_N.clear();
+        for (int n = 0; n <= nmax; ++n) level_N.push_back(n);
+    }
+
+    // FIXED-level comparison curve: `pfam` selects a mesh family whose
+    // p_global = 2^pfam is CONSTANT across the whole N sweep (same
+    // centersq_pfix{pfam}_k3_N{N}.txt meshes as the two-level p-sweep),
+    // but here run at its NATURAL (unforced) multilevel L -- for a
+    // FIXED extra depth this stays roughly constant across N too, so
+    // this is the "fixed levels tested" curve requested alongside the
+    // "variable level" (Coarse/Ramp, extra growing with N) curve.
+    const int pfam = std::getenv("MLTS_PFAM") ? std::atoi(std::getenv("MLTS_PFAM")) : 2;
+    // Read MLTS_FORCE_L once, up front, so it can be folded into the output
+    // filename below -- without this, several MLTS_FORCE_L runs at the same
+    // MLTS_PFAM (e.g. the Version B L-sweep, all at pfam=10) would all write
+    // to the SAME file and collide if run concurrently.
+    const char* env_force_l = std::getenv("MLTS_FORCE_L");
+    const int force_l = env_force_l ? std::atoi(env_force_l) : 0;
 
     const std::string out_dir = "lshape/results";
     std::filesystem::create_directories(out_dir);
     std::ostringstream conv_fname;
-    conv_fname << out_dir << "/centersquarefixedbg_pellsparse_mlts_convergence_k_" << mesh_k;
-    // Distinct filename when MLTS_N_MIN truncates the sweep -- avoids
-    // colliding with (truncating) the full N=0..max file from a
-    // concurrent or earlier run.
-    if (std::getenv("MLTS_N_MIN")) conv_fname << "_Nmin" << std::getenv("MLTS_N_MIN");
-    conv_fname << ".txt";
+    conv_fname << out_dir << "/centersquare_fixedlevel_p" << (1 << pfam);
+    if (force_l > 0) conv_fname << "_Lforce" << force_l;
+    conv_fname << "_rhsopt_" << rhs_mode << "_mlts_convergence_k_" << mesh_k << ".txt";
     std::ofstream conv_log(conv_fname.str());
-    conv_log << "# N  h_max  h_min  p_global  L_levels  L2_error_pressure  wall_time_s  L2_error_velocity  cpu_time_s\n";
+    conv_log << "# N  h_max  h_min  p_global  L_levels  L2_error_pressure  wall_time_s  L2_error_velocity\n";
 
     for (int N : level_N) {
 
-        std::cout << bold << red << "\n   ================ MESH LEVEL N=" << N << " ================" << reset << std::endl;
+        std::cout << bold << red << "\n   ================ MESH LEVEL N=" << N << " (fixed p=2^" << pfam << ") ================" << reset << std::endl;
 
         // ---------------- Mesh ----------------
         std::ostringstream mesh_fname;
-        mesh_fname << mesh_dir << "centersquarehaloscale_graded_k" << mesh_k << "_N" << N << ".txt";
+        mesh_fname << mesh_dir << "centersq_pfix" << pfam << "_k" << mesh_k << "_N" << N << ".txt";
 
         mesh_type msh;
         {
@@ -130,29 +125,14 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
         int p_global = static_cast<int>(std::round(h_max / h_min));
         if (p_global < 1) p_global = 1;
 
-        // Band assignment for centersquareslowbg_graded (background `ell`
-        // AND local `extra` both contribute levels, unlike every other
-        // mesh family in this investigation where only one of the two
-        // does): band0 (background) is ALWAYS exactly ONE raw quadtree
-        // level -- `_uniform_refine` makes every background cell the SAME
-        // size regardless of how many ell passes happened, there is no
-        // leftover shell the way `_center_refine`'s local passes leave
-        // one -- so the very first threshold gap is 2x, not 4x. Every
-        // band AFTER that spans TWO raw local-refinement levels each (a
-        // 4x gap), matching the 2-cell-thick radial shell already
-        // established as necessary (a 1-level/1-cell-thick shell gets
-        // fully swallowed by MLTS_OVERLAP_RINGS's dilation, confirmed
-        // empirically -- see this file's mesh-generation history).
-        // p_global = 2^extra exactly (ell cancels out of h_max/h_min), so
-        // extra = log2(p_global), and L = 1 (background) + extra/2 (local
-        // pairs). Overridable via MLTS_FORCE_L as before.
-        int L_target = std::getenv("MLTS_FORCE_L")
-            ? std::atoi(std::getenv("MLTS_FORCE_L"))
-            : 1 + (int)std::round(std::log2((RealType)p_global) / 2.0);
         std::vector<RealType> thresholds;
-        if (L_target > 1) thresholds.push_back(h_max / 2.0);
-        for (int i = 1; i < L_target - 1; ++i)
-            thresholds.push_back(thresholds.back() / 4.0);
+        if (force_l > 0) {
+            for (int k = 1; k < force_l; ++k)
+                thresholds.push_back(h_max / std::pow(2.0, k));
+        } else {
+            RealType t_th = h_max / 4.0;
+            while (t_th > 2.0 * h_min) { thresholds.push_back(t_th); t_th /= 4.0; }
+        }
         const int L = (int)thresholds.size() + 1;
         std::cout << bold << cyan << "      n_cells=" << msh.cells_size()
                   << "  h_max=" << h_max << "  h_min=" << h_min
@@ -234,12 +214,7 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
             for (auto & cell : msh) {
                 RealType h = diameter(msh, cell);
                 int band = L - 1;
-                // Strict '>' (not '>=') -- with power-of-2 thresholds, a
-                // cell's diameter can land EXACTLY on a threshold value
-                // (it's the actual size of the next raw quadtree level,
-                // not just a nearby cut); '>=' would misclassify it into
-                // the coarser band instead of the one it truly belongs to.
-                for (int i = 0; i < (int)thresholds.size(); ++i) if (h > thresholds[i]) { band = i; break; }
+                for (int i = 0; i < (int)thresholds.size(); ++i) if (h >= thresholds[i]) { band = i; break; }
                 cell_band[ci] = band;
                 ci++;
             }
@@ -322,6 +297,17 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
             }
         }
 
+        // ---------------- RHS-restriction masks (RhsOpt experiment) ----------------
+        // Per non-terminal band, the set of ORIGINAL cell indices covered by
+        // Pell_c[b] (own+finer+overlap), derived from the cell-dof-block
+        // layout (dof = cell_index*cell_dof + d) already used to build
+        // own_c[] above. Only meaningful for b < L-1 -- band L-1's own_w_i
+        // is never computed (it gets the genuine RK4 step instead).
+        std::vector<std::vector<char>> active_a_cells(L, std::vector<char>(msh.cells_size(), 0));
+        for (int b = 0; b < L - 1; ++b)
+            for (int dof : Pell_c[b])
+                active_a_cells[b][(size_t)dof / cell_dof] = 1;
+
         // ---------------- Time discretization ----------------
         RealType cfl_factor = 0.05;
         if (const char* env_cfl = std::getenv("MLTS_CFL_FACTOR")) cfl_factor = std::atof(env_cfl);
@@ -342,12 +328,31 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
         std::cout << bold << cyan << "      nt=" << nt << reset << std::endl;
 
         // ---------------- Source term ----------------
+        // eval_F: terminal band + ancestor-forcing calls (band arg < 0) --
+        // ALWAYS baseline (unrestricted, serial), out of scope for this
+        // experiment. eval_F_band: non-terminal own_w_i calls, dispatches on
+        // MLTS_RHS_MODE.
         auto eval_F = [&](RealType t_abs) -> Matrix<RealType, Dynamic, 1> {
             t = t_abs;
             auto s_v_fun_t = functions.Evaluate_s_v(t);
             auto s_f_fun_t = functions.Evaluate_s_f(t);
             assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun_t, 0);
             assembler.assemble_rhs(msh, null_fun, s_f_fun_t, true);
+            return assembler.RHS;
+        };
+        auto eval_F_band = [&](RealType t_abs, int band_i) -> Matrix<RealType, Dynamic, 1> {
+            t = t_abs;
+            auto s_v_fun_t = functions.Evaluate_s_v(t);
+            auto s_f_fun_t = functions.Evaluate_s_f(t);
+            assembler.get_a_bc_conditions().updateDirichletFunction(s_v_fun_t, 0);
+            if (rhs_mode == "restrict")
+                assembler.assemble_rhs_restricted(msh, null_fun, s_f_fun_t, true, active_a_cells[band_i]);
+            else if (rhs_mode == "parallel")
+                assembler.assemble_rhs_parallel(msh, null_fun, s_f_fun_t, true);
+            else if (rhs_mode == "both")
+                assembler.assemble_rhs_restricted_parallel(msh, null_fun, s_f_fun_t, true, active_a_cells[band_i]);
+            else
+                assembler.assemble_rhs(msh, null_fun, s_f_fun_t, true);
             return assembler.RHS;
         };
 
@@ -377,7 +382,7 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
                 auto shifted = taylor_shift(w_accum, tm);
                 std::vector<Matrix<RealType,Dynamic,1>> own_w_i(4);
                 for (int j = 0; j < 4; ++j) own_w_i[j] = Matrix<RealType,Dynamic,1>::Zero(n_dof);
-                Matrix<RealType, Dynamic, 1> Fn = eval_F(t_start + tm), Fn12 = eval_F(t_start + tm + 0.5*dtau_i), Fn1 = eval_F(t_start + tm + dtau_i);
+                Matrix<RealType, Dynamic, 1> Fn = eval_F_band(t_start + tm, i), Fn12 = eval_F_band(t_start + tm + 0.5*dtau_i, i), Fn1 = eval_F_band(t_start + tm + dtau_i, i);
                 erk_an.erk_weight_LTS_coarse_Pell_sparse(xn, Pell_c[i], Pell_f[i], own_c[i], own_f[i], own_w_i, Fn, Fn12, Fn1, dtau_i);
                 std::vector<Matrix<RealType,Dynamic,1>> combined(4);
                 for (int j = 0; j < 4; ++j) combined[j] = shifted[j] + own_w_i[j];
@@ -388,7 +393,6 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
         // ---------------- Recursive time-stepping ----------------
         timecounter tc_run;
         tc_run.tic();
-        RealType cpu_start = cpu_seconds_now();
         std::vector<Matrix<RealType,Dynamic,1>> zero_w(4);
         for (int j = 0; j < 4; ++j) zero_w[j] = Matrix<RealType,Dynamic,1>::Zero(n_dof);
 
@@ -399,7 +403,6 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
                 std::cout << bold << yellow << "         step " << it << "/" << nt << reset << std::endl;
         }
         tc_run.toc();
-        RealType cpu_time = cpu_seconds_now() - cpu_start;
 
         // ---------------- Error computation (pressure + velocity) ----------------
         t = tf;
@@ -448,17 +451,15 @@ void ERK4_MLTS_CenterSquare_Adaptive_conv_test(int argc, char **argv)
         }
         RealType v_l2_error = std::sqrt(v_l2_error_sq);
 
-        std::cout << bold << red << "      wall time: " << tc_run << " s   cpu time: " << cpu_time
-                  << " s   L2_error(pressure) = "
+        std::cout << bold << red << "      wall time: " << tc_run << " s   L2_error(pressure) = "
                   << std::setprecision(10) << l2_error << "   L2_error(velocity) = " << v_l2_error << reset << std::endl;
 
         // Columns: N h_max h_min p_global L_levels L2_error_pressure
-        // wall_time_s L2_error_velocity cpu_time_s -- cpu_time_s
-        // (getrusage user+system time, immune to wall-clock delays from
-        // unrelated system load) is APPENDED LAST so older parsers
-        // (reading only the first 8 columns) keep working unchanged.
+        // wall_time_s L2_error_velocity -- the velocity column is
+        // APPENDED at the end so older parsers (reading only the first
+        // 7 columns) keep working unchanged.
         conv_log << N << " " << std::setprecision(15) << h_max << " " << h_min << " " << p_global << " " << L
-                  << " " << l2_error << " " << tc_run.elapsed() << " " << v_l2_error << " " << cpu_time << "\n";
+                  << " " << l2_error << " " << tc_run.elapsed() << " " << v_l2_error << "\n";
         conv_log.flush();
     }
 

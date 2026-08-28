@@ -128,6 +128,8 @@ using namespace Eigen;
       #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_CenterSquare_ClassicalTwoLevel_conv_test.hpp"
       #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_CenterSquare_FixedLevel_conv_test.hpp"
       #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_CenterSquare_Adaptive_conv_test.hpp"
+      #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_CenterSquare_ClassicalTwoLevel_HaloScale_conv_test.hpp"
+      #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_CenterSquare_FixedLevel_RhsOpt_conv_test.hpp" // EXPERIMENTAL, throwaway -- see file header
       #include "prototypes/LTS/ERK4_LTS_SSTAB.hpp"
       #include "prototypes/LTS/ERK4_LTS_conv_test.hpp"    
       #include "prototypes/LTS/ERK4_LTS_optimised.hpp"    
@@ -207,13 +209,26 @@ int main(int argc, char **argv){
    //    (B) p FIXED at 1024 (MLTS_PFAM=10), L FORCED explicitly via
    //        MLTS_FORCE_L=1,2,3,4,5 -- isolates the effect of L alone
    //        at constant mesh ratio
-             ERK4_MLTS_CenterSquare_FixedLevel_conv_test(argc, argv);
+             // ERK4_MLTS_CenterSquare_FixedLevel_conv_test(argc, argv);
    //
    //    (C) p variable (grows as 4^N via the centersquareadaptive_graded
    //        mesh family), L left NATURAL/unforced -- an intelligent
    //        p->L relation via the same threshold rule as (A)/(B), giving
    //        L=1,1,2,3,4 across N=0..4:
-             // ERK4_MLTS_CenterSquare_Adaptive_conv_test(argc, argv);
+             ERK4_MLTS_CenterSquare_Adaptive_conv_test(argc, argv);
+   //
+   //    (D) Classical two-level (Pcoarse/Pfine, assemble_P) run on the
+   //        SAME centersquarehaloscale_graded mesh family as (C), for a
+   //        genuine multilevel-vs-classical comparison (accuracy, wall
+   //        time, and exact process CPU time via getrusage):
+             // ERK4_MLTS_CenterSquare_ClassicalTwoLevel_HaloScale_conv_test(argc, argv);
+   //
+   //    RhsOpt experiment (restriction/OpenMP for non-terminal bands'
+   //    eval_F) concluded: NEITHER helps -- restrict gave +11.8% slower
+   //    at N=3/L=4 (isolated, no contention), parallel gave x3.1 slower.
+   //    band0 (unmaskable by construction) remains the real bottleneck;
+   //    see ERK4_MLTS_CenterSquare_FixedLevel_RhsOpt_conv_test.hpp.
+   //    // ERK4_MLTS_CenterSquare_FixedLevel_RhsOpt_conv_test(argc, argv);
 
 ///////////////////////////////////////////////////////////////////////////////////
 //////////////////////////// PLOT ARTICLES ////////////////////////////////////////
