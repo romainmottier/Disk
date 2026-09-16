@@ -1,0 +1,29 @@
+  Input parameters:
+    Iterative solver: 0
+    HHO setting: 
+      - Polynomial degree    -k: 3  (Face unknowns)
+      - Stabilization type   -s: 0  (Equal-order=0, Mixed-order=1)
+      - Scaled stabilization -r: 0  (O(1)=0, O(1/h)=1)
+      - Static condensation  -c: 0
+    Mesh:- Refinement level     -l : 3
+    Time refinement level -n : 100
+Number of ERK steps =  4
+Number of time steps = 200
+Step size =  0.005
+Sub-step size =  0.0025
+Number of sub-steps = 2
+Number of equations : 7248
+Space step = 0.176777
+Characteristic h = 0.132583
+Characteristic h size = 0.0883883
+Elastic region : 
+L2-norm error = 0.000793708893530572
+H1-norm error = 0.007568414508288223
+Acoustic region : 
+L2-norm error = 0.0008408912815677484
+H1-norm error = 0.01003707551629775
+
+L2 errors of dG unknowns: 
+Acoustic region : 0.01003654290827933
+Elastic  region : 0.007568328813545242
+

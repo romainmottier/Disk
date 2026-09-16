@@ -1,0 +1,38 @@
+# CMake generated Testfile for 
+# Source directory: /home/mottie0000/Github/Diskpp/Disk/unit_tests
+# Build directory: /home/mottie0000/Github/Diskpp/Disk/build/unit_tests
+# 
+# This file includes the relevant testing commands required for 
+# testing this directory and lists subdirectories to be tested as well.
+add_test(primitives "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/primitives")
+set_tests_properties(primitives PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;5;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quad_raw_triangle_gauss "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quad_raw_triangle_gauss")
+set_tests_properties(quad_raw_triangle_gauss PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;9;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quad_raw_dunavant "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quad_raw_dunavant")
+set_tests_properties(quad_raw_dunavant PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;13;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quad_raw_gm_triangles "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quad_raw_gm_triangles")
+set_tests_properties(quad_raw_gm_triangles PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;17;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quad_raw_tensorized_gl "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quad_raw_tensorized_gl")
+set_tests_properties(quad_raw_tensorized_gl PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;21;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quad_raw_tetra "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quad_raw_tetra")
+set_tests_properties(quad_raw_tetra PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;25;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quadratures "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quadratures")
+set_tests_properties(quadratures PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;29;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quadratures_divthm "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quadratures_divthm")
+set_tests_properties(quadratures_divthm PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;33;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(monomial_bases_1D "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/monomial_bases_1D")
+set_tests_properties(monomial_bases_1D PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;37;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(monomial_bases_2D "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/monomial_bases_2D")
+set_tests_properties(monomial_bases_2D PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;41;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(simple_mesher_3D "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/simple_mesher_3D")
+set_tests_properties(simple_mesher_3D PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;45;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(harmonic "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/harmonic")
+set_tests_properties(harmonic PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;49;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(quad_raw_gauss_lobatto "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/quad_raw_gauss_lobatto")
+set_tests_properties(quad_raw_gauss_lobatto PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;53;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(simple_meshers_2D_boundary_numbering "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/simple_meshers_2D_boundary_numbering")
+set_tests_properties(simple_meshers_2D_boundary_numbering PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;57;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(dga_geom "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/dga_geom")
+set_tests_properties(dga_geom PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;61;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")
+add_test(dga_matrices "/home/mottie0000/Github/Diskpp/Disk/build/unit_tests/dga_matrices")
+set_tests_properties(dga_matrices PROPERTIES  _BACKTRACE_TRIPLES "/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;65;add_test;/home/mottie0000/Github/Diskpp/Disk/unit_tests/CMakeLists.txt;0;")

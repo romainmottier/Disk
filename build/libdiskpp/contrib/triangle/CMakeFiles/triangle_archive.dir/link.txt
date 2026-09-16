@@ -1,0 +1,2 @@
+/usr/bin/ar qc libtriangle_archive.a CMakeFiles/triangle_archive.dir/triangle_mesher.c.o
+/usr/bin/ranlib libtriangle_archive.a

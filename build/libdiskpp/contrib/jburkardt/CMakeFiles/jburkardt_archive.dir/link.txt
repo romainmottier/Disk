@@ -1,0 +1,2 @@
+/usr/bin/ar qc libjburkardt_archive.a CMakeFiles/jburkardt_archive.dir/src/triangle_dunavant_rule.cpp.o CMakeFiles/jburkardt_archive.dir/src/jb_common.cpp.o CMakeFiles/jburkardt_archive.dir/src/simplex_gm_rule.cpp.o CMakeFiles/jburkardt_archive.dir/src/tetrahedron_arbq_rule.cpp.o
+/usr/bin/ranlib libjburkardt_archive.a

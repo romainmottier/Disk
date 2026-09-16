@@ -85,7 +85,21 @@ using namespace Eigen;
 
    // LTS
       // CONV TEST 
-      #include "prototypes/LTS/ERK4_LTS.hpp"     
+      #include "prototypes/LTS_ERK_SDIRK/dirk_coupling_hho_scheme.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_LTS.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_LTS_conv_test.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_LTS_MeshConv_test.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_CenterSquare_HaloScale_PlaneWave_conv_test.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/dirk_coupling_hho_scheme_condensed.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_CenterSquare_HaloScale_PlaneWave_Condensed_conv_test.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/dirk_coupling_hho_scheme_condensed_local.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_CenterSquare_HaloScale_PlaneWave_CondensedLocal_conv_test.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/dirk_coupling_hho_scheme_condensed_local_v2.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_CenterSquare_HaloScale_PlaneWave_CondensedLocalV2_conv_test.hpp"
+      #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_CenterSquare_HaloScale_SlowSine_conv_test.hpp"
+      #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_CenterSquare_ClassicalTwoLevel_HaloScale_SlowSine_conv_test.hpp"
+      #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_CenterSquare_ClassicalTwoLevel_HaloScale_PlaneWave_conv_test.hpp"
+      #include "prototypes/LTS/ERK4_LTS.hpp"
       #include "prototypes/LTS/ERK4_LTS_stab.hpp"     
       #include "prototypes/LTS/ERK4_LTS_stab_acou.hpp"
       #include "prototypes/LTS/LHS_spectrum_acou.hpp"
@@ -215,7 +229,7 @@ int main(int argc, char **argv){
    //        mesh family), L left NATURAL/unforced -- an intelligent
    //        p->L relation via the same threshold rule as (A)/(B), giving
    //        L=1,1,2,3,4 across N=0..4:
-             ERK4_MLTS_CenterSquare_Adaptive_conv_test(argc, argv);
+             // ERK4_MLTS_CenterSquare_Adaptive_conv_test(argc, argv);
    //
    //    (D) Classical two-level (Pcoarse/Pfine, assemble_P) run on the
    //        SAME centersquarehaloscale_graded mesh family as (C), for a
@@ -244,6 +258,18 @@ int main(int argc, char **argv){
    // AcousticHeterogeneousPulse_LTS_RK4(argc, argv); 
 
    // EHHOFirstOrder(argc, argv);
+   // LI-SDIRK(4,3): explicit LTS-ERK coarse region + implicit SDIRK(3,4) fine region
+   // LI_SDIRK_LTS(argc, argv);
+   // LI_SDIRK_LTS_conv_test(argc, argv);
+   // LI_SDIRK_LTS_MeshConv_test(argc, argv);
+   // ERK4_MLTS_CenterSquare_ClassicalTwoLevel_HaloScale_PlaneWave_conv_test(argc, argv);
+   // LI_SDIRK_CenterSquare_HaloScale_PlaneWave_conv_test(argc, argv);
+   // LI_SDIRK_CenterSquare_HaloScale_PlaneWave_Condensed_conv_test(argc, argv);
+   // LI_SDIRK_CenterSquare_HaloScale_PlaneWave_CondensedLocal_conv_test(argc, argv);
+   // LI_SDIRK_CenterSquare_HaloScale_PlaneWave_CondensedLocalV2_conv_test(argc, argv);
+   ERK4_MLTS_CenterSquare_ClassicalTwoLevel_HaloScale_SlowSine_conv_test(argc, argv);
+   // LI_SDIRK_CenterSquare_HaloScale_SlowSine_conv_test(argc, argv);
+   // ERK4_MLTS_CenterSquare_ClassicalTwoLevel_HaloScale_conv_test(argc, argv);
    // ERK4_LTS(argc, argv);
    // ERK4_LTS_conv_test(argc, argv);
    // ERK4_LTS_stab(argc, argv);

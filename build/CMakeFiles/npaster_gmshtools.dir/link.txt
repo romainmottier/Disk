@@ -1,0 +1,2 @@
+/usr/bin/ar qc libnpaster_gmshtools.a CMakeFiles/npaster_gmshtools.dir/contrib/gmsh_tools/gmshData.cpp.o CMakeFiles/npaster_gmshtools.dir/contrib/gmsh_tools/gmshElement.cpp.o CMakeFiles/npaster_gmshtools.dir/contrib/gmsh_tools/gmshMesh.cpp.o
+/usr/bin/ranlib libnpaster_gmshtools.a
