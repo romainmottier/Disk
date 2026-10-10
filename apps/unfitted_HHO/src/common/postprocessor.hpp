@@ -76,7 +76,7 @@ public:
         T L2_error = 0.0;
         T H1_own   = 0.0;
         T L2_own   = 0.0;
-        T h = 0.0; // mesh size: largest diameter of the cells
+        T h = std::numeric_limits<T>::max();
 
         auto celdeg = prm.hdi.cell_degree();
 
@@ -85,7 +85,7 @@ public:
             auto loc = P.side;
             T kappa = (loc == disk::location::IN_NEGATIVE_SIDE) ? test_case.parms.kappa_1
                                                                 : test_case.parms.kappa_2;
-            h = std::max(h, diameter(msh, cl));
+            h = std::min(h, diameter(msh, cl));
 
             disk::cut_scalar_basis<Mesh> cb(msh, cl, celdeg, loc, prm.basis);
             Eigen::Matrix<T, Eigen::Dynamic, 1> cell_dofs = assembler.take_cell_dofs(msh, cl, x_dof, loc);
@@ -123,12 +123,12 @@ public:
     {
         T H1_error = 0.0;
         T L2_error = 0.0;
-        T h = 0.0; // mesh size: largest diameter of the cells
+        T h = std::numeric_limits<T>::max();
 
         auto celdeg = prm.hdi.cell_degree();
 
         for (auto& cl : msh)
-            h = std::max(h, diameter(msh, cl));
+            h = std::min(h, diameter(msh, cl));
 
         for (size_t q = 0; q < macros.size(); q++) {
             const auto& Q = macros[q];

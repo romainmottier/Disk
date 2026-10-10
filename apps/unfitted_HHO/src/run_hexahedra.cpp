@@ -3,5 +3,5 @@
 
 void run_hexahedra(const simulation_options& opts, bool agglomeration)
 {
-    Elliptic_Interface<disk::cartesian_mesh<double, 3>>(opts, agglomeration);
+    run_mesh<disk::cartesian_mesh<double, 3>>(opts, agglomeration);
 }

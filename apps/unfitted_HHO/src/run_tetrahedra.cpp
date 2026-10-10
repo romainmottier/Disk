@@ -3,5 +3,5 @@
 
 void run_tetrahedra(const simulation_options& opts, bool agglomeration)
 {
-    Elliptic_Interface<disk::simplicial_mesh<double, 3>>(opts, agglomeration);
+    run_mesh<disk::simplicial_mesh<double, 3>>(opts, agglomeration);
 }

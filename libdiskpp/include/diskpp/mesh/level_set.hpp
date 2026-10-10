@@ -23,6 +23,7 @@
 #pragma once
 
 #include <cmath>
+#include <complex>
 #include <Eigen/Dense>
 
 #include "diskpp/mesh/point.hpp"
@@ -215,5 +216,160 @@ struct flower_level_set: public level_set<T>
         ret(0) = 2*X - a * N * std::sin(N * theta) * Y / (X*X + Y*Y);
         ret(1) = 2*Y + a * N * std::sin(N * theta) * X / (X*X + Y*Y);
         return ret;
+    }
+};
+
+/* Coordinates y = Q^T (x - c) of a point in a frame of center c and of
+ * orthonormal axes the columns of Q */
+template<typename T, size_t DIM, typename Rotation>
+Eigen::Matrix<T,DIM,1>
+frame_coordinates(const disk::point<T,DIM>& pt, const disk::point<T,DIM>& c, const Rotation& Q)
+{
+    Eigen::Matrix<T,DIM,1> x;
+    for (size_t i = 0; i < DIM; i++)
+        x(i) = pt[i] - c[i];
+    return Q.transpose() * x;
+}
+
+/* Rotation of angle "a" in 2D; rotations of angles a, b, c around the axes
+ * z, y, x (Rz(a) Ry(b) Rx(c)) in 3D */
+template<typename T, size_t DIM>
+Eigen::Matrix<T,DIM,DIM>
+rotation_matrix(T a, T b = 0, T c = 0)
+{
+    Eigen::Matrix<T,DIM,DIM> Q;
+    if constexpr (DIM == 2) {
+        Q << std::cos(a), -std::sin(a),
+             std::sin(a),  std::cos(a);
+    }
+    else {
+        Eigen::Matrix<T,3,3> Rz, Ry, Rx;
+        Rz << std::cos(a), -std::sin(a), 0, std::sin(a), std::cos(a), 0, 0, 0, 1;
+        Ry << std::cos(b), 0, std::sin(b), 0, 1, 0, -std::sin(b), 0, std::cos(b);
+        Rx << 1, 0, 0, 0, std::cos(c), -std::sin(c), 0, std::sin(c), std::cos(c);
+        Q = Rz * Ry * Rx;
+    }
+    return Q;
+}
+
+/* Superellipse (superellipsoid in 3D) of semi-axes a_d along the columns of
+ * Q, centered at c: s (sum_d (y_d/a_d)^p - 1), y = Q^T (x - c), p even. p = 2
+ * gives an ellipse (ellipsoid), p = 4 a rounded rectangle (box). The scale s
+ * = 2 mean(a)^2/p makes |grad phi| of the order of that of the circle. */
+template<typename T, size_t DIM = 2>
+struct superellipse_level_set: public level_set<T, DIM>
+{
+    disk::point<T,DIM>          center;
+    Eigen::Matrix<T,DIM,1>      axes;
+    Eigen::Matrix<T,DIM,DIM>    Q;
+    size_t                      p;
+    T                           scale;
+
+    superellipse_level_set(const disk::point<T,DIM>& c, const Eigen::Matrix<T,DIM,1>& a,
+                           const Eigen::Matrix<T,DIM,DIM>& rot, size_t exponent)
+        : center(c), axes(a), Q(rot), p(exponent)
+    {
+        T am = a.mean();
+        scale = 2 * am * am / p;
+    }
+
+    T operator()(const disk::point<T,DIM>& pt) const {
+        auto y = frame_coordinates(pt, center, Q);
+        T s = 0;
+        for (size_t d = 0; d < DIM; d++)
+            s += std::pow(y(d) / axes(d), T(p));
+        return scale * (s - 1);
+    }
+
+    Eigen::Matrix<T,DIM,1> gradient(const disk::point<T,DIM>& pt) const {
+        auto y = frame_coordinates(pt, center, Q);
+        Eigen::Matrix<T,DIM,1> g;
+        for (size_t d = 0; d < DIM; d++)
+            g(d) = scale * p * std::pow(y(d) / axes(d), T(p - 1)) / axes(d);
+        return Q * g;
+    }
+};
+
+/* (sqrt(y_1^2 + y_2^2) - R)^2 + sum_{d >= 3} y_d^2 - r^2, y = Q^T (x - c): the
+ * annulus R - r < |x - c| < R + r in 2D (interface made of two circles), a
+ * torus of axis Q e_3 in 3D */
+template<typename T, size_t DIM = 2>
+struct torus_level_set: public level_set<T, DIM>
+{
+    disk::point<T,DIM>          center;
+    T                           R, r;
+    Eigen::Matrix<T,DIM,DIM>    Q;
+
+    torus_level_set(const disk::point<T,DIM>& c, T R_, T r_, const Eigen::Matrix<T,DIM,DIM>& rot)
+        : center(c), R(R_), r(r_), Q(rot)
+    {}
+
+    T operator()(const disk::point<T,DIM>& pt) const {
+        auto y = frame_coordinates(pt, center, Q);
+        T rho = std::sqrt(y(0)*y(0) + y(1)*y(1));
+        T s = (rho - R) * (rho - R) - r * r;
+        for (size_t d = 2; d < DIM; d++)
+            s += y(d) * y(d);
+        return s;
+    }
+
+    Eigen::Matrix<T,DIM,1> gradient(const disk::point<T,DIM>& pt) const {
+        auto y = frame_coordinates(pt, center, Q);
+        T rho = std::sqrt(y(0)*y(0) + y(1)*y(1));
+        Eigen::Matrix<T,DIM,1> g = Eigen::Matrix<T,DIM,1>::Zero();
+        if (rho > 0) {
+            g(0) = 2 * (rho - R) * y(0) / rho;
+            g(1) = 2 * (rho - R) * y(1) / rho;
+        }
+        for (size_t d = 2; d < DIM; d++)
+            g(d) = 2 * y(d);
+        return Q * g;
+    }
+};
+
+/* |x - c|^2 - R^2 + a Re(w^n), w = ((x_1 - c_1) + i (x_2 - c_2)) / |x - c|:
+ * the flower (55b) in 2D (Re(w^n) = cos(n theta)), in 3D a sphere with n
+ * petals around the axis x_3 (Re(w^n) = sin(psi)^n cos(n theta)) */
+template<typename T, size_t DIM = 2>
+struct star_level_set: public level_set<T, DIM>
+{
+    disk::point<T,DIM>  center;
+    T                   radius, a;
+    size_t              n;
+
+    star_level_set(const disk::point<T,DIM>& c, T R, T a_, size_t n_)
+        : center(c), radius(R), a(a_), n(n_)
+    {}
+
+    T operator()(const disk::point<T,DIM>& pt) const {
+        Eigen::Matrix<T,DIM,1> y;
+        for (size_t i = 0; i < DIM; i++)
+            y(i) = pt[i] - center[i];
+        T rho = y.norm();
+        T ret = rho * rho - radius * radius;
+        if (rho > 0)
+            ret += a * std::real(std::pow(std::complex<T>(y(0), y(1)) / rho, int(n)));
+        return ret;
+    }
+
+    Eigen::Matrix<T,DIM,1> gradient(const disk::point<T,DIM>& pt) const {
+        Eigen::Matrix<T,DIM,1> y;
+        for (size_t i = 0; i < DIM; i++)
+            y(i) = pt[i] - center[i];
+        T rho = y.norm();
+        Eigen::Matrix<T,DIM,1> g = 2 * y;
+        if (rho > 0) {
+            /* P = Re(z^n), z = y_1 + i y_2: grad P = n (Re z^(n-1), -Im z^(n-1)),
+             * grad (P/rho^n) = grad P / rho^n - n P y / rho^(n+2) */
+            std::complex<T> z(y(0), y(1));
+            std::complex<T> zn1 = std::pow(z, int(n) - 1);
+            T P = std::real(zn1 * z);
+            T rn = std::pow(rho, T(n));
+            Eigen::Matrix<T,DIM,1> gP = Eigen::Matrix<T,DIM,1>::Zero();
+            gP(0) = n * std::real(zn1);
+            gP(1) = -T(n) * std::imag(zn1);
+            g += a * (gP / rn - n * P * y / (rn * rho * rho));
+        }
+        return g;
     }
 };

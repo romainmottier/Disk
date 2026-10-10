@@ -3,5 +3,5 @@
 
 void run_quadrangles(const simulation_options& opts, bool agglomeration)
 {
-    Elliptic_Interface<disk::cartesian_mesh<double, 2>>(opts, agglomeration);
+    run_mesh<disk::cartesian_mesh<double, 2>>(opts, agglomeration);
 }

@@ -5,8 +5,10 @@
  * Prototypes: -p0 stabilization by polynomial extension
  *             -p1 stabilization by cell agglomeration [12]
  * Meshes:     -M0 quadrangles (paper), 1 triangles, 2 polygons (hexagons),
- *             -M3 hexahedra, 4 tetrahedra, 5 polyhedra (hexagonal prisms),
- *             -M6 unstructured triangles, 7 unstructured tetrahedra (gmsh)
+ *             -M3 hexahedra, 4 tetrahedra, 5 polyhedra (hexagonal prisms)
+ * Local refinement: -x n (default 3) refines at most n times the cells that
+ *             the interface does not cut once, if any (polytopal meshes); -x 0
+ *             keeps the meshes (paper)
  * Example: convergence test of Fig. 6 (circle, k = 0..3, l = 0..4)
  *   ./unfitted_HHO -p0 -i0 -t0 -k3 -l4 -r8
  */
@@ -38,13 +40,11 @@ int main(int argc, char **argv)
 
     switch (mesh_kind(opts.mesh)) {
         case mesh_kind::quadrangles: run_quadrangles(opts, agglomeration); break;
-        case mesh_kind::triangles:   run_triangles(opts, agglomeration);   break;
-        case mesh_kind::polygons:    run_polygons(opts, agglomeration);    break;
-        case mesh_kind::hexahedra:   run_hexahedra(opts, agglomeration);   break;
-        case mesh_kind::tetrahedra:  run_tetrahedra(opts, agglomeration);  break;
-        case mesh_kind::polyhedra:   run_polyhedra(opts, agglomeration);   break;
-        case mesh_kind::unstructured_triangles:  run_triangles(opts, agglomeration);  break;
-        case mesh_kind::unstructured_tetrahedra: run_tetrahedra(opts, agglomeration); break;
+        case mesh_kind::triangles:   run_triangles(opts,   agglomeration); break;
+        case mesh_kind::polygons:    run_polygons(opts,    agglomeration); break;
+        case mesh_kind::hexahedra:   run_hexahedra(opts,   agglomeration); break;
+        case mesh_kind::tetrahedra:  run_tetrahedra(opts,  agglomeration); break;
+        case mesh_kind::polyhedra:   run_polyhedra(opts,   agglomeration); break;
         default:
             std::cout << "Unknown mesh " << opts.mesh << std::endl;
             return 1;

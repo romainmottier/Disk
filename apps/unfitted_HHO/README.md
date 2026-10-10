@@ -21,10 +21,10 @@ other meshes of diskpp, in 2D and 3D (see *Meshes and dimension*).
 | `-k` | face degree k (cell degree k+1); degrees `-K`..`k` are run | 0 |
 | `-l` | refinement level (quadrangles: mesh of (10·2^l)² cells, see below for the other meshes); levels `-L`..`l` are run | 0 |
 | `-K`, `-L` | first degree / first level of the loops | 0 |
-| `-i` | interface: 0 circle (sphere in 3D), 1 flower (55b), 2 square, 3 flower of ProtoN (− c cos nθ) | 0 |
+| `-i` | interface: 0 circle (sphere in 3D), 1 flower (55b) (3D: sphere with 4 petals), 2 square (2D), 3 flower of ProtoN (− c cos nθ, 2D), 4 ellipse (ellipsoid), 5 rounded square (cube), 6 annulus (torus); see *Interfaces* | 0 |
 | `-R` | radius of the circle / flower / sphere | 1/3 |
 | `-d` | square interface shifted by δ = 0.5·10^-d (coarsest mesh only: on finer meshes its sides lie on mesh lines) | 2 |
-| `-t` | test case: 0 (56), 1 (57), 2 (58a), 3 (58b), 4 (59) | 0 |
+| `-t` | test case: 0 (56), 1 (57), 2 (58a), 3 (58b), 4 (59), 5 contrast for any interface: u_i = ∏ sin(π x_d) / κ_i (1, 2, 3 need the circle or the sphere) | 0 |
 | `-m` | contrast κ₂ = 10^m κ₁ | 0 |
 | `-g` | interface in the cut cells: -1 exact (root of the level set), 0 polyline of `-r` (paper), q ≥ 2 polynomial of degree q, -2 polynomial of degree k+2 (2D) | -1 |
 | `-r` | polyline of 2^r segments in each cut cell (`-g 0`, and fallback of the curved interfaces) | 8 |
@@ -35,6 +35,7 @@ other meshes of diskpp, in 2D and 3D (see *Meshes and dimension*).
 | `-c` | static condensation of the cell unknowns: 0 none, 1 local (patches), 2 algebraic | 1 |
 | `-s` | solver: 0 SimplicialLDLT, 1 conjugate gradient (Jacobi), 2 Pardiso (Intel MKL) | 2 with MKL, else 0 |
 | `-u` | 1: local operators of the uncut cells computed once per shape | 1 |
+| `-x` | local refinement of the cells that the interface does not cut once, at most x times, if there are any (polytopal meshes, see *Local refinement*); 0: none | 3 |
 | `-q` | 1: compute the condition number, also after a diagonal scaling (dense, coarse meshes only) | 0 |
 | `-z` | 1: write the block sparsity pattern (`sparsity_k*_l*.txt`) | 0 |
 | `-f` | 1: debug outputs (silo, okc arrows, `cells_l*.txt`) | 0 |
@@ -56,8 +57,9 @@ writes `fig5.png` ... `fig12.png` in `results`, the cell-agglomeration curves
 being dashed. The script uses the parameters of ProtoN, with which the figures
 of the paper were computed: η_N = (k+1)² (`-e -1`), scaled monomial bases
 centered on the subcells (`-b 1`), the pairing of ProtoN (`-P 0`), the
-polyline interface (`-g 0`), and the full system solved by SimplicialLDLT
-(`-c 0 -s 0 -u 0`).
+polyline interface (`-g 0`), the full system solved by SimplicialLDLT
+(`-c 0 -s 0 -u 0`), and the meshes of the paper, without local refinement
+(`-x 0`).
 
 ## Default discretization
 
@@ -131,7 +133,10 @@ method of the paper at high degree, without changing its formulation:
 * **local operators**: the integrals are computed by matrix products of the
   values of the bases at all the quadrature points (B1ᵀ diag(w) B2), the bases
   being evaluated by blocks; the gradient reconstruction uses the mass matrix
-  of the scalar basis for each component.
+  of the scalar basis for each component;
+* **local refinement** (`-x 3`): if some cells of the meshes of the run are
+  not cut once by the interface, these cells are refined (see *Local
+  refinement*); otherwise the meshes are not changed.
 
 With these defaults, the convergence is optimal up to k = 4 on the finest
 meshes tested (flower, k = 4: H1 errors 3.9e-6, 1.1e-7, 3.2e-9, 1.0e-10 on the
@@ -163,9 +168,13 @@ The method assumes that the mesh resolves the interface: each cell is cut
 once, i.e. the interface crosses each face at most once. The detection of the
 cut faces only checks the signs of the level set at the nodes; when the
 refined interface of a cell leaves it (a face crossed twice, e.g. the flower
-on level 1, where the interface dips 1.6 % of h below a face in 8 cells), a
-warning is printed and the points of the interface outside the cell are
-projected onto its faces, so that the cell is still cut once.
+on level 1, where the interface dips 1.6 % of h below a face in 8 cells), the
+cell is refined (`-x`, default). With `-x 0`, a warning is printed and the
+points of the interface outside the cell are projected onto its faces, as in
+ProtoN: the parts of the cell are then self-touching polygons whose
+triangulations have negative weights, and the errors of the test cases with
+jumps are unreliable in these cells (flower, (59), level 1, k = 1: negative
+sum of the squared errors, NaN).
 
 ## Meshes and dimension
 
@@ -181,9 +190,27 @@ mesh of diskpp, in 2D and 3D (`-M`):
 | 4 | tetrahedra | (5·2^l)³ cubes split into the 6 tetrahedra of the Kuhn subdivision |
 | 5 | polyhedra | hexagonal prisms: level l+1 of FVCA5 extruded in 5·2^l layers |
 
-In 3D, the interface is the sphere of radius `-R` centered at (0.5, 0.5, 0.5),
-and the test cases (56)-(59) are the same functions of ρ (and
-∏ sin(π x_d), e^x cos y).
+**Interfaces** (`-i`), centered at (0.5, 0.5[, 0.5]); the new ones are
+rotated (angle 0.4 in 2D, rotations of angles 0.5, 0.3, 0.7 about z, y, x in
+3D) so as not to be aligned with the meshes:
+
+| `-i` | 2D | 3D |
+|------|----|----|
+| 0 | circle of radius `-R` | sphere of radius `-R` |
+| 1 | flower (55b): ρ² − R² + 0.03 cos 8θ | sphere with 4 petals: ρ² − R² + 0.03 Re(w⁴), w = (x̃ + i ỹ)/ρ |
+| 2 | square (Fig. 12, quadrangles, level 0 only) | – |
+| 3 | flower of ProtoN | – |
+| 4 | ellipse, semi-axes 0.36, 0.2 | ellipsoid, semi-axes 0.36, 0.26, 0.18 |
+| 5 | rounded square ∑ y_d⁴ = 0.3⁴ | rounded cube ∑ y_d⁴ = 0.3⁴ |
+| 6 | annulus 0.18 < ρ < 0.42 (two circles) | torus R = 0.28, r = 0.14 |
+
+The test cases (56)-(59) are the same functions in 3D (of ρ, and of
+∏ sin(π x_d), e^x cos y); (57), (58a), (58b) need the circle or the sphere,
+(56), (59) and the contrast test 5 hold for any interface (their jumps are
+computed with the normal of the level set). On the meshes finer than the
+level 0, the vertical sides of the square lie on mesh lines: the parts of
+the cells along them have a zero area and the system is singular (the paper
+only uses the square on the level 0).
 
 **Structure.** `disk::cut_mesh<Mesh>` (`libdiskpp/.../mesh/cut_mesh.hpp`) is a
 mesh of diskpp of any type with the description of its cut by the level set:
@@ -248,13 +275,80 @@ tetrahedra, (59), k = 2: L2 errors 2.0e-4, 1.3e-5, 7.9e-7). Cost in 3D, k = 3,
 hexahedra, level 2 (8000 cells, 824 cut cells): assembly 13 s, solve
 (Pardiso, 250 000 face unknowns) 7.6 s, errors 5.7 s.
 
+**Campaign on the structured meshes** (default settings, local refinement
+`-x 3` triggered where needed): the 6 meshes, all the smooth interfaces
+(`-i` 0, 1, 3, 4, 5, 6 in 2D, 0, 1, 4, 5, 6 in 3D), the tests (56), (59)
+and 5 (contrast κ₂ = 100 κ₁) for every interface and (57), (58a), (58b) for
+the circle and the sphere, both stabilizations (polynomial extension up to
+k = 3, agglomeration up to k = 2), levels 0 to 3 (2D) or 2 (3D): 219 runs, of
+which 109 used refined meshes. The least-squares orders over the levels ≥ 1
+are within 0.25 of the optimal ones (k+2 for L2, k+1 for H1) in 217 runs. The
+two others: the torus on the prisms with a contrast, k = 3 (4.45 / 3.41 from
+level 1 to 2, 4.96 / 3.86 on average from level 0, pre-asymptotic on these
+coarse prisms), and the square on the hexagons (not supported, see below).
+
 **Limitations.** The cells must be convex for the splitting (other cells
 fall back to the subdivision when the direct construction fails), and each
-cell and face must be cut once (the mesh resolves the interface). In debug
+cell and face must be cut once: the local refinement (`-x`) ensures it for
+smooth interfaces; the interfaces must be smooth (except the square on the
+level 0) and must not touch the boundary of the domain. The background
+meshes are meant to be structured (`-M` 0 to 5): unstructured meshes were
+not pursued. In debug
 builds, `measure()` of diskpp asserts on the hexahedra of `cartesian_mesh`
-(`assert(pts.size() == 4)` instead of 8, not modified); the quadrature of
-diskpp on the uncut polyhedra of `generic_mesh` (Grundmann-Möller rules on
-a subdivision) is slow at high degree.
+(`assert(pts.size() == 4)` instead of 8, not modified).
+
+## Local refinement
+
+The meshes do not resolve every interface (petals and torus on the coarsest
+meshes, edges nearly tangent to the interface): some cells are not cut once.
+`disk::cut_once_violations` (`cut_mesh.hpp`) finds the cells
+
+* with an edge that the level set crosses more often than the signs at its
+  ends tell (16 points per edge), in particular twice with no change of sign,
+* with a face, or which are, cut more than once,
+* where the interface leaves a face or the cell between two crossings of its
+  boundary, or pokes through a face or the cell without crossing its edges,
+* (3D) whose parts could only be integrated by subdivision.
+
+A curved interface that cannot be built while the cell is cut once (corner
+of the square) is not a violation: the polyline is then a simple polygon.
+
+These cells are split as on the next level of the mesh, and so on, at most
+`-x` times (`common/refinement.hpp`): triangles into 4 triangles, the other
+polygons into quadrangles joining the middles of their edges to their
+barycenter (quadrangles into 4, hexagons into 6), tetrahedra into 8 (the
+inner octahedron split along its shortest diagonal), prisms and hexahedra by
+splitting their base polygon and their height. The refinement is balanced:
+two cells sharing a point differ by at most one level. Without this
+balance, a large ill-cut cell could be paired with a cell refined 3 times,
+whose polynomial, extended to the ill-cut cell, is extrapolated 8 times
+beyond its cell (rounded cube, hexahedra, level 2, k = 3: H1 error with the
+extension 4.2e-3 instead of 1.4e-5). The coarser neighbors of a refined cell
+keep their faces, split at the new points, i.e. the refinement creates
+hanging nodes. For HHO methods, a cell with a hanging
+node is just a polygon (polyhedron) with aligned vertices, whose sub-faces
+carry their own face unknowns: the refined mesh is a polytopal mesh
+(`disk::generic_mesh`), with no conformity condition. Some geometric
+computations of diskpp degenerate on aligned vertices (normal of a face from
+its first three vertices, Kahan formula for a triangle of zero area,
+convexity test of the polygons); for such elements of the generic meshes,
+the overloads of `cut_mesh` compute the quadratures, measures, centroids and
+normals from fans of triangles (tetrahedra) around the average of the
+vertices (Newell normal), the other elements keeping the computations of
+diskpp. The cells of the 3D generic meshes (refined meshes, prisms) are
+integrated on tetrahedra with the rules of Xiao and Gimbutas (`arbq`, positive
+weights, as on the tetrahedral meshes) instead of the Grundmann-Möller rules
+of diskpp, whose weights are negative from the degree 2 on: they are exact
+for the polynomials, but the computed squared errors of non-polynomial
+functions could be negative (L2 error of the ellipsoid, tetrahedra, k = 3:
+NaN, or underestimated 3 times).
+
+By default (`-x 3`), the meshes of all the levels of the run are first
+checked: if no cell violates the assumption, the run uses the meshes of
+`-M` unchanged (same results as before); otherwise all the levels use the
+locally refined meshes, run as polytopal meshes, and h is the largest
+diameter of the cells (that of the background mesh). `-x 0` keeps the
+meshes (projection of the interface onto the faces, see above).
 
 ## Choice of η_N
 
@@ -304,7 +398,8 @@ differences are:
   signed cross-product areas instead of the Kahan formula, which returned NaN;
 * with cell agglomeration, the Dirichlet jump of the right-hand side uses the
   same bases and penalty as the matrix;
-* when the interface crosses a face twice (flower, level 1), its excursion out
-  of the cell is projected onto the face (see above); ProtoN integrated over
-  the resulting self-intersecting polygons, which changes the errors of the
-  flower on level 1 by at most 1e-3 relative for k <= 2 and 2 % for k = 3.
+* when the interface crosses a face twice (flower, level 1), the cells are
+  refined (`-x`); with `-x 0`, the excursion out of the cell is projected onto
+  the face (see above), whereas ProtoN integrated over the resulting
+  self-intersecting polygons, which changes the errors of the flower on
+  level 1 by at most 1e-3 relative for k <= 2 and 2 % for k = 3.

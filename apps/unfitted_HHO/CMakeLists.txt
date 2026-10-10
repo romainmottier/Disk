@@ -4,7 +4,7 @@ set(LINK_LIBS diskpp)
 add_executable(unfitted_HHO src/unfitted_HHO.cpp
                src/run_quadrangles.cpp src/run_triangles.cpp src/run_polygons.cpp
                src/run_hexahedra.cpp src/run_tetrahedra.cpp src/run_polyhedra.cpp
-               src/common/external_meshes.cpp)
+               src/common/hexagon_mesh.cpp)
 
 # The Intel threading layer of MKL linked by diskpp (mkl_intel_thread) needs
 # the OpenMP runtime of Intel. Where libiomp5 is the libomp of LLVM (Debian,

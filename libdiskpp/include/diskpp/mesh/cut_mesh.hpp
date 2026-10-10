@@ -245,6 +245,200 @@ concept CutMesh = requires(const M& m) {
     m.cut_cell_data;
 };
 
+/* Polytopal cells and faces with aligned consecutive vertices (hanging nodes
+ * of a local refinement of the mesh): some computations of diskpp degenerate
+ * for them (normal from the first three vertices, Kahan formula for the
+ * triangles of zero area, convexity test of the polygons). For such elements
+ * of the generic meshes, the quadratures, measures, centroids and normals are
+ * computed from the triangles (tetrahedra) joining the average of the
+ * vertices to the edges (faces), which are not degenerate for convex
+ * elements. The other elements keep the computations of diskpp, but the
+ * cells of the 3D generic meshes, integrated with positive weights (see
+ * positive_cell_quadrature). */
+template<typename Mesh>
+struct is_generic_mesh : std::false_type {};
+
+template<typename T, size_t DIM>
+struct is_generic_mesh<generic_mesh<T,DIM>> : std::true_type {};
+
+namespace priv {
+
+template<typename T>
+T cross_norm(const Eigen::Matrix<T,2,1>& a, const Eigen::Matrix<T,2,1>& b) { return std::abs(a(0)*b(1) - a(1)*b(0)); }
+
+template<typename T>
+T cross_norm(const Eigen::Matrix<T,3,1>& a, const Eigen::Matrix<T,3,1>& b) { return a.cross(b).norm(); }
+
+template<typename Points>
+bool
+aligned_vertices(const Points& pts)
+{
+    size_t n = pts.size();
+    if (n < 4)
+        return false;
+    for (size_t i = 0; i < n; i++) {
+        auto e1 = (pts[(i+1) % n] - pts[i]).to_vector();
+        auto e2 = (pts[(i+2) % n] - pts[(i+1) % n]).to_vector();
+        if (cross_norm(e1, e2) <= 1e-10 * e1.norm() * e2.norm())
+            return true;
+    }
+    return false;
+}
+
+template<typename Points>
+auto
+vertex_average(const Points& pts)
+{
+    auto c = pts[0];
+    for (size_t i = 1; i < pts.size(); i++)
+        c = c + pts[i];
+    return c / typename std::decay_t<decltype(c)>::value_type(pts.size());
+}
+
+/* elements of a generic mesh with aligned vertices */
+template<typename Mesh>
+bool
+aligned_face(const Mesh& msh, const typename Mesh::face_type& fc)
+{
+    if constexpr (!is_generic_mesh<Mesh>::value || Mesh::dimension == 2)
+        return false;
+    else
+        return aligned_vertices(points(msh, fc));
+}
+
+template<typename Mesh>
+bool
+aligned_cell(const Mesh& msh, const typename Mesh::cell_type& cl)
+{
+    if constexpr (!is_generic_mesh<Mesh>::value)
+        return false;
+    else if constexpr (Mesh::dimension == 2)
+        return aligned_vertices(points(msh, cl));
+    else {
+        for (auto& fc : faces(msh, cl))
+            if (aligned_vertices(points(msh, fc)))
+                return true;
+        return false;
+    }
+}
+
+/* quadratures of the fans of triangles (tetrahedra) */
+template<typename Mesh>
+std::vector<quadrature_point<typename Mesh::coordinate_type, Mesh::dimension>>
+fan_quadrature(const Mesh& msh, const typename Mesh::face_type& fc, size_t degree) requires (Mesh::dimension == 3)
+{
+    using T = typename Mesh::coordinate_type;
+    auto fp = points(msh, fc);
+    std::vector<point<T,3>> pts(fp.begin(), fp.end());
+    auto c = vertex_average(pts);
+    std::vector<quadrature_point<T,3>> ret;
+    for (size_t i = 0; i < pts.size(); i++)
+        cutgeo::add_triangle_quadrature(ret, degree, c, pts[i], pts[(i+1) % pts.size()]);
+    return ret;
+}
+
+template<typename Mesh>
+std::vector<quadrature_point<typename Mesh::coordinate_type, Mesh::dimension>>
+fan_quadrature(const Mesh& msh, const typename Mesh::cell_type& cl, size_t degree)
+{
+    using T = typename Mesh::coordinate_type;
+    static const size_t DIM = Mesh::dimension;
+    std::vector<quadrature_point<T,DIM>> ret;
+    auto cp = points(msh, cl);
+    std::vector<point<T,DIM>> pts(cp.begin(), cp.end());
+    auto c = vertex_average(pts);
+    if constexpr (DIM == 2) {
+        std::vector<std::pair<point<T,2>, T>> q;
+        for (size_t i = 0; i < pts.size(); i++)
+            cutgeo::add_triangle_quadrature(q, degree, c, pts[i], pts[(i+1) % pts.size()]);
+        T sum = 0;
+        for (auto& qp : q)
+            sum += qp.second;
+        for (auto& qp : q)
+            ret.push_back(make_qp(qp.first, (sum < 0) ? -qp.second : qp.second));
+    }
+    else {
+        for (auto& fc : faces(msh, cl)) {
+            auto fp = points(msh, fc);
+            std::vector<point<T,3>> f(fp.begin(), fp.end());
+            auto cf = vertex_average(f);
+            for (size_t i = 0; i < f.size(); i++)
+                cutgeo::add_tetrahedron_quadrature(ret, degree, c, cf, f[i], f[(i+1) % f.size()]);
+        }
+    }
+    return ret;
+}
+
+/* Quadrature with positive weights of a cell of a 3D generic mesh: the
+ * tetrahedra joining the average of its vertices to the triangles of its
+ * faces (fans around the average of the vertices of the faces with more than
+ * 4 or with aligned vertices), integrated by the rules of Xiao and Gimbutas
+ * (arbq, positive weights, up to degree 15), or collapsed Gauss rules. The
+ * Grundmann-Moeller rules used by diskpp for the generic polyhedra have
+ * negative weights: they are exact for the polynomials, but the integrals of
+ * under-integrated non-negative functions (squared errors) can be negative. */
+template<typename Mesh>
+std::vector<quadrature_point<typename Mesh::coordinate_type, 3>>
+positive_cell_quadrature(const Mesh& msh, const typename Mesh::cell_type& cl, size_t degree)
+{
+    using T = typename Mesh::coordinate_type;
+    std::vector<quadrature_point<T,3>> ret;
+    auto add_tet = [&](const point<T,3>& a, const point<T,3>& b, const point<T,3>& c, const point<T,3>& d) {
+        if (degree <= 15) {
+            auto q = disk::quadrature::arbq(degree, a, b, c, d);
+            ret.insert(ret.end(), q.begin(), q.end());
+        }
+        else
+            cutgeo::add_tetrahedron_quadrature(ret, degree, a, b, c, d);
+    };
+    auto cp = points(msh, cl);
+    auto fcs = faces(msh, cl);
+    if (cp.size() == 4 && fcs.size() == 4) {
+        add_tet(cp[0], cp[1], cp[2], cp[3]);
+        return ret;
+    }
+    std::vector<point<T,3>> pts(cp.begin(), cp.end());
+    auto c = vertex_average(pts);
+    for (auto& fc : fcs) {
+        auto fp = points(msh, fc);
+        std::vector<point<T,3>> f(fp.begin(), fp.end());
+        if (f.size() == 3)
+            add_tet(c, f[0], f[1], f[2]);
+        else if (f.size() == 4 && !aligned_vertices(f)) {
+            add_tet(c, f[0], f[1], f[2]);
+            add_tet(c, f[2], f[3], f[0]);
+        }
+        else {
+            auto cf = vertex_average(f);
+            for (size_t i = 0; i < f.size(); i++)
+                add_tet(c, cf, f[i], f[(i+1) % f.size()]);
+        }
+    }
+    return ret;
+}
+
+template<typename QPS>
+auto
+quadrature_measure(const QPS& qps)
+{
+    typename std::decay_t<decltype(qps[0].weight())> m = 0;
+    for (auto& qp : qps)
+        m += qp.weight();
+    return m;
+}
+
+template<typename QPS>
+auto
+quadrature_centroid(const QPS& qps)
+{
+    auto c = qps[0].point() * qps[0].weight();
+    for (size_t i = 1; i < qps.size(); i++)
+        c = c + qps[i].point() * qps[i].weight();
+    return c / quadrature_measure(qps);
+}
+
+} // namespace priv
+
 /* The geometric queries of diskpp are forwarded to the background mesh: they
  * are overloaded for the mesh types (or generic templates which would be
  * preferred for a derived class) */
@@ -255,27 +449,72 @@ auto points(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc) { ret
 template<typename Mesh>
 auto faces(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl) { return faces(msh.background(), cl); }
 template<typename Mesh>
-auto barycenter(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl) { return barycenter(msh.background(), cl); }
+typename Mesh::point_type
+barycenter(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl) {
+    if (priv::aligned_cell(msh.background(), cl))
+        return priv::quadrature_centroid(priv::fan_quadrature(msh.background(), cl, 1));
+    return barycenter(msh.background(), cl);
+}
 template<typename Mesh>
-auto barycenter(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc) { return barycenter(msh.background(), fc); }
+typename Mesh::point_type
+barycenter(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc) {
+    if constexpr (Mesh::dimension == 3)
+        if (priv::aligned_face(msh.background(), fc))
+            return priv::quadrature_centroid(priv::fan_quadrature(msh.background(), fc, 1));
+    return barycenter(msh.background(), fc);
+}
 template<typename Mesh>
 auto diameter(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl) { return diameter(msh.background(), cl); }
 template<typename Mesh>
 auto diameter(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc) { return diameter(msh.background(), fc); }
 template<typename Mesh>
-auto measure(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl) { return measure(msh.background(), cl); }
-template<typename Mesh>
-auto measure(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc) { return measure(msh.background(), fc); }
-template<typename Mesh>
-auto integrate(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl, size_t degree) {
-    return integrate(msh.background(), cl, degree);
+typename Mesh::coordinate_type
+measure(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl) {
+    if (priv::aligned_cell(msh.background(), cl))
+        return priv::quadrature_measure(priv::fan_quadrature(msh.background(), cl, 0));
+    return measure(msh.background(), cl);
 }
 template<typename Mesh>
-auto integrate(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc, size_t degree) {
+typename Mesh::coordinate_type
+measure(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc) {
+    if constexpr (Mesh::dimension == 3)
+        if (priv::aligned_face(msh.background(), fc))
+            return priv::quadrature_measure(priv::fan_quadrature(msh.background(), fc, 0));
+    return measure(msh.background(), fc);
+}
+template<typename Mesh>
+std::vector<quadrature_point<typename Mesh::coordinate_type, Mesh::dimension>>
+integrate(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl, size_t degree) {
+    if constexpr (is_generic_mesh<Mesh>::value && Mesh::dimension == 3)
+        return priv::positive_cell_quadrature(msh.background(), cl, degree);
+    else {
+        if (priv::aligned_cell(msh.background(), cl))
+            return priv::fan_quadrature(msh.background(), cl, degree);
+        return integrate(msh.background(), cl, degree);
+    }
+}
+template<typename Mesh>
+std::vector<quadrature_point<typename Mesh::coordinate_type, Mesh::dimension>>
+integrate(const cut_mesh<Mesh>& msh, const typename Mesh::face_type& fc, size_t degree) {
+    if constexpr (Mesh::dimension == 3)
+        if (priv::aligned_face(msh.background(), fc))
+            return priv::fan_quadrature(msh.background(), fc, degree);
     return integrate(msh.background(), fc, degree);
 }
 template<typename Mesh>
 auto normal(const cut_mesh<Mesh>& msh, const typename Mesh::cell_type& cl, const typename Mesh::face_type& fc) {
+    if constexpr (Mesh::dimension == 3) {
+        if (priv::aligned_face(msh.background(), fc)) {
+            /* Newell normal, oriented outward */
+            auto fp = points(msh.background(), fc);
+            std::vector<typename Mesh::point_type> pts(fp.begin(), fp.end());
+            Eigen::Matrix<typename Mesh::coordinate_type, 3, 1> n = cutgeo::newell_normal(pts);
+            auto out = (priv::vertex_average(pts) - barycenter(msh, cl)).to_vector();
+            if (n.dot(out) < 0)
+                n = -n;
+            return decltype(normal(msh.background(), cl, fc))(n);
+        }
+    }
     return normal(msh.background(), cl, fc);
 }
 
@@ -1030,7 +1269,7 @@ diameter(const MeshType& msh, const typename MeshType::face_type& fc, location w
 /* Statistics of the construction of a cut mesh */
 struct cut_mesh_statistics {
     size_t cut_cells = 0;
-    size_t clamped = 0;     // cells whose interface left the cell (a face or an edge crossed twice), projected onto its faces
+    size_t clamped = 0;     // 2D: cells whose polyline left the cell (interface crossing a face twice)
     size_t fallbacks = 0;   // cut cells (2D) or faces (3D) keeping the polyline
     size_t split = 0;       // 3D: cut cells split into polyhedra
     size_t subdivided = 0;  // 3D: cut cells with parts integrated by subdivision
@@ -1179,14 +1418,12 @@ detect_cut_cells(MeshType& msh, cut_mesh_statistics& stats) {
             cutgeo::build_cut_polyhedron(ccd.poly, ls, polyhedron_options(msh));
             if (ccd.poly.cut_more_than_once)
                 throw std::logic_error("A cell is cut more than once: the mesh does not resolve the interface");
-            size_t split = 0, linear = 0, projected = 0;
-            cutgeo::polyhedron_statistics(ccd.poly, split, linear, projected);
+            size_t split = 0, linear = 0;
+            cutgeo::polyhedron_statistics(ccd.poly, split, linear);
             if (split > 0)
                 stats.split++;
             if (linear > 0)
                 stats.subdivided++;
-            if (projected > 0)
-                stats.clamped++;
         }
     }
 }
@@ -1362,6 +1599,194 @@ make_cut_mesh(Mesh& msh, std::shared_ptr<const typename Mesh::level_set_type> ls
     detect_cut_type(msh, threshold);
     make_neighbors_info(msh);
     return stats;
+}
+
+/* Cells where the interface is not resolved by the mesh, i.e. that do not
+ * satisfy the assumption of the method (a cell is cut once), and must be
+ * refined: an edge crossed by the interface more often than the signs of the
+ * level set at its ends tell (in particular twice, with no change of sign),
+ * a face or a cell cut more than once, an interface leaving a face or a cell
+ * between two crossings of its boundary, or poking through a face or a cell
+ * without crossing its edges, a 3D cell whose parts can only be integrated
+ * by subdivision. The edges are probed at "samples" points. (A curved
+ * interface that cannot be built while the element is cut once, e.g. at a
+ * corner of the interface, keeps the polyline: it is not a violation.) */
+template<CutMesh Mesh>
+std::vector<bool>
+cut_once_violations(const Mesh& msh, const typename Mesh::level_set_type& ls,
+                    const cut_geometry_options& geometry, size_t samples = 16)
+{
+    using T = typename Mesh::coordinate_type;
+    using point_type = typename Mesh::point_type;
+    static const size_t DIM = Mesh::dimension;
+
+    auto side = [&](const point_type& x) { return (ls(x) < 0) ? -1 : 1; };
+    auto loc  = [](int s) { return (s < 0) ? location::IN_NEGATIVE_SIDE : location::IN_POSITIVE_SIDE; };
+
+    std::vector<int> sgn(msh.points_size());
+    {
+        size_t i = 0;
+        for (auto itor = msh.points_begin(); itor != msh.points_end(); itor++, i++)
+            sgn[i] = side(*itor);
+    }
+
+    /* does the level set change sign along [a, b] as its values at the ends tell? */
+    auto edge_resolved = [&](const point_type& a, const point_type& b, int sa, int sb) {
+        size_t changes = 0;
+        int prev = sa;
+        for (size_t j = 1; j <= samples + 1; j++) {
+            int s = (j == samples + 1) ? sb : side(a + (b - a) * (T(j) / T(samples + 1)));
+            if (s != prev)
+                changes++;
+            prev = s;
+        }
+        return changes == ((sa != sb) ? 1 : 0);
+    };
+
+    /* faces */
+    std::vector<bool> bad_face(msh.faces_size(), false);
+    std::map<std::pair<size_t, size_t>, bool> edge_ok;
+    for (auto& fc : faces(msh)) {
+        auto fid = offset(msh, fc);
+        auto pts = points(msh, fc);
+        auto ids = fc.point_ids();
+        size_t n = pts.size();
+        bool has_neg = false, has_pos = false;
+        for (size_t i = 0; i < n; i++)
+            (sgn[ids[i]] < 0 ? has_neg : has_pos) = true;
+
+        if constexpr (DIM == 2) {
+            bad_face[fid] = !edge_resolved(pts[0], pts[1], sgn[ids[0]], sgn[ids[1]]);
+            continue;
+        }
+        else {
+            for (size_t i = 0; i < n; i++) {
+                size_t a = ids[i], b = ids[(i+1) % n];
+                auto key = std::make_pair(std::min(a, b), std::max(a, b));
+                auto it = edge_ok.find(key);
+                if (it == edge_ok.end())
+                    it = edge_ok.insert(std::make_pair(key, edge_resolved(pts[i], pts[(i+1) % n], sgn[a], sgn[b]))).first;
+                if (!it->second)
+                    bad_face[fid] = true;
+            }
+            if (bad_face[fid])
+                continue;
+            if (!(has_neg && has_pos)) {
+                /* interface poking through the face */
+                point_type c;
+                for (auto& p : pts)
+                    c = c + p;
+                if (side(c / T(n)) != sgn[ids[0]])
+                    bad_face[fid] = true;
+                continue;
+            }
+            /* cut once, curved interface */
+            cut_polygon<T> poly;
+            point<T,3> origin;
+            Eigen::Matrix<T,3,2> U;
+            cutgeo::polygon_frame(pts, origin, U);
+            cutgeo::planar_level_set<T,3> phi(ls, origin, U);
+            std::vector<point<T,2>> lv;
+            std::vector<location> lloc;
+            for (size_t i = 0; i < n; i++) {
+                lv.push_back(phi.to_local(pts[i]));
+                lloc.push_back(loc(sgn[ids[i]]));
+            }
+            auto edge_point = [&](size_t i) { return phi.to_local(cutgeo::edge_zero(pts[i], pts[(i+1) % n], ls)); };
+            try {
+                if (!cutgeo::init_cut_polygon(poly, lv, lloc, std::vector<size_t>(), edge_point))
+                    bad_face[fid] = true;
+                else if (!cutgeo::make_implicit_interface(poly, phi)
+                         && cutgeo::refine_polyline(poly, phi, std::max<size_t>(geometry.refine_levels, 1)))
+                    bad_face[fid] = true;   /* the interface leaves the face */
+            }
+            catch (const std::exception&) {
+                bad_face[fid] = true;
+            }
+        }
+    }
+
+    /* cells */
+    std::vector<bool> ret(msh.cells_size(), false);
+    for (auto& cl : msh) {
+        auto cid = offset(msh, cl);
+        bool bad = false;
+        for (auto& fc : faces(msh, cl))
+            bad = bad || bad_face[offset(msh, fc)];
+        if (bad) {
+            ret[cid] = true;
+            continue;
+        }
+        auto ids = cl.point_ids();
+        bool has_neg = false, has_pos = false;
+        for (auto id : ids)
+            (sgn[id] < 0 ? has_neg : has_pos) = true;
+        if (!(has_neg && has_pos)) {
+            /* interface poking through the cell */
+            ret[cid] = (side(barycenter(msh, cl)) != sgn[ids[0]]);
+            continue;
+        }
+
+        if constexpr (DIM == 2) {
+            auto pts = ccw_points(msh, cl);
+            auto nds = ccw_nodes(msh, cl);
+            auto fcs = ccw_faces(msh, cl);
+            std::vector<location> vloc;
+            for (auto& nd : nds)
+                vloc.push_back(loc(sgn[nd.point_ids()[0]]));
+            auto phi = cutgeo::planar_level_set<T,2>(ls);
+            auto edge_point = [&](size_t i) {
+                auto fp = points(msh, fcs[i]);
+                return cutgeo::find_zero_crossing(fp[0], fp[1], phi, diameter(msh, fcs[i]) / 1e20);
+            };
+            cut_polygon<T> poly;
+            try {
+                if (!cutgeo::init_cut_polygon(poly, pts, vloc, std::vector<size_t>(), edge_point))
+                    bad = true;
+                else if (cutgeo::refine_polyline(poly, phi, std::max<size_t>(geometry.refine_levels, 1)))
+                    bad = true;     /* the interface leaves the cell */
+            }
+            catch (const std::exception&) {
+                bad = true;
+            }
+        }
+        else {
+            auto P = cell_polyhedron(msh, cl);
+            cutgeo::cut_polyhedron_options opt;
+            opt.refine_levels = geometry.refine_levels;
+            opt.subdivision_levels = geometry.subdivision_levels;
+            try {
+                cutgeo::build_cut_polyhedron(P, ls, opt);
+            }
+            catch (const std::exception&) {
+                ret[cid] = true;
+                continue;
+            }
+            size_t split = 0, linear = 0;
+            cutgeo::polyhedron_statistics(P, split, linear);
+            std::function<bool(const cut_polyhedron<T>&)> more_than_once = [&](const cut_polyhedron<T>& Q) {
+                if (Q.cut_more_than_once)
+                    return true;
+                for (auto& c : Q.children)
+                    if (more_than_once(c))
+                        return true;
+                return false;
+            };
+            if (linear > 0 || more_than_once(P))
+                bad = true;
+            else {
+                /* the interface lies in the cell */
+                std::vector<point<T,3>> itf;
+                cutgeo::polyhedron_interface_samples(P, ls, itf);
+                for (auto& x : itf)
+                    for (auto& f : P.faces)
+                        if (f.normal.dot((x - f.vertices[0]).to_vector()) > 1e-8 * P.h)
+                            bad = true;
+            }
+        }
+        ret[cid] = bad;
+    }
+    return ret;
 }
 
 /***************************************************************************/

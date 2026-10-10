@@ -1113,7 +1113,7 @@ refine_polyline(cut_polygon<T>& poly, const LS2& phi, size_t min, size_t max)
     else if ( !((lm >= 0 && ls2 >= 0) || (lm < 0 && ls2 < 0)) )
         ip = find_zero_crossing(pm, ps2, phi, threshold);
     else
-        throw std::logic_error("interface not found in search range");
+        throw std::logic_error("interface not found in search range: the mesh does not resolve the interface");
 
     itf.at(mid) = ip;
 
@@ -1735,76 +1735,20 @@ make_cut_face(cut_polyhedron_face<T>& f, const std::vector<location>& loc, const
     return true;
 }
 
-/* Point of the interface above the point y of the plane of a cut
- * polyhedron: the root of the level set along nu inside the polyhedron,
- * closest to the height s0, with the unit normal grad phi / |grad phi| and the
- * jacobian dS/dA = |grad phi| / (grad phi . nu) of the graph. When the
- * interface leaves the polyhedron above y (it crosses an edge twice, with no
- * change of sign at the vertices: the mesh does not resolve the interface),
- * the point is projected onto the face of the polyhedron where it leaves, as
- * the polyline of the 2D cells: the small part of the subdomain beyond the
- * face is neglected, so that the cell is still cut once (the normal and the
- * jacobian are then those of the face). */
-template<typename T>
-struct lifted_point {
-    point<T,3>  x;
-    vec3<T>     normal;    // from the negative to the positive side
-    T           jacobian;
-    bool        projected;
-};
-
+/* Lift of the point y of the plane of a cut polyhedron onto the interface:
+ * root of the level set along nu, closest to the height s0 */
 template<typename T, typename LS>
-std::optional<lifted_point<T>>
-lift_in_polyhedron(const cut_polyhedron<T>& P, const LS& ls, const point<T,3>& y, T s0)
+std::optional<point<T,3>>
+lift_to_interface(const LS& ls, const point<T,3>& y, const vec3<T>& nu, T s0, T h)
 {
-    const vec3<T>& nu = P.nu;
-    /* range of y + s nu in the (convex) polyhedron */
-    T slo = -std::numeric_limits<T>::max(), shi = std::numeric_limits<T>::max();
-    size_t flo = P.faces.size(), fhi = P.faces.size();
-    for (size_t i = 0; i < P.faces.size(); i++) {
-        const auto& f = P.faces[i];
-        T a = f.normal.dot(nu);
-        if (std::abs(a) < 1e-14)
-            continue;
-        T s = -f.normal.dot((y - f.vertices[0]).to_vector()) / a;
-        if (a > 0 && s < shi) {
-            shi = s;
-            fhi = i;
-        }
-        if (a < 0 && s > slo) {
-            slo = s;
-            flo = i;
-        }
-    }
-    T tol = 1e-10 * P.h;
-    if (fhi == P.faces.size() || flo == P.faces.size() || shi < slo - tol)
-        return std::nullopt;
-
-    auto at = [&](T s) { return y + point<T,3>(vec3<T>(nu * s)); };
     auto fdf = [&](T s) {
-        auto x = at(s);
+        point<T,3> x = y + point<T,3>(vec3<T>(nu * s));
         return std::make_pair(ls(x), ls.gradient(x).dot(nu));
     };
-    T a0 = std::min(std::max(s0, slo), shi);
-    auto s = find_root_near(fdf, slo - tol, shi + tol, a0, T(1e-3) * P.h, T(1e-15) * P.h);
-    if (s) {
-        auto x = at(*s);
-        vec3<T> g = ls.gradient(x);
-        T gn = g.dot(nu);
-        if (gn <= 0.2 * g.norm())
-            return std::nullopt;   /* not a graph above D */
-        return lifted_point<T>{x, vec3<T>(g / g.norm()), g.norm() / gn, false};
-    }
-    /* no root in the polyhedron: projection onto the face where it leaves */
-    if (ls(at(shi)) < 0) {
-        const auto& n = P.faces[fhi].normal;
-        return lifted_point<T>{at(shi), n, T(1) / std::abs(n.dot(nu)), true};
-    }
-    if (ls(at(slo)) >= 0) {
-        const auto& n = P.faces[flo].normal;
-        return lifted_point<T>{at(slo), vec3<T>(-n), T(1) / std::abs(n.dot(nu)), true};
-    }
-    return std::nullopt;
+    auto s = find_root_near(fdf, -h, h, s0, T(1e-3) * h, T(1e-15) * h);
+    if (!s)
+        return std::nullopt;
+    return y + point<T,3>(vec3<T>(nu * (*s)));
 }
 
 /* Interface patch of a cut polyhedron whose faces are cut: loop of their
@@ -1914,18 +1858,15 @@ make_interface_patch(cut_polyhedron<T>& P, const LS& ls)
     }
     P.D_center = cD;
     auto yc = o + point3(vec3<T>(a1 * cD.x() + a2 * cD.y()));
-    auto lc = lift_in_polyhedron(P, ls, yc, T(0));
-    if (!lc)
+    auto xc = lift_to_interface(ls, yc, nu, T(0), h);
+    if (!xc)
         return false;
-    P.center_height = (lc->x - yc).to_vector().dot(nu);
+    P.center_height = ((*xc) - yc).to_vector().dot(nu);
 
     /* D star-shaped with respect to its center, interface graph above D:
      * checked on samples of the boundary and of the sectors */
     P.interface.clear();
-    P.interface_normals.clear();
-    P.projected = lc->projected;
-    P.interface.push_back(lc->x);
-    P.interface_normals.push_back(lc->normal);
+    P.interface.push_back(*xc);
     for (auto& entry : P.loop) {
         face_interface_curve<T> fcrv(ls, P.faces[entry.first]);
         size_t np = fcrv.pieces();
@@ -1945,21 +1886,18 @@ make_interface_patch(cut_polyhedron<T>& P, const LS& ls)
                 T sb = (X - o).to_vector().dot(nu);
                 for (T xi : {T(0.25), T(0.5), T(0.75)}) {
                     auto y = cD + (b - cD) * xi;
-                    auto lx = lift_in_polyhedron(P, ls, o + point3(vec3<T>(a1 * y.x() + a2 * y.y())),
-                                                 (1 - xi) * P.center_height + xi * sb);
-                    if (!lx)
+                    auto x = lift_to_interface(ls, o + point3(vec3<T>(a1 * y.x() + a2 * y.y())), nu,
+                                               (1 - xi) * P.center_height + xi * sb, h);
+                    if (!x)
                         return false;
-                    P.projected = P.projected || lx->projected;
-                    if (xi == T(0.5) && j % 4 == 0) {
-                        P.interface.push_back(lx->x);
-                        P.interface_normals.push_back(lx->normal);
-                    }
+                    vec3<T> g = ls.gradient(*x);
+                    if (g.dot(nu) <= 0.2 * g.norm())
+                        return false;
+                    if (xi == T(0.5) && j % 4 == 0)
+                        P.interface.push_back(*x);
                 }
-                if (j % 4 == 0) {
-                    vec3<T> g = ls.gradient(X);
+                if (j % 4 == 0)
                     P.interface.push_back(X);
-                    P.interface_normals.push_back(g / g.norm());
-                }
             }
         }
     }
@@ -2016,8 +1954,9 @@ make_interface_patch(cut_polyhedron<T>& P, const LS& ls)
             }
             if (margin < -1e-10)
                 continue;
-            for (size_t q = 0; q < P.interface.size(); q++) {
-                T d = sgn * (P.interface[q] - c).to_vector().dot(P.interface_normals[q]);
+            for (auto& x : P.interface) {
+                vec3<T> g = ls.gradient(x);
+                T d = sgn * (x - c).to_vector().dot(g / g.norm());
                 margin = std::min(margin, d / h);
             }
             if (margin >= -1e-10 && margin > best) {
@@ -2283,11 +2222,15 @@ patch_quadrature(const cut_polyhedron<T>& P, const LS& ls, size_t degree, cut_qu
                     auto y = cD + g * xw.first;
                     T w = tw.second * xw.second * xw.first * det;
                     T s0 = (1.0 - xw.first) * P.center_height + xw.first * sb;
-                    auto lx = lift_in_polyhedron(P, ls, lift_plane(y), s0);
-                    if (!lx)
+                    auto x = lift_to_interface(ls, lift_plane(y), P.nu, s0, P.h);
+                    if (!x)
                         return false;
-                    out.itf.push_back(make_qp(lx->x, w * lx->jacobian));
-                    out.normals.push_back(lx->normal);
+                    vec3<T> gr = ls.gradient(*x);
+                    T gn = gr.dot(P.nu);
+                    if (gn <= 0.2 * gr.norm())
+                        return false;
+                    out.itf.push_back(make_qp(*x, w * gr.norm() / gn));
+                    out.normals.push_back(gr / gr.norm());
                 }
             }
         }
@@ -2427,18 +2370,16 @@ polyhedron_interface_samples(const cut_polyhedron<T>& P, const LS& ls, std::vect
  * leaves integrated by subdivision */
 template<typename T>
 void
-polyhedron_statistics(const cut_polyhedron<T>& P, size_t& split, size_t& linear, size_t& projected)
+polyhedron_statistics(const cut_polyhedron<T>& P, size_t& split, size_t& linear)
 {
     if (!P.children.empty()) {
         split++;
         for (auto& c : P.children)
-            polyhedron_statistics(c, split, linear, projected);
+            polyhedron_statistics(c, split, linear);
         return;
     }
     if (P.loc == location::ON_INTERFACE && P.linear)
         linear++;
-    if (P.loc == location::ON_INTERFACE && P.projected)
-        projected++;
 }
 
 } // namespace cutgeo

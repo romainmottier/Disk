@@ -359,6 +359,12 @@ void Elliptic_Interface(const simulation_options& opts, bool agglomeration)
                 err = post::compute_errors_agglo(msh, macros, prm, assembler, x_dof, test_case);
                 t_err = tph.toc();
             }
+            if (opts.refined_mesh) {
+                /* locally refined mesh: size of the background mesh */
+                err.h = 0;
+                for (auto& cl : msh)
+                    err.h = std::max(err.h, diameter(msh, cl));
+            }
             post::write_errors(err, previous, error_file);
             std::cout << bold << yellow << "         H1-Error: " << err.H1 << "   L2-Error: " << err.L2 << reset << std::endl;
             if (previous.h > 0)
@@ -388,3 +394,23 @@ void run_polygons(const simulation_options& opts, bool agglomeration);
 void run_hexahedra(const simulation_options& opts, bool agglomeration);
 void run_tetrahedra(const simulation_options& opts, bool agglomeration);
 void run_polyhedra(const simulation_options& opts, bool agglomeration);
+
+/* The convergence test on the meshes of type Mesh or, if the interface does
+ * not cut once some of their cells and -x > 0, on their local refinements
+ * (polytopal meshes, run by run_polygons and run_polyhedra) */
+template<typename Mesh>
+void run_mesh(const simulation_options& opts, bool agglomeration)
+{
+    if (!opts.refined_mesh && opts.refinement > 0 && preprocessor<Mesh>::needs_refinement(opts)) {
+        std::cout << "        The interface does not cut once some cells: local refinement of these cells"
+                  << std::endl;
+        auto ropts = opts;
+        ropts.refined_mesh = true;
+        if constexpr (Mesh::dimension == 2)
+            run_polygons(ropts, agglomeration);
+        else
+            run_polyhedra(ropts, agglomeration);
+        return;
+    }
+    Elliptic_Interface<Mesh>(opts, agglomeration);
+}

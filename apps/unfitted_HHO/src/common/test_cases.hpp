@@ -1,6 +1,7 @@
 /*
  * Test cases of Section 5 of the paper (ported from ProtoN), in dimension 2
- * or 3 (rho is the distance to the center of the circle or of the sphere).
+ * or 3 (rho is the distance to the center of the circle or of the sphere),
+ * and a contrast test for any interface (5).
  * Omega_1 is the negative side of the level set, Omega_2 the positive one.
  */
 
@@ -352,6 +353,41 @@ make_test_case_laplacian_jumps_2(std::shared_ptr<level_set<typename Mesh::coordi
     return tc;
 }
 
+/* Contrast with any interface: u_i = prod_d sin(pi x_d) / kappa_i,
+ * g_D = prod_d sin(pi x_d) (1/kappa_1 - 1/kappa_2), g_N = 0 */
+template<typename Mesh>
+test_case_laplacian<Mesh>
+make_test_case_laplacian_contrast_sin(std::shared_ptr<level_set<typename Mesh::coordinate_type, Mesh::dimension>> ls,
+                                      params<typename Mesh::coordinate_type> parms)
+{
+    using T = typename Mesh::coordinate_type;
+    using point_type = typename Mesh::point_type;
+    static const size_t DIM = Mesh::dimension;
+
+    test_case_laplacian<Mesh> tc;
+    tc.name = "contrast, prod_d sin(pi x_d) / kappa_i";
+    tc.level_set_ = ls;
+    tc.parms = parms;
+    tc.sol_fun = [=](const point_type& pt) -> T {
+        T kappa = ((*ls)(pt) > 0) ? parms.kappa_2 : parms.kappa_1;
+        return priv_tc::sin_product(pt) / kappa;
+    };
+    tc.rhs_fun = [](const point_type& pt) -> T {
+        return DIM * M_PI * M_PI * priv_tc::sin_product(pt);
+    };
+    tc.bcs_fun = tc.sol_fun;
+    tc.sol_grad = [=](const point_type& pt) -> Eigen::Matrix<T, 1, DIM> {
+        T kappa = ((*ls)(pt) > 0) ? parms.kappa_2 : parms.kappa_1;
+        return priv_tc::sin_product_grad(pt) / kappa;
+    };
+    tc.dirichlet_jump = [=](const point_type& pt) -> T {
+        return priv_tc::sin_product(pt) * (1.0/parms.kappa_1 - 1.0/parms.kappa_2);
+    };
+    tc.neumann_jump   = [](const point_type&) -> T { return 0.0; };
+
+    return tc;
+}
+
 template<typename Mesh>
 test_case_laplacian<Mesh>
 select_test_case(size_t id, std::shared_ptr<level_set<typename Mesh::coordinate_type, Mesh::dimension>> ls,
@@ -363,6 +399,7 @@ select_test_case(size_t id, std::shared_ptr<level_set<typename Mesh::coordinate_
         case 2: return make_test_case_laplacian_contrast_jump_gN<Mesh>(ls, parms);
         case 3: return make_test_case_laplacian_contrast_jump_gD<Mesh>(ls, parms);
         case 4: return make_test_case_laplacian_jumps_2<Mesh>(ls);
+        case 5: return make_test_case_laplacian_contrast_sin<Mesh>(ls, parms);
         default:
             throw std::invalid_argument("Unknown test case id: " + std::to_string(id));
     }

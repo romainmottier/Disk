@@ -3,5 +3,5 @@
 
 void run_polygons(const simulation_options& opts, bool agglomeration)
 {
-    Elliptic_Interface<disk::generic_mesh<double, 2>>(opts, agglomeration);
+    run_mesh<disk::generic_mesh<double, 2>>(opts, agglomeration);
 }

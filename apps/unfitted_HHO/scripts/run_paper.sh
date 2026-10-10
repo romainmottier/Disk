@@ -30,9 +30,10 @@ cd "$OUT" || exit 1
 # app: eta_N = (k+1)^2 (-e -1), the scaled monomial bases centered on the
 # subcells (-b 1), the choice of the neighbors of the ill-cut cells of ProtoN
 # (-P 0), the full system without static condensation, solved by
-# SimplicialLDLT (-c 0 -s 0), the polyline interface of 2^r segments (-g 0)
-# and local operators computed in every cell (-u 0). A later -e, -b, -P, -c,
-# -s, -g or -u in <options> overrides them.
+# SimplicialLDLT (-c 0 -s 0), the polyline interface of 2^r segments (-g 0),
+# local operators computed in every cell (-u 0) and no local refinement of the
+# cells that the interface does not cut once (-x 0). A later -e, -b, -P, -c,
+# -s, -g, -u or -x in <options> overrides them.
 
 # run <dir> <options>: polynomial extension in <dir>
 run() {
@@ -40,7 +41,7 @@ run() {
     shift
     mkdir -p "$dir"
     echo "  $dir"
-    (cd "$dir" && "$BIN" -p0 -e -1 -b 1 -P 0 -c 0 -s 0 -g 0 -u 0 "$@" > log.txt 2>&1) || echo "    FAILED (see $dir/log.txt)"
+    (cd "$dir" && "$BIN" -p0 -e -1 -b 1 -P 0 -c 0 -s 0 -g 0 -u 0 -x 0 "$@" > log.txt 2>&1) || echo "    FAILED (see $dir/log.txt)"
 }
 
 # run_agglo <dir> <options>: cell agglomeration in <dir>_agglo
@@ -49,7 +50,7 @@ run_agglo() {
     shift
     mkdir -p "$dir"
     echo "  $dir"
-    (cd "$dir" && "$BIN" -p1 -b 1 -P 0 -c 0 -s 0 -g 0 -u 0 "$@" > log.txt 2>&1) || echo "    FAILED (see $dir/log.txt)"
+    (cd "$dir" && "$BIN" -p1 -b 1 -P 0 -c 0 -s 0 -g 0 -u 0 -x 0 "$@" > log.txt 2>&1) || echo "    FAILED (see $dir/log.txt)"
 }
 
 echo "Fig. 5: coarsest meshes, pairing and agglomeration (silo, okc and cells_l0.txt files)"

@@ -121,8 +121,6 @@ struct cut_polyhedron {
     T                       center_height = 0; // height of the interface above D_center
     std::array<point<T,3>, 2> centers;   // centers of the cones of the two parts
     std::vector<point<T,3>> interface;   // sample points of the interface
-    std::vector<Eigen::Matrix<T,3,1>> interface_normals; // and their normals
-    bool                    projected = false; // the interface leaves the polyhedron (see lift_in_polyhedron)
 
     std::vector<cut_polyhedron<T>> children;
 };
