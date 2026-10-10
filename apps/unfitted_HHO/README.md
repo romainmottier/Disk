@@ -350,6 +350,17 @@ locally refined meshes, run as polytopal meshes, and h is the largest
 diameter of the cells (that of the background mesh). `-x 0` keeps the
 meshes (projection of the interface onto the faces, see above).
 
+## Parallelization
+
+The code is sequential, except the solver (multithreaded Pardiso).
+`doc/parallelisation.md` (in French) sets out a strategy for parallelizing it
+on CPU (OpenMP, then MPI with PETSc) and on GPU (solvers of PETSc, matrix-free
+operator exploiting the shared operators of the uncut cells, batched local
+algebra of the cut cells with Kokkos), based on timings of the current code:
+in 3D, the work local to the cells (cut geometry, local operators, errors)
+takes about half of the time and is embarrassingly parallel over the patches,
+the solve takes the other half.
+
 ## Choice of η_N
 
 s^N = η_N κ_i h_T⁻² ‖v_S⁺ − v_T‖²_{T^i} was studied for k = 0..3: errors of the
