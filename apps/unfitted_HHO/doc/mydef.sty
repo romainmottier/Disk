@@ -1,0 +1,169 @@
+\newcommand{\bn}{\boldsymbol{n}}
+\newcommand{\nT}{\bn_{T}}
+\newcommand{\nS}{\bn_{S}}
+\newcommand{\nG}{\bn_{\Gamma}}
+\renewcommand{\P}{\mathbb{P}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\ibar}{\bar{\imath}}
+\newcommand{\dT}{\partial T}
+\newcommand{\dTi}{(\partial T)^{i}}
+\newcommand{\dTone}{(\partial T)^{1}}
+\newcommand{\dTtwo}{(\partial T)^{2}}
+\newcommand{\dTibar}{(\partial T)^{\ibar}}
+\newcommand{\dSi}{(\partial S)^{i}}
+\newcommand{\dSibar}{(\partial S)^{\ibar}}
+\newcommand{\TG}{T^\Gamma}
+\newcommand{\SG}{S^\Gamma}
+
+% Mesh
+\newcommand{\mesh}{\mathcal{T}_h}
+\newcommand{\meshF}{\mathcal{F}_h}
+\newcommand{\cutmesh}{\mesh^{\textup{cut}}}
+\newcommand{\uncutmesh}{\mesh^{\textup{uncut}}}
+\newcommand{\TOKmesh}{\mesh^{\textup{OK}}}
+\newcommand{\TKOmesh}{\mesh^{\textup{KO}}}
+\newcommand{\TKOonemesh}{\mesh^{\textup{KO},1}}
+\newcommand{\TKOtwomesh}{\mesh^{\textup{KO},2}}
+\newcommand{\TKOimesh}{\mesh^{\textup{KO},i}}
+\newcommand{\TKOibarmesh}{\mesh^{\textup{KO},\ibar}}
+\newcommand{\localfaces}{\mathcal{F}_{\partial T}}
+\newcommand{\localfacesi}{\mathcal{F}_{\dTi}}
+\newcommand{\extendedfacesi}{\mathcal{F}_{\dSi}}
+
+\newcommand{\pmesh}{\mathcal{P}_h}
+\newcommand{\pmeshOK}{\pmesh^{\textup{OK}}}
+\newcommand{\pmeshKO}{\pmesh^{\textup{KO}}}
+
+% Spaces
+\newcommand{\Uhat}{\widehat{\mathcal{U}}_h}
+\newcommand{\Uhatz}{\widehat{\mathcal{U}}_{h0}}
+\newcommand{\UThat}{\widehat{\mathcal{U}}_T}
+\newcommand{\UShat}{\widehat{\mathcal{U}}_S}
+\newcommand{\UTihat}{\widehat{\mathcal{U}}_{T^i}}
+\newcommand{\UThatone}{\widehat{\mathcal{U}}_{T^1}}
+\newcommand{\UThattwo}{\widehat{\mathcal{U}}_{T^2}}
+\newcommand{\UTHi}{\mathcal{U}_{\mesh^i}}
+\newcommand{\UFHi}{\mathcal{U}_{\meshF^i}}
+\newcommand{\UTHone}{\mathcal{U}_{\mesh^1}}
+\newcommand{\UTHtwo}{\mathcal{U}_{\mesh^2}}
+\newcommand{\UFhone}{\mathcal{U}_{\meshF^1}}
+\newcommand{\UFhonez}{\mathcal{U}_{\meshF^10}}
+\newcommand{\UFhtwo}{\mathcal{U}_{\meshF^2}}
+\newcommand{\UFhtwoz}{\mathcal{U}_{\meshF^20}}
+\newcommand{\UTi}{\mathcal{U}_{T^i}}
+\newcommand{\UFi}{\mathcal{U}_{\dTi}}
+\newcommand{\UNThat}{\widehat{\mathcal{U}}_{\N(T)}}
+
+% Extended spaces
+\newcommand{\UThatEX}{\UThat^{\N}}
+\newcommand{\UThatoneEX}{\UThatone^{\N}}
+\newcommand{\UThattwoEX}{\UThattwo^{\N}}
+
+% Unknowns
+\newcommand{\what}{\hat{w}_h}
+\newcommand{\uhat}{\hat{u}_h}
+\newcommand{\vhat}{\hat{v}_h}
+\newcommand{\uThat}{\hat{u}_T}
+\newcommand{\vThat}{\hat{v}_T}
+\newcommand{\uThatone}{\hat{u}_{T^1}}
+\newcommand{\uThattwo}{\hat{u}_{T^2}}
+\newcommand{\uSone}{u_{S^1}}
+\newcommand{\uStwo}{u_{S^2}}
+\newcommand{\uShat}{\hat{u}_S}
+\newcommand{\vShat}{\hat{v}_S}
+\newcommand{\uT}{u_{T}}
+\newcommand{\vT}{v_{T}}
+\newcommand{\uTone}{u_{T^1}}
+\newcommand{\uTtwo}{u_{T^2}}
+\newcommand{\uTi}{u_{T^i}}
+\newcommand{\vTi}{v_{T^i}}
+\newcommand{\wTi}{w_{T^i}}
+\newcommand{\uSi}{u_{S^i}}
+\newcommand{\vSi}{v_{S^i}}
+\newcommand{\wSi}{w_{S^i}}
+\newcommand{\uTibar}{u_{T^{\ibar}}}
+\newcommand{\uSibar}{u_{S^{\ibar}}}
+\newcommand{\uhatTibar}{\hat{u}_{T^{\ibar}}}
+\newcommand{\uFone}{u_{\dTone}}
+\newcommand{\uFtwo}{u_{\dTtwo}}
+\newcommand{\uF}{u_{\dT}}
+\newcommand{\vF}{v_{\dT}}
+\newcommand{\udTi}{u_{\dTi}}
+\newcommand{\vdTi}{v_{\dTi}}
+\newcommand{\wdTi}{w_{\dTi}}
+\newcommand{\udSi}{u_{\dSi}}
+\newcommand{\vdSi}{v_{\dSi}}
+\newcommand{\wdSi}{w_{\dSi}}
+\newcommand{\udSibar}{u_{\dSibar}}
+\newcommand{\udTibar}{u_{\dTibar}}
+\newcommand{\ufT}{u_{\partial T}}
+
+% Extended unknowns
+\newcommand{\wThat}{\hat{w}_T}
+\newcommand{\wThatplus}{\wThat^{\N}}
+\newcommand{\uThatplus}{\uThat^{\N}}
+\newcommand{\vThatplus}{\vThat^{\N}}
+
+% Operators
+\newcommand{\projT}{\Pi_{\dTi}^k}
+\newcommand{\projS}{\Pi_{\dSi}^k}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\q}{\boldsymbol{q}}
+\newcommand{\GT}{\boldsymbol{G}_{T}^k}
+\newcommand{\GTi}{\boldsymbol{G}_{T^i}^k}
+\newcommand{\GTo}{\boldsymbol{G}_{T^1}^k}
+\newcommand{\GTNi}{\boldsymbol{G}_{\N_i(T)^i}^k}
+\newcommand{\GTibar}{\boldsymbol{G}_{T^{\ibar}}^k}
+
+% Sum on extended faces
+\newcommand{\sumex}{\sum_{S \in \N^{-1}(T)}}
+\newcommand{\sumexi}{\sum_{S \in \N_i^{-1}(T)}}
+\newcommand{\sumexibar}{\sum_{S \in \N_{\ibar}^{-1}(T)}}
+\newcommand{\sumexone}{\sum_{S \in \N_1^{-1}(T)}}
+\newcommand{\sumextwo}{\sum_{S \in \N_2^{-1}(T)}}
+
+% Jumps
+\newcommand{\jumpu}{\llbracket \rev{u\upex} \rrbracket}
+\newcommand{\jumpuT}{\llbracket \uT \rrbracket}
+\newcommand{\jumpvT}{\llbracket \vT \rrbracket}
+\newcommand{\jumpuS}{\llbracket u_S \rrbracket}
+\newcommand{\jumpvS}{\llbracket v_S \rrbracket}
+\newcommand{\jumpuTplus}{\llbracket \uTplus \rrbracket}
+\newcommand{\jumpuNTplus}{\llbracket \uNTplus \rrbracket}
+\newcommand{\jumpwT}{\llbracket w_T \rrbracket}
+\newcommand{\jumpwS}{\llbracket w_S \rrbracket}
+\newcommand{\jumpwTplus}{\llbracket \wTplus \rrbracket}
+\newcommand{\jumpwNTplus}{\llbracket \wNTplus \rrbracket}
+
+\newcommand{\etaTi}{\boldsymbol{\eta}_{T^i}}
+\newcommand{\etaTibar}{\boldsymbol{\eta}_{T^{\ibar}}}
+\newcommand{\Ah}{\textsc{a}_h}
+\newcommand{\At}{\textsc{a}_T}
+\newcommand{\Sh}{\textsc{s}_h}
+\newcommand{\St}{\textsc{s}_T}
+
+\newcommand{\errorc}{\mathcal{E}_h}
+
+
+\newcommand{\SCAL}{{\cdot}}
+\newcommand{\bzero}{\boldsymbol{0}}
+\newcommand{\bgamma}{\boldsymbol{\gamma}}
+\newcommand{\tbgamma}{\widetilde{\boldsymbol{\gamma}}}
+\newcommand{\bdelta}{\boldsymbol{\delta}}
+\newcommand{\tbdelta}{\widetilde{\boldsymbol{\delta}}}
+% \newcommand{\Tdag}{T^\dagger}
+\newcommand{\hITk}{\hat{I}_T^k}
+\newcommand{\hIhk}{\hat{I}_{h}^k}
+\newcommand{\hINTk}{\hat{I}_{\N_i(T)}^k}
+\newcommand{\hITko}{\hat{I}_{T^1}^k}
+\newcommand{\hITkt}{\hat{I}_{T^2}^k}
+\newcommand{\hITki}{\hat{I}_{T^i}^k}
+\newcommand{\lift}{\boldsymbol{L}}
+\newcommand{\ball}{\mathcal{B}}
+
+%%%
+\DeclareMathOperator*{\conv}{conv}
+\newcommand{\by}{\boldsymbol{y}}
+\newcommand{\bz}{\boldsymbol{z}}
+
+\newcommand{\upex}{^{\textup{ex}}}

@@ -20,39 +20,57 @@
  * DOI: 10.1016/j.cam.2017.09.017
  */
 
+#pragma once
 
-template<typename T>
+#include <cmath>
+#include <Eigen/Dense>
+
+#include "diskpp/mesh/point.hpp"
+
+/* Level set function of the interface, in dimension DIM: the negative side
+ * is Omega_1, the positive side Omega_2. */
+template<typename T, size_t DIM = 2>
 struct level_set {
-   public:
-    virtual T operator()(const disk::point<T,2>& pt) const = 0;
+    static constexpr size_t dimension = DIM;
 
-    virtual Eigen::Matrix<T,2,1> gradient(const disk::point<T,2>& pt) const = 0;
+    virtual ~level_set() = default;
 
-    Eigen::Matrix<T,2,1> normal(const disk::point<T,2>& pt) const {
-        Eigen::Matrix<T,2,1> ret;
+    virtual T operator()(const disk::point<T,DIM>& pt) const = 0;
+
+    virtual Eigen::Matrix<T,DIM,1> gradient(const disk::point<T,DIM>& pt) const = 0;
+
+    Eigen::Matrix<T,DIM,1> normal(const disk::point<T,DIM>& pt) const {
+        Eigen::Matrix<T,DIM,1> ret;
         ret = gradient(pt);
         return ret/ret.norm();
     }
 };
 
-template<typename T>
-struct circle_level_set: public level_set<T>
+/* |x - c|^2 - R^2: circle in 2D, sphere in 3D */
+template<typename T, size_t DIM = 2>
+struct circle_level_set: public level_set<T, DIM>
 {
-    T radius, alpha, beta;
+    T                radius;
+    disk::point<T,DIM> center;
 
-    circle_level_set(T r, T a, T b) : radius(r), alpha(a), beta(b) {
+    circle_level_set(T r, const disk::point<T,DIM>& c) : radius(r), center(c) {
     }
 
-    T operator()(const disk::point<T,2>& pt) const {
-        auto x = pt.x();
-        auto y = pt.y();
-        return (x-alpha)*(x-alpha) + (y-beta)*(y-beta) - radius*radius;
+    /* circle of center (a, b) */
+    circle_level_set(T r, T a, T b) requires (DIM == 2) : radius(r), center(a, b) {
     }
 
-    Eigen::Matrix<T,2,1> gradient(const disk::point<T,2>& pt) const {
-        Eigen::Matrix<T,2,1> ret;
-        ret(0) = 2*pt.x() - 2*alpha;
-        ret(1) = 2*pt.y() - 2*beta;
+    T operator()(const disk::point<T,DIM>& pt) const {
+        T r2 = 0.0;
+        for (size_t i = 0; i < DIM; i++)
+            r2 += (pt[i] - center[i]) * (pt[i] - center[i]);
+        return r2 - radius*radius;
+    }
+
+    Eigen::Matrix<T,DIM,1> gradient(const disk::point<T,DIM>& pt) const {
+        Eigen::Matrix<T,DIM,1> ret;
+        for (size_t i = 0; i < DIM; i++)
+            ret(i) = 2*(pt[i] - center[i]);
         return ret;
     }
 };
@@ -68,7 +86,6 @@ struct line_level_set: public level_set<T>
 
     T operator()(const disk::point<T,2>& pt) const
     {
-        auto x = pt.x();
         auto y = pt.y();
 
         return y - cut_y;
@@ -108,14 +125,14 @@ struct square_level_set: public level_set<T>
         T dist_x = std::min( abs(x-x_left), abs(x-x_right));
         T dist_y = std::min( abs(y-y_bot), abs(y-y_top));
 
-        
+
         return - in * std::min(dist_x , dist_y);
     }
 
     Eigen::Matrix<T,2,1> gradient(const disk::point<T,2>& pt) const
     {
         Eigen::Matrix<T,2,1> ret;
-        
+
 
         auto x = pt.x();
         auto y = pt.y();
@@ -123,7 +140,7 @@ struct square_level_set: public level_set<T>
         T dist = abs(x - x_left);
         ret(0) = -1;
         ret(1) = 0;
-        
+
         if(abs(x - x_right) < dist )
         {
             dist = abs(x - x_right);
@@ -141,7 +158,7 @@ struct square_level_set: public level_set<T>
             ret(0) = 0;
             ret(1) = 1;
         }
-        
+
         return ret;
     }
 };
@@ -194,7 +211,7 @@ struct flower_level_set: public level_set<T>
 
         if(pt.x() < alpha)
             theta = theta + M_PI;
-        
+
         ret(0) = 2*X - a * N * std::sin(N * theta) * Y / (X*X + Y*Y);
         ret(1) = 2*Y + a * N * std::sin(N * theta) * X / (X*X + Y*Y);
         return ret;

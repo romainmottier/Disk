@@ -22,85 +22,15 @@
 
 #pragma once
 
+#include <fstream>
+#include <vector>
+
 #include "silo.hpp"
+#include "diskpp/mesh/cut_mesh.hpp"
 
-// #include "level_set.hpp"
-// #include "mesh_storage.hpp"
-// #include "diskpp/quadratures/quadratures.hpp"
-
-
-template<typename T>
-class postprocess_output_object {
-
-public:
-    postprocess_output_object()
-    {}
-
-    virtual bool write() = 0;
-};
-
-template<typename T>
-class silo_output_object : public postprocess_output_object<T>
-{
-
-};
-
-template<typename T>
-class gnuplot_output_object : public postprocess_output_object<T>
-{
-    std::string                                 output_filename;
-    std::vector< std::pair<disk::point<T,2>, T > >   data;
-
-public:
-    gnuplot_output_object(const std::string& filename)
-        : output_filename(filename)
-    {}
-
-    void add_data(const disk::point<T,2>& pt, const T& val)
-    {
-        data.push_back( std::make_pair(pt, val) );
-    }
-
-    bool write()
-    {
-        std::ofstream ofs(output_filename);
-
-        for (auto& d : data)
-            ofs << d.first.x() << " " << d.first.y() << " " << d.second << std::endl;
-
-        ofs.close();
-
-        return true;
-    }
-};
-
-
-template<typename T>
-class postprocess_output
-{
-    std::list< std::shared_ptr< postprocess_output_object<T>> >     postprocess_objects;
-
-public:
-    postprocess_output()
-    {}
-
-    void add_object( std::shared_ptr<postprocess_output_object<T>> obj )
-    {
-        postprocess_objects.push_back( obj );
-    }
-
-    bool write(void) const
-    {
-        for (auto& obj : postprocess_objects)
-            obj->write();
-
-        return true;
-    }
-};
-
-
-
-template<disk::mesh_2D Mesh, typename Function>
+/* Silo file (cut cells, cut types, level set, nodes) and text files
+ * (intersection points and interface: "X Y Z val") describing a cut mesh */
+template<disk::CutMesh Mesh, typename Function>
 void
 output_mesh_info(Mesh& msh, const Function& level_set_function) {
 
@@ -109,13 +39,14 @@ output_mesh_info(Mesh& msh, const Function& level_set_function) {
     /************** OPEN SILO DATABASE **************/
     disk::silo_database silo;
     silo.create("cuthho_meshinfo.silo");
-    silo.add_mesh(msh, "mesh");
+    auto background = msh.background();
+    silo.add_mesh(background, "mesh");
 
     /************** MAKE A SILO VARIABLE FOR CELL POSITIONING **************/
     std::vector<RealType> cut_cell_markers;
     std::vector<RealType> cell_indexes;
     size_t cell_ind = 0;
-    for (auto& cl : cells(msh)) {
+    for (auto& cl : msh) {
         if (locate(msh, cl) == disk::location::IN_POSITIVE_SIDE)
             cut_cell_markers.push_back(1.0);
         else if (locate(msh, cl) == disk::location::IN_NEGATIVE_SIDE)
@@ -132,26 +63,22 @@ output_mesh_info(Mesh& msh, const Function& level_set_function) {
 
     /************** MAKE A SILO VARIABLE FOR LEVEL SET FUNCTION **************/
     std::vector<RealType> level_set_vals;
-    for (auto& pt : points(msh))
-        level_set_vals.push_back( level_set_function(pt) );
+    for (auto itor = msh.points_begin(); itor != msh.points_end(); itor++)
+        level_set_vals.push_back( level_set_function(*itor) );
     silo.add_variable("mesh", "level_set", level_set_vals.data(), level_set_vals.size(), disk::nodal_variable_t);
 
     /************** MAKE A SILO VARIABLE FOR NODE POSITIONING **************/
     std::vector<RealType> node_pos;
-    for (auto& n : nodes(msh))
-        node_pos.push_back(locate(msh, n) == disk::location::IN_POSITIVE_SIDE ? +1.0 : -1.0 );
+    for (auto& nd_data : msh.cut_node_data)
+        node_pos.push_back(nd_data.loc == disk::location::IN_POSITIVE_SIDE ? +1.0 : -1.0 );
     silo.add_variable("mesh", "node_pos", node_pos.data(), node_pos.size(), disk::nodal_variable_t);
 
-    auto storage = msh.backend_storage();
     std::vector<RealType> cell_set;
-    for (auto& cl : cells(msh)) {
+    for (auto& cl : msh) {
 
-        RealType r;
+        RealType r = 0.0;
 
-        auto cl_id = offset(msh, cl);
-        auto& cl_cut = storage -> cut_cell_data[cl_id].cut;
-
-        switch (cl_cut) {
+        switch (cut_info(msh, cl).cut) {
 
             case disk::cut_type::UNDEF:
                 r = 0.0;
@@ -177,120 +104,50 @@ output_mesh_info(Mesh& msh, const Function& level_set_function) {
 
     silo.close();
 
+    auto write_point = [](std::ofstream& ofs, const typename Mesh::point_type& p) {
+        ofs << p[0] << "   " << p[1] << "   " << ((Mesh::dimension == 3) ? p[2] : 0.0) << "     0.0" << std::endl;
+    };
+
     /*************  MAKE AN OUTPUT FOR THE INTERSECTION POINTS *************/
-    std::vector<RealType> int_pts_x;
-    std::vector<RealType> int_pts_y;
-
-    for (auto& fc : faces(msh)) {
-
-        auto fc_id = offset(msh, fc);
-        auto& fc_loc = storage -> cut_face_data[fc_id].loc;
-        auto& fc_intersection_point = storage -> cut_face_data[fc_id].intersection_point;
-
-        if (fc_loc != disk::location::ON_INTERFACE) continue;
-
-        RealType x = fc_intersection_point.x();
-        RealType y = fc_intersection_point.y();
-
-        int_pts_x.push_back(x);
-        int_pts_y.push_back(y);
-
-    }
-
     std::ofstream points_file("int_points.3D", std::ios::out | std::ios::trunc);
-
-    if(points_file)
-    {
-        // instructions
+    if (points_file) {
         points_file << "X   Y   Z   val" << std::endl;
-
-        for( size_t i = 0; i<int_pts_x.size(); i++)
-        {
-            points_file << int_pts_x[i] << "   " <<  int_pts_y[i]
-                        << "   0.0     0.0" << std::endl;
+        if constexpr (Mesh::dimension == 2) {
+            for (auto& fc : faces(msh)) {
+                const auto& fd = cut_info(msh, fc);
+                if (fd.loc == disk::location::ON_INTERFACE)
+                    write_point(points_file, fd.intersection_point);
+            }
         }
-
+        else {
+            for (auto& ei : msh.edge_intersections)
+                write_point(points_file, ei.second);
+        }
         points_file.close();
     }
-
     else
         std::cerr << "Points_file has not been opened" << std::endl;
 
-
     /*************  MAKE AN OUTPUT FOR THE INTERFACE *************/
-    std::vector<RealType> int_x;
-    std::vector<RealType> int_y;
-
-    for (auto& cl : cells(msh)) {
-
-        auto cl_id = offset(msh, cl);
-        auto& cl_loc = storage -> cut_cell_data[cl_id].loc;
-        auto& cl_interface = storage -> cut_cell_data[cl_id].interface;
-
-        if (cl_loc != disk::location::ON_INTERFACE) continue;
-
-        for(size_t i = 0; i < cl_interface.size(); i++) {
-
-            RealType x = cl_interface.at(i).x();
-            RealType y = cl_interface.at(i).y();
-
-            int_x.push_back(x);
-            int_y.push_back(y);
-        }
-    }
     std::ofstream interface_file("interface.3D", std::ios::out | std::ios::trunc);
-
-    if(interface_file) {
-
-        // instructions
+    if (interface_file) {
         interface_file << "X   Y   Z   val" << std::endl;
-
-        for( size_t i = 0; i<int_x.size(); i++) {
-            interface_file << int_x[i] << "   " <<  int_y[i]
-                        << "   0.0     0.0" << std::endl;
+        for (auto& cl : msh) {
+            if (!is_cut(msh, cl))
+                continue;
+            if constexpr (Mesh::dimension == 2) {
+                for (auto& p : cut_info(msh, cl).poly.polyline)
+                    write_point(interface_file, p);
+            }
+            else {
+                std::vector<typename Mesh::point_type> itf;
+                disk::cutgeo::polyhedron_interface_samples(cut_info(msh, cl).poly, *msh.level_set_function, itf);
+                for (auto& p : itf)
+                    write_point(interface_file, p);
+            }
         }
-
         interface_file.close();
     }
-
     else
         std::cerr << "Interface_file has not been opened" << std::endl;
-
 }
-
-
-
-
-/////// test_info -> for error output
-template<typename T>
-class test_info {
-public:
-    test_info()
-        {
-            H1 = 0.0;
-            L2 = 0.0;
-            cond = 0.0;
-        }
-    T H1; // H1-error
-    T L2; // L2-error
-    T cond; // condition number
-};
-
-
-/////// stokes_test_info -> for stokes problem
-template<typename T>
-class stokes_test_info {
-public:
-    stokes_test_info()
-        {
-            H1_vel = 0.0;
-            L2_vel = 0.0;
-            L2_p = 0.0;
-            cond = 0.0;
-        }
-    T H1_vel; // H1-error for velocity
-    T L2_vel; // L2-error for velocity
-    T L2_p;   // L2-error for pressure
-    T cond;   // condition number
-};
-

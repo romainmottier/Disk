@@ -1,0 +1,264 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{stmaryrd}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{mydef}   % notations de l'article (Burman, Ern, Mottier)
+
+\newtheorem{lemma}{Lemme}
+\newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}{Définition}
+\theoremstyle{remark}
+\newtheorem{remark}{Remarque}
+
+\newcommand{\patch}{\mathcal{Q}}
+\newcommand{\patches}{\mathfrak{Q}_h}
+\newcommand{\Kp}{\mathsf{K}}
+\newcommand{\Fp}{\mathsf{F}}
+\newcommand{\A}{\mathsf{A}}
+\newcommand{\B}{\mathsf{b}}
+\newcommand{\Sm}{\mathsf{S}}
+\newcommand{\U}{\mathsf{U}}
+
+\title{Condensation statique locale pour les méthodes HHO non conformes\\
+stabilisées par extension polynomiale ou par agglomération}
+\author{Note technique accompagnant l'application \texttt{unfitted\_HHO} de \textsc{diskpp}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+On décrit l'élimination locale des inconnues de cellule (condensation statique) pour la méthode
+HHO non conforme stabilisée par extension polynomiale de Burman, Ern et Mottier, avec les notations
+de l'article. Contrairement au cas standard (et à la stabilisation par agglomération), les inconnues
+de cellule d'une sous-cellule mal coupée interviennent dans les contributions locales de la cellule
+qui la stabilise~: l'élimination ne peut pas se faire élément par élément, mais elle se fait
+patch par patch, les patchs étant les composantes connexes de la relation $S\sim\N(S)$.
+Le système condensé ne porte que sur les inconnues de face~; il est nettement mieux conditionné
+que le système complet.
+\end{abstract}
+
+\section{Forme algébrique du problème discret}
+
+On reprend les notations de l'article~: maillage $\mesh$, sous-cellules $\pmesh=\pmeshOK\cup\pmeshKO$,
+opérateur d'appariement $\N:\TKOmesh\to\mesh$, espace $\Uhatz=\UTHone\times\UFhonez\times\UTHtwo\times\UFhtwoz$
+et problème discret
+\begin{equation}\label{eq:pb}
+\text{trouver } \uhat\in\Uhatz \text{ tel que } a_h(\uhat,\what)=\ell_h(\what)\quad\forall\what\in\Uhatz,
+\qquad a_h := b_h + s_h^\circ + s_h^\Gamma + s_h^\N .
+\end{equation}
+On sépare les inconnues de cellule $\U_\mathsf{C}:=\UTHone\times\UTHtwo$ des inconnues de face
+$\U_\mathsf{F}:=\UFhonez\times\UFhtwoz$. Dans des bases de ces espaces, \eqref{eq:pb} s'écrit
+\begin{equation}\label{eq:block}
+\begin{pmatrix} \A_{\mathsf{CC}} & \A_{\mathsf{CF}} \\ \A_{\mathsf{FC}} & \A_{\mathsf{FF}} \end{pmatrix}
+\begin{pmatrix} \mathsf{u}_\mathsf{C} \\ \mathsf{u}_\mathsf{F} \end{pmatrix}
+= \begin{pmatrix} \B_\mathsf{C} \\ \B_\mathsf{F} \end{pmatrix},
+\end{equation}
+avec $\A$ symétrique définie positive puisque $a_h$ est symétrique et coercive sur $\Uhatz$
+(section~4 de l'article). La condensation statique consiste à éliminer $\mathsf{u}_\mathsf{C}$~:
+\begin{equation}\label{eq:schur}
+\Sm\,\mathsf{u}_\mathsf{F}=\mathsf{g}, \qquad
+\Sm:=\A_{\mathsf{FF}}-\A_{\mathsf{FC}}\A_{\mathsf{CC}}^{-1}\A_{\mathsf{CF}},\qquad
+\mathsf{g}:=\B_\mathsf{F}-\A_{\mathsf{FC}}\A_{\mathsf{CC}}^{-1}\B_\mathsf{C},
+\end{equation}
+puis à reconstruire $\mathsf{u}_\mathsf{C}=\A_{\mathsf{CC}}^{-1}(\B_\mathsf{C}-\A_{\mathsf{CF}}\mathsf{u}_\mathsf{F})$.
+Le complément de Schur $\Sm$ est symétrique défini positif. Tout l'intérêt est que $\A_{\mathsf{CC}}$ soit
+diagonale par blocs de petite taille~: \eqref{eq:schur} se calcule alors localement, sans jamais
+assembler~\eqref{eq:block}.
+
+\section{Le cas standard~: élimination élément par élément}
+
+Pour une méthode HHO conforme, $a_h=\sum_{T\in\mesh} a_T$ où $a_T$ ne fait intervenir que
+$\uThat=(\uT,\ufT)$. Ainsi $\A_{\mathsf{CC}}=\operatorname{diag}(\A_{TT})_{T\in\mesh}$ et
+\[
+\Sm=\sum_{T\in\mesh} \mathsf{E}_T^\top\big(\A_{\partial T\partial T}-\A_{\partial T T}\A_{TT}^{-1}\A_{T\partial T}\big)\mathsf{E}_T ,
+\]
+où $\mathsf{E}_T$ extrait les inconnues de face de $T$~: chaque matrice locale est condensée avant
+l'assemblage. Pour une cellule coupée $T\in\cutmesh$, les deux composantes $u_{T^1},u_{T^2}$ sont couplées
+par le terme d'interface de $\GTo$ et par $s_h^\Gamma$~; on les élimine donc ensemble (bloc
+$\A_{TT}$ de taille $2\dim\P^{k+1}$). Avec la stabilisation par agglomération, une cellule agglomérée
+$\patch$ (réunion de mailles, sans inconnue sur ses faces intérieures) joue exactement le rôle de $T$~:
+ses inconnues de cellule, des deux côtés de l'interface, ne sont couplées qu'à ses propres faces,
+et la condensation est la condensation standard, cellule agglomérée par cellule agglomérée.
+
+\section{Extension polynomiale~: élimination patch par patch}
+
+\subsection{Contributions locales}
+
+Regroupons les termes de $a_h$ par sous-cellule (c'est aussi l'organisation de l'implémentation).
+Pour $(T,i)\in\pmeshOK$ et $\vhat,\what\in\Uhatz$,
+\begin{align}
+a^{\textup{OK}}_{T,i}(\vhat,\what) :={}& \kappa_i(\GTi(\vThatplus),\GTi(\wThatplus))_{T^i} \nonumber\\
+&+ \kappa_i h_T^{-1}(\projT(\vTi)-\vdTi,\projT(\wTi)-\wdTi)_{\dTi} \nonumber\\
+&+ \sumexi \eta_\N\kappa_i h_T^{-2}(\vSi-\vTi^+,\wSi-\wTi^+)_{T^i} \nonumber\\
+&+ \delta_{i1}\,\kappa_1h_T^{-1}(\jumpvT_\Gamma,\jumpwT_\Gamma)_{\TG}, \label{eq:aOK}
+\end{align}
+et pour $(T,i)\in\pmeshKO$ (rappelons que $\GTi(\uThatplus)=\nabla\uTi$ dans ce cas),
+\begin{align}
+a^{\textup{KO}}_{T,i}(\vhat,\what) :={}& \kappa_i(\nabla\vTi,\nabla\wTi)_{T^i}
++ \kappa_i h_T^{-1}(\projT(\vTi)-\vdTi,\projT(\wTi)-\wdTi)_{\dTi} \nonumber\\
+&+ \delta_{i1}\,\kappa_1h_T^{-1}(\jumpvT_\Gamma,\jumpwT_\Gamma)_{\TG}, \label{eq:aKO}
+\end{align}
+de sorte que
+\[
+a_h=\sum_{(T,i)\in\pmeshOK} a^{\textup{OK}}_{T,i}+\sum_{(T,i)\in\pmeshKO} a^{\textup{KO}}_{T,i}
+\]
+(le terme $s_h^\Gamma$ de chaque cellule coupée est compté une fois, du côté $i=1$~; dans
+l'implémentation, $s_h^\circ$ est de plus multiplié par $k+1$). Le second membre $\ell_h$ se
+décompose de la même façon.
+
+\subsection{Le graphe de couplage des inconnues de cellule}
+
+Lisons dans~\eqref{eq:aOK}--\eqref{eq:aKO} quelles inconnues de cellule chaque contribution couple.
+\begin{itemize}[leftmargin=*]
+\item $a^{\textup{KO}}_{T,i}$ ne fait intervenir que les inconnues de cellule de $T$
+(les deux côtés, à cause du saut $\jumpvT_\Gamma$ si $i=1$).
+\item $a^{\textup{OK}}_{T,i}$ fait intervenir les inconnues de cellule de $T$ (les deux côtés
+si $T$ est coupée, par le terme $\delta_{i1}(\jumpuT_\Gamma,\q\SCAL\nG)_{\TG}$ de $\GTi$), mais aussi celles de
+toutes les cellules $S\in\N_i^{-1}(T)$~: $u_{S^i}$ par $s_h^\N$ et par les termes
+$(\udSi-\uSi,\q^+\SCAL\nS)_{\dSi}$ du gradient étendu, et $u_{S^1},u_{S^2}$ par le saut
+$\jumpuS_\Gamma$ si $i=1$.
+\end{itemize}
+Les inconnues de cellule d'une cellule mal coupée $S$ apparaissent donc à la fois dans sa propre
+contribution $a^{\textup{KO}}_{S,i}$ et dans celle, $a^{\textup{OK}}_{\N_i(S),i}$, de la cellule qui la
+stabilise~: $\A_{\mathsf{CC}}$ n'est pas diagonale par cellule, et l'élimination élément par élément
+n'est pas possible. Elle le devient si l'on regroupe les cellules couplées.
+
+\begin{definition}[Patchs]
+On note $\patches$ l'ensemble des classes d'équivalence de $\mesh$ pour la plus petite relation
+d'équivalence telle que $S\sim\N(S)$ pour tout $S\in\TKOmesh$. Un élément $\patch\in\patches$ est
+appelé un patch~; ses inconnues de cellule sont $(u_{T^1},u_{T^2})_{T\in\patch}$ et ses inconnues
+de face celles de toutes les faces des cellules de $\patch$.
+\end{definition}
+
+Un patch est le plus souvent réduit à une cellule. Une cellule $T$ en image de $\N$ forme avec
+$\N^{-1}(T)$ le patch $\{T\}\cup\N^{-1}(T)$, conformément à la remarque de l'article selon laquelle
+\og all the cell unknowns attached to $T\cup\bigcup_{S\in\N^{-1}(T)}S$ are blocked together\fg.
+La définition par composantes connexes est nécessaire car ces ensembles peuvent se chevaucher~:
+avec l'étape~4 de l'appariement, $T:=\N_1(S)\in\TKOtwomesh$ entraîne $\N_2(T):=S$, et une cellule
+peut être à la fois stabilisante d'un côté et stabilisée de l'autre. Les patchs se calculent en
+temps quasi linéaire par union--recherche sur les paires $(S,\N(S))$.
+
+\begin{lemma}[Localisation]\label{lem:loc}
+Pour tout $(T,i)\in\pmesh$, toutes les inconnues de cellule qui interviennent dans la contribution
+locale associée à $(T,i)$ appartiennent au patch contenant $T$. Par conséquent, avec les inconnues
+de cellule numérotées patch par patch,
+\[
+\A_{\mathsf{CC}}=\operatorname{diag}\big(\A_{\patch\patch}\big)_{\patch\in\patches}.
+\]
+\end{lemma}
+
+\begin{proof}
+Les inconnues de cellule de $a^{\textup{KO}}_{T,i}$ sont celles de $T$. Celles de
+$a^{\textup{OK}}_{T,i}$ sont celles de $T$ et des $S\in\N_i^{-1}(T)$, qui vérifient $S\sim T$. Deux
+inconnues de cellule de patchs différents n'apparaissent donc jamais dans une même contribution,
+et le coefficient correspondant de $\A$ est nul.
+\end{proof}
+
+\begin{lemma}[Inversibilité des blocs]
+Chaque bloc $\A_{\patch\patch}$ est symétrique défini positif.
+\end{lemma}
+
+\begin{proof}
+$\A_{\patch\patch}$ est la matrice de la restriction de $a_h$ au sous-espace de $\Uhatz$ formé des
+fonctions dont les inconnues de face sont nulles et les inconnues de cellule sont nulles hors de
+$\patch$. La restriction d'une forme bilinéaire symétrique coercive à un sous-espace reste
+symétrique coercive.
+\end{proof}
+
+\subsection{Condensation et reconstruction}
+
+Pour $\patch\in\patches$, notons $\Kp$ ses inconnues de cellule, $\Fp$ ses inconnues de face non
+soumises à la condition de Dirichlet, et $\mathsf{D}$ les inconnues de face de Dirichlet, de valeurs
+connues $\mathsf{u}_\mathsf{D}$. On assemble la matrice dense du patch en sommant les contributions
+locales des sous-cellules de ses cellules,
+\begin{gather*}
+\begin{pmatrix} \A_{\Kp\Kp} & \A_{\Kp\Fp} \\ \A_{\Fp\Kp} & \A_{\Fp\Fp}\end{pmatrix}
+:=\sum_{(T,i)\in\pmesh,\ T\in\patch}\big(\text{matrice de la contribution de }(T,i)\big),\\
+\begin{pmatrix} \B_{\Kp} \\ \B_{\Fp}\end{pmatrix} := \sum_{(T,i)\in\pmesh,\ T\in\patch} \big(\text{second membre de la contribution de }(T,i)\big)
+- \A_{\cdot\mathsf{D}}\,\mathsf{u}_\mathsf{D}.
+\end{gather*}
+D'après le lemme~\ref{lem:loc}, $\A_{\Kp\Kp}$ et $\B_\Kp$ sont exactement les blocs du système global
+(aucune autre contribution n'y participe), tandis que $\A_{\Fp\Fp}$ et $\B_\Fp$ ne contiennent que la
+part du patch. On calcule alors
+\[
+\mathsf{X}_\patch:=\A_{\Kp\Kp}^{-1}\A_{\Kp\Fp},\qquad \mathsf{y}_\patch:=\A_{\Kp\Kp}^{-1}\B_\Kp,
+\qquad
+\Sm_\patch:=\A_{\Fp\Fp}-\A_{\Fp\Kp}\mathsf{X}_\patch,\qquad \mathsf{g}_\patch:=\B_\Fp-\A_{\Fp\Kp}\mathsf{y}_\patch,
+\]
+et l'on assemble $\Sm=\sum_\patch \mathsf{E}_\patch^\top\Sm_\patch\mathsf{E}_\patch$,
+$\mathsf{g}=\sum_\patch\mathsf{E}_\patch^\top\mathsf{g}_\patch$, ce qui donne exactement~\eqref{eq:schur}.
+Après la résolution de $\Sm\,\mathsf{u}_\mathsf{F}=\mathsf{g}$, les inconnues de cellule se
+reconstruisent patch par patch~:
+\[
+\mathsf{u}_\Kp=\mathsf{y}_\patch-\mathsf{X}_\patch\,\mathsf{E}_\patch\mathsf{u}_\mathsf{F}.
+\]
+Le système~\eqref{eq:block} n'est jamais formé. Le complément de Schur couple les faces de toutes les
+cellules d'un même patch~: près de l'interface, son stencil est légèrement plus large que celui du
+HHO standard, dans la même mesure que l'extension élargit celui de $\GTi$
+(motif de creux de la figure~8 de l'article).
+
+\begin{remark}[Agglomération]
+Pour la stabilisation par agglomération, les patchs sont les cellules agglomérées et l'on retrouve
+la condensation standard. Les deux condensations sont donc la même construction appliquée à des
+structures de couplage différentes~; seule la définition des patchs change.
+\end{remark}
+
+\begin{remark}[Version algébrique]
+Le même résultat s'obtient à partir de la matrice assemblée~\eqref{eq:block}~: les patchs sont alors
+les composantes connexes du graphe de $\A_{\mathsf{CC}}$. Cette variante ne demande aucune
+connaissance de l'appariement, mais elle assemble d'abord le système complet, qui compte environ
+trois fois plus d'inconnues pour $k=3$.
+\end{remark}
+
+\section{Mise en \oe uvre et résultats}
+
+Dans \texttt{unfitted\_HHO}, l'option \texttt{-c 1} (défaut) réalise la condensation locale~:
+les patchs sont obtenus par union--recherche sur les paires $(S,\N(S))$ (une cellule agglomérée par
+patch avec \texttt{-p1}), les contributions des sous-cellules d'un patch sont sommées dans une matrice
+dense, les inconnues de Dirichlet sont passées au second membre, puis le patch est condensé par une
+factorisation $\mathsf{LDL}^\top$. L'option \texttt{-c 2} réalise la variante algébrique et
+\texttt{-c 0} résout le système complet.
+
+\paragraph{Vérification.} Pour les solutions (56), (57) avec $\kappa_2=10^4\kappa_1$, et sur le cercle
+et la fleur, $k=0,\dots,3$, niveaux $0$ à $3$, les erreurs obtenues avec \texttt{-c 0}, \texttt{-c 1}
+et \texttt{-c 2} coïncident à $10^{-12}$ près en valeur absolue. Sur le cercle au niveau 3
+($80\times80$ mailles), on obtient 6312 patchs. Le plus grand regroupe 90 inconnues de cellule pour
+$k=3$, soit six sous-cellules, avec l'extension polynomiale, et 30 avec l'agglomération.
+
+\paragraph{Conditionnement.} Le système condensé est beaucoup mieux conditionné que le système complet,
+et presque insensible à la position de la coupe. Pour le cercle de rayon $R=1/3+2/32$ (configuration
+la plus défavorable de la figure~12 de l'article) et le carré décalé de $\delta=0.5\cdot10^{-5}$, au
+niveau~0, avec les bases orthonormées et $\eta_\N=20(k+1)^2$~:
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+& $k=0$ & $k=1$ & $k=2$ & $k=3$ \\
+\midrule
+cercle, système complet & $4.5\cdot10^{2}$ & $1.5\cdot10^{3}$ & $1.1\cdot10^{4}$ & $1.1\cdot10^{5}$ \\
+cercle, complet après mise à l'échelle diagonale & $1.7\cdot10^{2}$ & $9.9\cdot10^{2}$ & $3.5\cdot10^{3}$ & $1.6\cdot10^{4}$ \\
+cercle, système condensé & $42$ & $1.2\cdot10^{2}$ & $1.8\cdot10^{2}$ & $2.7\cdot10^{2}$ \\
+\midrule
+carré, système complet & $5.2\cdot10^{2}$ & $1.8\cdot10^{3}$ & $5.0\cdot10^{3}$ & $1.2\cdot10^{4}$ \\
+carré, système condensé & $45$ & $1.3\cdot10^{2}$ & $1.9\cdot10^{2}$ & $2.8\cdot10^{2}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Coût.} Pour $k=3$ au niveau 4 ($160\times160$ mailles), le système condensé compte
+$2.1\cdot10^{5}$ inconnues contre $5.9\cdot10^{5}$. Avec le même solveur (Pardiso), sa
+résolution prend 1.07~s contre 2.35~s pour le système complet (et 4.6~s pour le système complet
+résolu par \texttt{SimplicialLDLT}, comme dans ProtoN). La condensation locale ne coûte rien de
+mesurable~: l'assemblage avec condensation (1.33~s) est même un peu plus rapide que l'assemblage du
+système complet (1.41~s), qui manipule beaucoup plus de coefficients.
+
+\end{document}

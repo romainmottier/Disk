@@ -28,8 +28,6 @@
 #include "ident.hpp"
 #include "point.hpp"
 
-#include "cut_types.hpp"
-
 namespace disk {
 
 /* Generic template for mesh_storage.
@@ -198,10 +196,6 @@ struct mesh_storage<T, 2, StorageClass>
 
     std::vector<subdomain_descriptor>               subdomain_info;
     std::vector<boundary_descriptor>                boundary_info;
-
-    std::vector<cut_cell_info<T,2>> cut_cell_data;
-    std::vector<cut_face_info<T,2>> cut_face_data;
-    std::vector<cut_node_info<T,2>> cut_node_data;
 
     void statistics(void) const
     {

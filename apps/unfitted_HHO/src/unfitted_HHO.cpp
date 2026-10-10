@@ -1,98 +1,54 @@
+/*
+ * Unfitted HHO methods stabilized by polynomial extension for elliptic
+ * interface problems (E. Burman, A. Ern, R. Mottier).
+ *
+ * Prototypes: -p0 stabilization by polynomial extension
+ *             -p1 stabilization by cell agglomeration [12]
+ * Meshes:     -M0 quadrangles (paper), 1 triangles, 2 polygons (hexagons),
+ *             -M3 hexahedra, 4 tetrahedra, 5 polyhedra (hexagonal prisms),
+ *             -M6 unstructured triangles, 7 unstructured tetrahedra (gmsh)
+ * Example: convergence test of Fig. 6 (circle, k = 0..3, l = 0..4)
+ *   ./unfitted_HHO -p0 -i0 -t0 -k3 -l4 -r8
+ */
 
 #include <iostream>
-#include <fstream>
-#include <vector>
-#include <array>
-#include <algorithm>
-#include <numeric>
-#include <cassert>
-#include <cmath>
-#include <memory>
-#include <sstream>
-#include <list>
-#include <regex>
 
-#include "diskpp/loaders/loader.hpp"
-#include "diskpp/common/timecounter.hpp"
-#include "diskpp/mesh/meshgen.hpp"
-#include "diskpp/output/silo.hpp"
-#include "diskpp/output/cuthho_output.hpp"
-#include "diskpp/methods/hho"
+#include "unfitted_HHO_run.hpp"
 
-using RealType = double;
-typedef disk::cartesian_mesh<RealType, 2> mesh_type;
-#include "diskpp/mesh/cut_mesh.hpp"
-#include "common/preprocessor.hpp"
-#include "common/test_cases.hpp"
-#include "common/cuthho_assemblers.hpp"
-#include "common/operators.hpp"
-#include "common/postprocessor.hpp"
-
-#define reset   "\033[0m"
-#define red     "\033[31m"
-#define bold    "\033[1m"
-#define yellow  "\033[33m"
-#define blue    "\033[34m"
-
-typedef disk::BoundaryConditions<mesh_type, true> boundary_type;
-
-// ../unfitted_HHO -p0 -l4 -i0 -k3 -n0 -r4 -c0 -s0 -t0 -f1 
-void Elliptic_Poly_Ext(int argc, char **argv);
-void Elliptic_Poly_Ext(int argc, char **argv) {
-
-    timecounter tc, tck, tcl;
-    tc.tic();
-
-    using T = double;    
-    
-    // SIMULATION DATA & MESH PREPROCESSING
-    preprocessor<mesh_type> preprocess; 
-    preprocessor<mesh_type>::SimulationOptions opts;
-    preprocess.simulation_data(argc, argv, opts); 
-    auto level_set_function = preprocess.make_level_set_function<double>(opts.lv_set);
-    mesh_type msh = preprocess.msh_generation(*level_set_function, opts.l_divs, opts.int_refsteps);
-    make_polynomial_extension(msh, level_set_function);
-    preprocess.msh_debug(msh, *level_set_function, opts.l_divs, opts.debug);
-
-    // TEST CASE 
-    preprocessor<mesh_type>::params<double> mat_params;
-    preprocessor<mesh_type>::update_mat_prop(mat_params, 1.0, 1.0);
-    auto test_case = select_test_case<mesh_type>(opts.test_case, level_set_function.get());
-
-    // HHO DISCRTEIZATION
-    disk::hho_degree_info hdi(opts.degree+1, opts.degree); // Mixed order discretization
-    auto method = make_gradrec_interface_method<double, mesh_type, decltype(test_case)>(test_case);
-    boundary_type bnd(msh);
-    bnd.addDirichletEverywhere(test_case.bcs_fun);
-    auto assembler = unfitted_elliptic_interface_assembler<mesh_type>(msh, hdi, bnd);
-
-
-}
-
-
-int main(int argc, char **argv) {
-
+int main(int argc, char **argv)
+{
     DBSetDeprecateWarnings(0);
-    using RealType = double;
-    
-    int ch, prototype = 0;
-    while ((ch = getopt(argc, argv, "p:")) != -1) {
-        if (ch == 'p') {
-            prototype = atoi(optarg);
-            break;  // stop après avoir trouvé -p
-        }
+
+    /* all the options are parsed at once: a first pass looking only for -p
+     * would make getopt permute the values given as separate arguments */
+    simulation_options opts;
+    simulation_data(argc, argv, opts);
+
+    if (opts.prototype > 1) {
+        std::cout << "Unknown prototype " << opts.prototype << std::endl;
+        return 1;
     }
+    bool agglomeration = (opts.prototype == 1);
 
-    // POSTPRO HHO SOLUTION
-    std::string error_file_txt = "solution_error_file.txt";
-    std::ofstream error_file(error_file_txt);
-    postprocessor<mesh_type>::write_conv_sol(error_file_txt);
-
-    if (prototype == 0) {
-        std::cout << std::endl << "            " << bold << red;
+    std::cout << std::endl << "            " << bold << red;
+    if (agglomeration)
+        std::cout << "ELLIPTIC INTERFACE PROBLEM STABILIZED WITH CELL AGGLOMERATION" << reset << std::endl << std::endl;
+    else
         std::cout << "ELLIPTIC INTERFACE PROBLEM STABILIZED WITH POLYNOMIAL EXTENSION" << reset << std::endl << std::endl;
-        Elliptic_Poly_Ext(argc, argv);
-        return 0;
+
+    switch (mesh_kind(opts.mesh)) {
+        case mesh_kind::quadrangles: run_quadrangles(opts, agglomeration); break;
+        case mesh_kind::triangles:   run_triangles(opts, agglomeration);   break;
+        case mesh_kind::polygons:    run_polygons(opts, agglomeration);    break;
+        case mesh_kind::hexahedra:   run_hexahedra(opts, agglomeration);   break;
+        case mesh_kind::tetrahedra:  run_tetrahedra(opts, agglomeration);  break;
+        case mesh_kind::polyhedra:   run_polyhedra(opts, agglomeration);   break;
+        case mesh_kind::unstructured_triangles:  run_triangles(opts, agglomeration);  break;
+        case mesh_kind::unstructured_tetrahedra: run_tetrahedra(opts, agglomeration); break;
+        default:
+            std::cout << "Unknown mesh " << opts.mesh << std::endl;
+            return 1;
     }
 
+    return 0;
 }
