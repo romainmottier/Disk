@@ -32,6 +32,7 @@ Usage: python3 generate_shiftbg_family.py --levels 0 1 2 3 4 5 6
 import os
 import argparse
 from fractions import Fraction as F
+from generate_center_square_fixed_mesh import write_poly2d
 
 OUTDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meshes")
 
@@ -129,16 +130,6 @@ def cells_to_polygons(cells):
 
     bc_ids = sorted(pid for pid, (x, y) in enumerate(points) if x in (0.0, 1.0) or y in (0.0, 1.0))
     return points, polygons, bc_ids, bands
-
-
-def write_poly2d(path, points, polys, bc_ids):
-    with open(path, "w") as f:
-        f.write(f"{len(points)} {len(polys)} 1\n")
-        for x, y in points:
-            f.write(f"{x:.15g} {y:.15g}\n")
-        for poly in polys:
-            f.write(f"{len(poly)} " + " ".join(str(v + 1) for v in poly) + "\n")
-        f.write(" ".join(str(i + 1) for i in bc_ids) + "\n")
 
 
 def h_min_max(points, polys):

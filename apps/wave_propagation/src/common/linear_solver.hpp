@@ -296,6 +296,13 @@ class linear_solver
 
     }
     
+    // After condense_equations: the cell block (inverted in m_Kcc_inv) and the face block (in the condensed m_K) are
+    // not used by solve_sc
+    void release_condensed_blocks(){
+        m_Kcc = SparseMatrix<T>();
+        m_Kff = SparseMatrix<T>();
+    }
+
     void condense_equations(std::pair<size_t,size_t> cell_basis_data){
         std::vector<std::pair<size_t,size_t>> vec_cell_basis_data(1);
         vec_cell_basis_data[0] = cell_basis_data;

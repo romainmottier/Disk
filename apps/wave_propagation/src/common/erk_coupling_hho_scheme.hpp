@@ -400,117 +400,6 @@ class erk_coupling_hho_scheme {
         }
     }
        
-//     void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w, const Matrix<T, Dynamic, 1> &Fn, const Matrix<T, Dynamic, 1> &Fn12, const Matrix<T, Dynamic, 1> &Fn1, const T dt) {
-        
-//         // Precompute active indices of the boolean diagonal projector Pcoarse
-//         // Replaces all Pcoarse * v matvecs with O(nnz) index masking
-//         m_coarse_active_dofs.clear();
-//         for (int i = 0; i < Pcoarse.rows(); ++i)
-//         if (Pcoarse.coeff(i, i) > 0.5)
-//         m_coarse_active_dofs.push_back(i);
-        
-//         // Quadratic Lagrange interpolation coefficients
-//         Matrix<T, Dynamic, 1> F0 =  Fn;
-//         Matrix<T, Dynamic, 1> F1 = (-3*Fn + 4*Fn12 - Fn1) / dt;
-//         Matrix<T, Dynamic, 1> F2 = ( 4*Fn - 8*Fn12 + 4*Fn1) / (dt*dt);
-        
-//         // Pcoarse is a boolean diagonal projector with static sparsity —
-//         // application reduces to index masking, no matvec needed
-//         auto apply_Pcoarse = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
-//             Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(v.rows());
-//             for (int i : m_coarse_active_dofs)
-//             out(i) = v(i);
-//             return out;
-//         };
-        
-//         // Coarse projections — now O(nnz) index copies instead of O(n) sparse matvec
-//         Matrix<T, Dynamic, 1> IPF0 = apply_Pcoarse(F0);
-//         Matrix<T, Dynamic, 1> IPF1 = apply_Pcoarse(F1);
-//         Matrix<T, Dynamic, 1> IPF2 = apply_Pcoarse(F2);
-        
-//         // Apply weight operator with y=0 : reduces to Mc_inv * Fc then Sff_inv * Kfc
-//         // Avoids Kcc*0, Kcf*0, SetFg, ZeroFc entirely
-//         auto weight_zero_y = [&](const Matrix<T, Dynamic, 1>& Fc_in, Matrix<T, Dynamic, 1>& out) {
-//             out.resize(y.rows());
-//             Matrix<T, Dynamic, 1> kc = m_Mc_inv * Fc_in.head(m_n_c_dof);
-//             out.head(m_n_c_dof) = kc;
-//             Matrix<T, Dynamic, 1> RHSf = Kfc() * kc;
-//             out.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q
-//             ? -m_Sff_inv * RHSf
-//             : -m_inv_Sff * RHSf;
-//         };
-        
-//         Matrix<T, Dynamic, 1> F0_full,   F1_full,   F2_full;
-//         Matrix<T, Dynamic, 1> IPF0_full, IPF1_full, IPF2_full;
-        
-//         weight_zero_y(F0,   F0_full);
-//         weight_zero_y(F1,   F1_full);
-//         weight_zero_y(F2,   F2_full);
-//         weight_zero_y(IPF0, IPF0_full);
-//         weight_zero_y(IPF1, IPF1_full);
-//         weight_zero_y(IPF2, IPF2_full);
-        
-//         // Coarse block of Pcoarse restricted to coarse dofs
-//         // Pc * v reduces to the same index masking, restricted to [0, m_n_c_dof)
-//         auto apply_Pc = [&](const Matrix<T, Dynamic, 1>& v) -> Matrix<T, Dynamic, 1> {
-//             Matrix<T, Dynamic, 1> out = Matrix<T, Dynamic, 1>::Zero(m_n_c_dof);
-//             for (int i : m_coarse_active_dofs)
-//             if (i < m_n_c_dof)
-//             out(i) = v(i);
-//             return out;
-//         };
-        
-//         Matrix<T, Dynamic, 1> MinvF0 = IPF0_full.head(m_n_c_dof);
-//         Matrix<T, Dynamic, 1> MinvF1 = IPF1_full.head(m_n_c_dof);
-//         Matrix<T, Dynamic, 1> MinvF2 = IPF2_full.head(m_n_c_dof);
-        
-//         // B^i y chains (homogeneous, Fc = 0)
-//         Matrix<T, Dynamic, 1> B0y = y;
-//         Matrix<T, Dynamic, 1> B1y, B2y, B3y;
-//         erk_weight(B0y, B1y);
-//         erk_weight(B1y, B2y);
-//         erk_weight(B2y, B3y);
-        
-//         // B^i F chains — full-space F as argument
-//         Matrix<T, Dynamic, 1> BF0, B2F0, BF1;
-//         erk_weight(F0_full, BF0);
-//         erk_weight(BF0,     B2F0);
-//         erk_weight(F1_full, BF1);
-        
-//         // Taylor expansion arguments for each w coefficient
-//         Matrix<T, Dynamic, 1> arg0 = B0y;
-//         Matrix<T, Dynamic, 1> arg1 = B1y  + F0_full;
-//         Matrix<T, Dynamic, 1> arg2 = B2y  + BF0    + F1_full;
-//         Matrix<T, Dynamic, 1> arg3 = B3y  + B2F0   + BF1 + F2_full;
-        
-//         // Compute one w coefficient from its Taylor argument and optional coarse force term
-//         auto compute_one_w = [&](const Matrix<T, Dynamic, 1> &arg, const Matrix<T, Dynamic, 1> *MinvFext, Matrix<T, Dynamic, 1> &wi) {
-            
-//             // Pcoarse * arg — index masking instead of sparse matvec
-//             Matrix<T, Dynamic, 1> Ptmp   = apply_Pcoarse(arg);
-//             Matrix<T, Dynamic, 1> Ptmp_c = Ptmp.head(m_n_c_dof);
-//             Matrix<T, Dynamic, 1> Ptmp_f = Ptmp.tail(m_n_f_dof);
-            
-//             Matrix<T, Dynamic, 1> wi_c = m_Mc_inv * (-Kcc()*Ptmp_c - Kcf()*Ptmp_f);
-            
-//             if (MinvFext)
-//             wi_c += apply_Pc(*MinvFext);
-            
-//             wi = Ptmp;
-//             wi.head(m_n_c_dof) = wi_c;
-            
-//             Matrix<T, Dynamic, 1> RHSf = Kfc() * wi_c;
-//             wi.tail(m_n_f_dof) = m_sff_is_block_diagonal_Q
-//             ? -m_Sff_inv * RHSf
-//             : -m_inv_Sff * RHSf;
-//         };
-        
-//         compute_one_w(arg0, &MinvF0, w[0]);
-//         compute_one_w(arg1, &MinvF1, w[1]);
-//         compute_one_w(arg2, &MinvF2, w[2]);
-//         compute_one_w(arg3, nullptr,  w[3]);
-//     }
-    
     void erk_weight_LTS_coarse_old(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &Pcoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
         
         Matrix<T, Dynamic, 1> k = y;                 
@@ -547,6 +436,56 @@ class erk_coupling_hho_scheme {
             k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_inv_Sff * RHSf; 
         }
         
+    }
+    
+    // Two-level LTS with explicit Euler substeps: the coarse cell contribution is frozen over the p fine substeps
+    void erk_euler_LTS(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, double dtau, size_t p, SparseMatrix<T> IminusP, SparseMatrix<T> Pfacecoarse, SparseMatrix<T> P_cell, SparseMatrix<T> Pfacefine) {
+        
+        k=y;
+
+        // COARSE EVALUATION
+        Matrix<T, Dynamic, 1> y_c_dof = y.block(0, 0, m_n_c_dof, 1);
+        Matrix<T, Dynamic, 1> y_f_dof = y.block(m_n_c_dof, 0, m_n_f_dof, 1);
+        Matrix<T, Dynamic, 1> w_coarse = m_Mc_inv * (Fc() - Kcc()*IminusP*y_c_dof - Kcf()*Pfacecoarse*y_f_dof);
+
+        // FINE EVALUATION
+        for (int m = 0; m < p; m++) { 
+            k=y;
+            // CELL UPDATE
+            Matrix<T, Dynamic, 1> y_c_dof = k.block(0, 0, m_n_c_dof, 1);
+            Matrix<T, Dynamic, 1> y_f_dof = k.block(m_n_c_dof, 0, m_n_f_dof, 1);
+            Matrix<T, Dynamic, 1> w_fine  = m_Mc_inv * (Fc() - Kcc()*P_cell*y_c_dof - Kcf()*Pfacefine*y_f_dof);
+            Matrix<T, Dynamic, 1> k_c_dof = w_coarse + w_fine;
+            k.block(0, 0, m_n_c_dof, 1) = k_c_dof;    
+            // FACE UPDATE
+            Matrix<T, Dynamic, 1> RHSf = Kfc()*k_c_dof;
+            if (m_sff_is_block_diagonal_Q) {
+                k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_Sff_inv * RHSf;
+            }
+            else {
+                k.block(m_n_c_dof, 0, m_n_f_dof, 1) = - m_inv_Sff * RHSf;
+            }
+            // GLOBAL UPDATE
+            y += dtau * k;
+        }        
+    }
+
+    // Coarse weights w_i = B (I-P) B^i y, i = 0..3, of the two-level LTS-RK4 (cell projector IminusP, face projector Pfacecoarse)
+    void compute_wi(const Matrix<T, Dynamic, 1> &y, const Eigen::SparseMatrix<double> &IminusP, const Eigen::SparseMatrix<T> &Pfacecoarse, std::vector<Matrix<T, Dynamic, 1>> &w) {
+    
+        Matrix<T, Dynamic, 1> k = y;                 
+        Matrix<T, Dynamic, 1> Biy = y; // i= 0   
+        for(int i=0; i<4; i++) {
+            // COMPUTATION OF B^iy
+            if (i != 0) {
+                erk_weight(Biy, k);
+                Biy = k;
+            }
+            // COMPUTATION OF w_i
+            k.block(0, 0, m_n_c_dof, 1) = IminusP * Biy.block(0, 0, m_n_c_dof, 1);
+            k.block(m_n_c_dof, 0, m_n_f_dof, 1) = Pfacecoarse * Biy.block(m_n_c_dof, 0, m_n_f_dof, 1);
+            erk_weight(k, w[i]);
+        }
     }
     
 void erk_weight_LTS_coarse(const Matrix<T, Dynamic, 1> &y,
@@ -1642,7 +1581,7 @@ void erk_weight_LTS_coarse_restricted(const Matrix<T, Dynamic, 1> &y,
 // methods above are touched, so the 11 existing 2-level LTS callers
 // (ERK4_LTS.hpp, ERK4_LTS_conv_test.hpp, ERK4_LTS_stab*.hpp,
 // ERK4_LTS_Lshape_conv_test.hpp, ERK4_LTS_Lshape_MMS_conv_test.hpp,
-// ERK4_LTS_optimised.hpp, ERK4_LTS_SSTAB.hpp, ...) and assemble_P in
+// ERK4_LTS_optimised in ERK4_LTS.hpp, ...) and assemble_P in
 // elastoacoustic_four_fields_assembler.hpp are completely unaffected.
 //
 // Unlike build_LTS_subspaces() (single hardcoded coarse/fine member-slot
@@ -2420,7 +2359,7 @@ void erk_weight_LTS_fine_v2(Matrix<T, Dynamic, 1> &x_dof_n,
 // the descendant's own scatter; only genuinely-uncovered dofs need this
 // separate step) was found necessary and sufficient by a direct,
 // validated side-by-side comparison against the original 2-level scheme
-// (see ERK4_LTS_v2_L2_validation_test.hpp) -- an earlier attempt applying
+// (see ERK4_LTS_v2_L2_validation_test in ERK4_MLTS_validation_tests.hpp) -- an earlier attempt applying
 // this integral to ALL of a band's own dofs unconditionally, and a
 // separate attempt relying solely on the descendant's scatter with no
 // fallback at all, were both numerically wrong.

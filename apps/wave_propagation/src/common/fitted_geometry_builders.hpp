@@ -20,20 +20,96 @@
 #include "diskpp/geometry/geometry.hpp"
 #include <unordered_map>
 
-#include <pybind11/embed.h>
-#include <pybind11/numpy.h>
-namespace py = pybind11;
-
 template<typename MESH>
 class fitted_geometry_builder {
     
 protected:
     
-    std::string m_log_file = "mesh_log.txt";
-    
     size_t m_dimension = 0;
     
-    size_t m_n_elements = 0;
+    // orient an edge from its smallest to its largest node index
+    static void validate_edge(std::array<size_t, 2> & edge){
+        assert(edge[0] != edge[1]);
+        if (edge[0] > edge[1]){
+            std::swap(edge[0], edge[1]);
+        }
+    }
+    
+    // Moves points and nodes to the mesh storage, builds the sorted edges from the facets, flags the
+    // boundary edges and returns the surfaces in polygon order (sorted and stored by the caller).
+    // Returns false if an edge cannot be found.
+    template<typename Polygon>
+    static bool fill_mesh_storage(MESH& msh, std::vector<typename MESH::point_type>& points, std::vector<typename MESH::node_type>& vertices,
+                                  const std::vector<std::array<size_t, 2>>& facets, const std::vector<std::array<size_t, 2>>& boundary_edges,
+                                  const std::vector<Polygon>& polygons, std::vector<typename MESH::surface_type>& surfaces){
+        
+        typedef typename MESH::node_type        node_type;
+        typedef typename MESH::edge_type        edge_type;
+        typedef typename MESH::surface_type     surface_type;
+        
+        auto storage = msh.backend_storage();
+        storage->points = std::move(points);
+        storage->nodes = std::move(vertices);
+        
+        std::vector<edge_type> edges;
+        edges.reserve(facets.size());
+        for (size_t i = 0; i < facets.size(); i++)
+        {
+            assert(facets[i][0] < facets[i][1]);
+            auto node1 = typename node_type::id_type(facets[i][0]);
+            auto node2 = typename node_type::id_type(facets[i][1]);
+            auto e = edge_type(node1, node2);
+            edges.push_back(e);
+        }
+        std::sort(edges.begin(), edges.end());
+        
+        // reset: a mesh object can receive a second builder (e.g. local refinement), stale flags would remain
+        storage->boundary_info.assign(edges.size(), disk::boundary_descriptor{});
+        for (size_t i = 0; i < boundary_edges.size(); i++)
+        {
+            assert(boundary_edges[i][0] < boundary_edges[i][1]);
+            auto node1 = typename node_type::id_type(boundary_edges[i][0]);
+            auto node2 = typename node_type::id_type(boundary_edges[i][1]);
+            auto e = edge_type(node1, node2);
+            auto position = find_element_id(edges.begin(), edges.end(), e);
+            if (position.first == false)
+            {
+                std::cout << "Bad bug at " << __FILE__ << "("
+                          << __LINE__ << ")" << std::endl;
+                return false;
+            }
+            disk::boundary_descriptor bi{0, true};
+            storage->boundary_info.at(position.second) = bi;
+        }
+        
+        storage->edges = std::move(edges);
+        
+        surfaces.reserve(polygons.size());
+        for (auto& p : polygons)
+        {
+            std::vector<typename edge_type::id_type> surface_edges;
+            for (auto& e : p.m_member_edges)
+            {
+                assert(e[0] < e[1]);
+                auto n1 = typename node_type::id_type(e[0]);
+                auto n2 = typename node_type::id_type(e[1]);
+                edge_type edge(n1, n2);
+                auto edge_id = find_element_id(storage->edges.begin(),
+                                               storage->edges.end(), edge);
+                if (!edge_id.first)
+                {
+                    std::cout << "Bad bug at " << __FILE__ << "("
+                              << __LINE__ << ")" << std::endl;
+                    return false;
+                }
+                surface_edges.push_back(edge_id.second);
+            }
+            auto surface = surface_type(surface_edges);
+            surface.set_point_ids(p.m_member_nodes.begin(), p.m_member_nodes.end());
+            surfaces.push_back(surface);
+        }
+        return true;
+    }
     
 public:
     
@@ -41,19 +117,9 @@ public:
         
     }
     
-    // set the log file name
-    void set_log_file(std::string log_file) {
-        m_log_file = log_file;
-    }
-    
     // get the geometry dimension
     size_t get_dimension() {
         return m_dimension;
-    }
-    
-    // get the number of elements
-    size_t get_n_elements() {
-        return m_n_elements;
     }
     
     // build the mesh
@@ -61,9 +127,6 @@ public:
     
     // move generated mesh data to an external mesh storage
     virtual void move_to_mesh_storage(MESH& msh) = 0;
-    
-    // Print in log file relevant mesh information
-    virtual void print_log_file()    = 0;
     
     virtual ~ fitted_geometry_builder() {
         
@@ -79,6 +142,7 @@ class cartesian_2d_mesh_builder : public fitted_geometry_builder<disk::generic_m
     typedef typename mesh_type::node_type           node_type;
     typedef typename mesh_type::edge_type           edge_type;
     typedef typename mesh_type::surface_type        surface_type;
+    using fitted_geometry_builder<mesh_type>::validate_edge;
     
     struct polygon_2d
     {
@@ -124,13 +188,6 @@ class cartesian_2d_mesh_builder : public fitted_geometry_builder<disk::generic_m
         
         size_t n_polygons = m_nx * m_ny;
         polygons.reserve(n_polygons);
-    }
-            
-    void validate_edge(std::array<size_t, 2> & edge){
-        assert(edge[0] != edge[1]);
-        if (edge[0] > edge[1]){
-            std::swap(edge[0], edge[1]);
-        }
     }
     
 public:
@@ -320,46 +377,6 @@ public:
         // std::cout << reset << "Boundaries: " << boundary_edges.size() << std::endl;
         // std::cout << reset << "Facets: " << facets.size() << std::endl;
         return true;
-    }
-    
-    void remove_duplicate_points() {
-        std::unordered_map<size_t, size_t> point_mapping;  // Map old point indices to new point indices
-        std::vector<point_type> unique_points;  // Unique points
-        
-        for (size_t i = 0; i < points.size(); ++i) {
-            if (point_mapping.find(i) == point_mapping.end()) {
-                // This is a new unique point
-                point_mapping[i] = unique_points.size();
-                unique_points.push_back(points[i]);
-            }
-        }
-        
-        // Update cell and face data with unique point indices
-        for (auto& polygon : polygons) {
-            for (size_t i = 0; i < polygon.m_member_nodes.size(); ++i) {
-                size_t old_point_index = polygon.m_member_nodes[i];
-                polygon.m_member_nodes[i] = point_mapping[old_point_index];
-            }
-            
-            std::set<std::array<size_t, 2>> updated_edges;
-            for (const auto& edge : polygon.m_member_edges) {
-                size_t old_point1 = edge[0];
-                size_t old_point2 = edge[1];
-                size_t new_point1 = point_mapping[old_point1];
-                size_t new_point2 = point_mapping[old_point2];
-                updated_edges.insert({new_point1, new_point2});
-            }
-            polygon.m_member_edges = updated_edges;
-        }
-        
-        // Update the internal mesh_reader data with the unique points
-        points = unique_points;
-        
-        // Update the vertices
-        vertices.clear();
-        for (size_t i = 0; i < unique_points.size(); ++i) {
-            vertices.push_back(node_type());
-        }
     }
     
 void refine_cells(const std::vector<size_t>& cell_indices,
@@ -638,186 +655,6 @@ std::array<size_t, 4> extract_quad_corners(size_t cell_index) const {
             corners[2]};  // top-left  (dx<0, dy>0) q=2
 }
 
-void refine_quad_cell(size_t cell_index,
-                      const std::array<size_t, 4>& corners) {
-
-    assert(cell_index < polygons.size());
-
-    const int  parent_level = polygons[cell_index].m_refinement_level;
-    const int  parent_mat   = polygons[cell_index].m_material;
-    const bool parent_elas  = polygons[cell_index].m_elastic_material;
-
-    // ----------------------------------------------------------------
-    // 1. The 4 corners in CCW order (precomputed before any refinement):
-    //
-    //   n3 (top-left) ---- n2 (top-right)
-    //        |                    |
-    //   n0 (bot-left) ---- n1 (bot-right)
-    // ----------------------------------------------------------------
-
-    const size_t n0 = corners[0]; // bottom-left
-    const size_t n1 = corners[1]; // bottom-right
-    const size_t n2 = corners[2]; // top-right
-    const size_t n3 = corners[3]; // top-left
-
-    // ----------------------------------------------------------------
-    // 2. Create the 4 edge midpoints and the barycenter
-    //
-    //   n3 ---m23--- n2
-    //   |      |      |
-    //  m03----c-----m12
-    //   |      |      |
-    //   n0 ---m01--- n1
-    // ----------------------------------------------------------------
-
-    auto get_or_create_midpoint = [&](size_t na, size_t nb) -> size_t {
-        point_type mid(
-            (points[na].x() + points[nb].x()) * T(0.5),
-            (points[na].y() + points[nb].y()) * T(0.5)
-        );
-        constexpr T tol = T(1e-14);
-        for (size_t k = 0; k < points.size(); ++k) {
-            T dx = points[k].x() - mid.x();
-            T dy = points[k].y() - mid.y();
-            if (dx*dx + dy*dy < tol*tol)
-                return k;
-        }
-        size_t new_id = points.size();
-        points.push_back(mid);
-        vertices.push_back(node_type(disk::point_identifier<2>(new_id)));
-        return new_id;
-    };
-
-    const size_t m01 = get_or_create_midpoint(n0, n1);
-    const size_t m12 = get_or_create_midpoint(n1, n2);
-    const size_t m23 = get_or_create_midpoint(n2, n3);
-    const size_t m03 = get_or_create_midpoint(n0, n3);
-
-    const size_t c = [&]() -> size_t {
-        point_type center(
-            (points[n0].x() + points[n1].x() + points[n2].x() + points[n3].x()) * T(0.25),
-            (points[n0].y() + points[n1].y() + points[n2].y() + points[n3].y()) * T(0.25)
-        );
-        size_t new_id = points.size();
-        points.push_back(center);
-        vertices.push_back(node_type(disk::point_identifier<2>(new_id)));
-        return new_id;
-    }();
-
-    // ----------------------------------------------------------------
-    // 3. Update boundary edges
-    // ----------------------------------------------------------------
-
-    auto split_boundary_edge = [&](size_t a, size_t mid, size_t b) {
-        std::array<size_t,2> full_edge = {a, b};
-        validate_edge(full_edge);
-        auto it = std::find(boundary_edges.begin(), boundary_edges.end(), full_edge);
-        if (it != boundary_edges.end()) {
-            boundary_edges.erase(it);
-            std::array<size_t,2> e1 = {a, mid}; validate_edge(e1);
-            std::array<size_t,2> e2 = {mid, b}; validate_edge(e2);
-            boundary_edges.push_back(e1);
-            boundary_edges.push_back(e2);
-        }
-    };
-
-    split_boundary_edge(n0, m01, n1);
-    split_boundary_edge(n1, m12, n2);
-    split_boundary_edge(n2, m23, n3);
-    split_boundary_edge(n3, m03, n0);
-
-    // ----------------------------------------------------------------
-    // 4. Update m_member_edges of neighboring cells that share an edge
-    //    with the parent cell. The parent edge is replaced by its two
-    //    half-edges. This ensures every edge in storage is owned by
-    //    exactly 2 cells (or 1 boundary cell).
-    //    m_member_nodes will be rebuilt from m_member_edges after all
-    //    refinements in this pass by the chaining step in refine_cells.
-    // ----------------------------------------------------------------
-
-    struct EdgeSplit { size_t a, b, mid; };
-    std::array<EdgeSplit, 4> splits = {{
-        {n0, n1, m01},
-        {n1, n2, m12},
-        {n2, n3, m23},
-        {n0, n3, m03}
-    }};
-
-    for (auto& [ea, eb, emid] : splits) {
-
-        std::array<size_t,2> parent_edge = {ea, eb};
-        validate_edge(parent_edge);
-        std::array<size_t,2> half_ea_mid = {ea,   emid}; validate_edge(half_ea_mid);
-        std::array<size_t,2> half_mid_eb = {emid, eb  }; validate_edge(half_mid_eb);
-
-        for (size_t ci = 0; ci < polygons.size(); ++ci) {
-
-            if (ci == cell_index) continue;
-
-            polygon_2d& neighbor = polygons[ci];
-
-            // Only update if the neighbor owns the full parent edge.
-            // If it already has the half-edges (from a prior pass),
-            // nothing to do.
-            if (!neighbor.m_member_edges.count(parent_edge)) continue;
-
-            neighbor.m_member_edges.erase(parent_edge);
-            neighbor.m_member_edges.insert(half_ea_mid);
-            neighbor.m_member_edges.insert(half_mid_eb);
-
-            break; // only one neighbor per edge
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // 5. Build the 4 child cells
-    //
-    //   Q0 : n0,  m01, c,   m03
-    //   Q1 : m01, n1,  m12, c
-    //   Q2 : c,   m12, n2,  m23
-    //   Q3 : m03, c,   m23, n3
-    // ----------------------------------------------------------------
-
-    auto make_quad = [&](size_t a, size_t b, size_t d_, size_t e_) -> polygon_2d {
-        polygon_2d q;
-        q.m_member_nodes     = {a, b, d_, e_};
-        q.m_material         = parent_mat;
-        q.m_elastic_material = parent_elas;
-        q.m_refinement_level = parent_level + 1;
-
-        auto add_edge = [&](size_t x, size_t y) {
-            std::array<size_t,2> edge = {x, y};
-            validate_edge(edge);
-            q.m_member_edges.insert(edge);
-            facets.push_back(edge);
-        };
-        add_edge(a, b);
-        add_edge(b, d_);
-        add_edge(d_, e_);
-        add_edge(e_, a);
-        return q;
-    };
-
-    polygon_2d q0 = make_quad(n0,  m01, c,   m03);
-    polygon_2d q1 = make_quad(m01, n1,  m12, c  );
-    polygon_2d q2 = make_quad(c,   m12, n2,  m23);
-    polygon_2d q3 = make_quad(m03, c,   m23, n3 );
-
-    // ----------------------------------------------------------------
-    // 6. Erase parent cell and append the 4 children
-    // ----------------------------------------------------------------
-
-    polygons.erase(polygons.begin() + cell_index);
-    polygons.push_back(q0);
-    polygons.push_back(q1);
-    polygons.push_back(q2);
-    polygons.push_back(q3);
-}
-
-
-
-
-
 
 // ------------------------------------------------------------
 // Barycentre d'une cellule du builder
@@ -1012,76 +849,14 @@ void refine_with_protection(
 }
 
 
-
-
-
 void move_to_mesh_storage(mesh_type& msh){
     
-    auto storage = msh.backend_storage();
-    storage->points = std::move(points);
-    storage->nodes = std::move(vertices);
-    
-    std::vector<edge_type> edges;
-    edges.reserve(facets.size());
-    for (size_t i = 0; i < facets.size(); i++)
-    {
-        assert(facets[i][0] < facets[i][1]);
-        auto node1 = typename node_type::id_type(facets[i][0]);
-        auto node2 = typename node_type::id_type(facets[i][1]);
-        auto e = edge_type(node1, node2);
-        edges.push_back(e);
-    }
-    std::sort(edges.begin(), edges.end());
-    
-    storage->boundary_info.resize(edges.size());
-    for (size_t i = 0; i < boundary_edges.size(); i++)
-    {
-        assert(boundary_edges[i][0] < boundary_edges[i][1]);
-        auto node1 = typename node_type::id_type(boundary_edges[i][0]);
-        auto node2 = typename node_type::id_type(boundary_edges[i][1]);
-        auto e = edge_type(node1, node2);
-        auto position = find_element_id(edges.begin(), edges.end(), e);
-        if (position.first == false)
-        {
-            std::cout << "Bad bug at " << __FILE__ << "("
-                      << __LINE__ << ")" << std::endl;
-            return;
-        }
-        disk::boundary_descriptor bi{0, true};
-        storage->boundary_info.at(position.second) = bi;
-    }
-    
-    storage->edges = std::move(edges);
-    
     std::vector<surface_type> surfaces;
-    surfaces.reserve(polygons.size());
-    
-    for (auto& p : polygons)
-    {
-        std::vector<typename edge_type::id_type> surface_edges;
-        for (auto& e : p.m_member_edges)
-        {
-            assert(e[0] < e[1]);
-            auto n1 = typename node_type::id_type(e[0]);
-            auto n2 = typename node_type::id_type(e[1]);
-            edge_type edge(n1, n2);
-            auto edge_id = find_element_id(storage->edges.begin(),
-                                           storage->edges.end(), edge);
-            if (!edge_id.first)
-            {
-                std::cout << "Bad bug at " << __FILE__ << "("
-                          << __LINE__ << ")" << std::endl;
-                return;
-            }
-            surface_edges.push_back(edge_id.second);
-        }
-        auto surface = surface_type(surface_edges);
-        surface.set_point_ids(p.m_member_nodes.begin(), p.m_member_nodes.end());
-        surfaces.push_back(surface);
-    }
+    if (!fitted_geometry_builder<mesh_type>::fill_mesh_storage(msh, points, vertices, facets, boundary_edges, polygons, surfaces))
+        return;
     
     std::sort(surfaces.begin(), surfaces.end());
-    storage->surfaces = std::move(surfaces);
+    msh.backend_storage()->surfaces = std::move(surfaces);
 }
 
 
@@ -1097,26 +872,6 @@ void set_translation_data(T x_t, T y_t){
             size_t get_ny(){
                 return m_ny;
             }
-            
-            // Print in log file relevant mesh information
-            void print_log_file(){
-                fitted_geometry_builder<mesh_type>::m_n_elements = polygons.size();
-                std::ofstream file;
-        file.open (fitted_geometry_builder<mesh_type>::m_log_file.c_str());
-        file << "Number of surfaces : " << polygons.size() << std::endl;
-        file << "Number of skeleton edges : " << skeleton_edges.size() << std::endl;
-        file << "Number of boundary edges : " << boundary_edges.size() << std::endl;
-        file << "Number of vertices : " << vertices.size() << std::endl;
-        file.close();
-    }
-    
-
-
-
-
-
-
-
 };
 
 
@@ -1130,6 +885,7 @@ public fitted_geometry_builder<disk::generic_mesh<T, 2>> {
     typedef typename mesh_type::node_type           node_type;
     typedef typename mesh_type::edge_type           edge_type;
     typedef typename mesh_type::surface_type        surface_type;   
+    using fitted_geometry_builder<mesh_type>::validate_edge;
 
 public:
 
@@ -1230,13 +986,6 @@ public:
             
         }
     }
-            
-    void validate_edge(std::array<size_t, 2> & edge){
-        assert(edge[0] != edge[1]);
-        if (edge[0] > edge[1]){
-            std::swap(edge[0], edge[1]);
-        }
-    }
 
     polygon_2d_mesh_reader() : fitted_geometry_builder<mesh_type>()
     {
@@ -1249,6 +998,17 @@ public:
     
     // build the mesh
     bool build_mesh(){
+        return read_poly_mesh(false);
+    }
+    
+    // build the mesh of the basin/brain files, which also carry one material per polygon
+    bool build_bassin(){
+        return read_poly_mesh(true);
+    }
+    
+    // Reads poly_mesh_file. With materials, the polygons are followed by 4 border lines and one
+    // material per polygon, and the duplicated facets are kept (they always were for these files).
+    bool read_poly_mesh(bool with_materials){
         
         clear_storage();
         reserve_storage();
@@ -1324,127 +1084,31 @@ public:
                   else {
                       break;
                   }
+            }
+
+            if (with_materials) {
+                // skip the 4 border lines
+                for(size_t bord=0; bord < 4; bord++) {
+                    std::getline(input, line);
+                }
+
+                for(size_t polygon=0; polygon < n_polygons; polygon++) {
+                    size_t material;
+                    if(std::getline(input, line)){
+                      std::stringstream input_line(line);
+                      input_line >> material;
+                    }
+                    polygons[polygon].m_material = material;
+                }
             }
         }
           
         // Duplicated facets are eliminated
-        std::sort( facets.begin(), facets.end() );
-        facets.erase( std::unique( facets.begin(), facets.end() ), facets.end() );
-
-        // std::cout << bold << red << std::endl << std::endl;
-        // std::cout << "Debug mesh" << std::endl;
-        // std::cout << reset << "Points: " << vertices.size() << std::endl;
-        // std::cout << reset << "Polygons: " << polygons.size() << std::endl;
-        // std::cout << reset << "Boundaries: " << boundary_edges.size() << std::endl;
-        // std::cout << reset << "Facets: " << facets.size() << std::endl;
-
-        return true;
-    }
-    
-       // build the mesh
-    bool build_bassin(){
-        
-        clear_storage();
-        reserve_storage();
-        
-        std::ifstream input;
-        input.open(poly_mesh_file.c_str());
-        
-        size_t n_points, n_polygons, n_bc_curves;
-        if (input.is_open()) {
-            std::string line;
-            std::getline(input, line);
-            std::stringstream(line) >> n_points >> n_polygons >> n_bc_curves;
-
-            T xv, yv;
-            for(size_t id = 0; id < n_points; id++){
-                if(std::getline(input, line)){
-                    std::stringstream(line) >> xv >> yv;
-                    point_type point(xv, yv);
-                    points.push_back(point);
-                    vertices.push_back(node_type(disk::point_identifier<2>(id)));
-                }
-                else{
-                    break;
-                }
-            }
-            
-            size_t n_polygon_vertices, id;
-            for(size_t surface_id=0; surface_id < n_polygons; surface_id++) {
-
-                if(std::getline(input, line)){
-                    std::stringstream input_line(line);
-                    input_line >> n_polygon_vertices;
-                    
-                    polygon_2d polygon;
-                    std::vector<size_t> member_nodes;
-                    int material;
-                    for (size_t i = 0; i < n_polygon_vertices; i++) {
-                        input_line >> id;
-                        id--;
-                        member_nodes.push_back(id);
-                    }
-                    polygon.m_member_nodes = member_nodes;
-                    assert(member_nodes.size() == n_polygon_vertices);
-
-                    // FaceInfo face_info;
-                    std::set< std::array<size_t, 2> > member_edges;
-                    std::array<size_t, 2> edge;
-                    for (size_t i = 0; i < member_nodes.size(); i++) {
-                        
-                        if (i == n_polygon_vertices - 1) {
-                            edge = {member_nodes[i],member_nodes[0]};
-                        }
-
-                        else {
-                            edge = {member_nodes[i],member_nodes[i+1]};
-                        }
-                        
-                        validate_edge(edge);
-                        facets.push_back( edge );
-                        member_edges.insert(edge);
-
-
-                        bool is_bc_point_l_Q = bc_points.find(edge.at(0)) != bc_points.end();
-                        bool is_bc_point_r_Q = bc_points.find(edge.at(1)) != bc_points.end();
-                        if (is_bc_point_l_Q && is_bc_point_r_Q) {
-                            boundary_edges.push_back( edge );
-                        }
-                    }
-                    
-                    polygon.m_member_edges = member_edges;
-                    polygons.push_back( polygon );
-                    
-                  }
-                  else {
-                      break;
-                  }
-            }
-
-
-            for(size_t bord=0; bord < 4; bord++) {
-                if(std::getline(input, line)){
-                  std::stringstream input_line(line);
-                }
-            }
-
-
-            for(size_t polygon=0; polygon < n_polygons; polygon++) {
-                size_t material;
-                if(std::getline(input, line)){
-                  std::stringstream input_line(line);
-                  input_line >> material;
-                }
-                polygons[polygon].m_material = material;
-            }
-            
-            
+        if (!with_materials) {
+            std::sort( facets.begin(), facets.end() );
+            facets.erase( std::unique( facets.begin(), facets.end() ), facets.end() );
         }
-        
-        // // Duplicated facets are eliminated
-        // std::sort( facets.begin(), facets.end() );
-        // facets.erase( std::unique( facets.begin(), facets.end() ), facets.end() );
-        
+
         // // ---------------------- DEBUG ----------------------
         // std::cout << "Debug Facets & Cells Attachments\n";
         // std::cout << "Total facets: " << facets.size() << "\n";
@@ -1477,87 +1141,26 @@ public:
         
         // std::cout << "Debug terminé.\n";
         // // --------------------------------------------------
-        
+
         // std::cout << bold << red << std::endl << std::endl;
         // std::cout << "Debug mesh" << std::endl;
         // std::cout << reset << "Points: " << vertices.size() << std::endl;
         // std::cout << reset << "Polygons: " << polygons.size() << std::endl;
         // std::cout << reset << "Boundaries: " << boundary_edges.size() << std::endl;
         // std::cout << reset << "Facets: " << facets.size() << std::endl;
-        
+
         return true;
     }
     
     void move_to_mesh_storage(mesh_type& msh){
         
-        auto storage = msh.backend_storage();
-        storage->points = std::move(points);
-        storage->nodes = std::move(vertices);
-        
-        std::vector<edge_type> edges;
-        edges.reserve(facets.size());
-        for (size_t i = 0; i < facets.size(); i++) {
-            assert(facets[i][0] < facets[i][1]);
-            auto node1 = typename node_type::id_type(facets[i][0]);
-            auto node2 = typename node_type::id_type(facets[i][1]);
-            
-            auto e = edge_type(node1, node2);
-            
-            // e.set_point_ids(facets[i].begin(), facets[i].end());
-            edges.push_back(e);
-        }
-        std::sort(edges.begin(), edges.end());
-        
-        storage->boundary_info.resize(edges.size());
-        for (size_t i = 0; i < boundary_edges.size(); i++) {
-            assert(boundary_edges[i][0] < boundary_edges[i][1]);
-            auto node1 = typename node_type::id_type(boundary_edges[i][0]);
-            auto node2 = typename node_type::id_type(boundary_edges[i][1]);
-            auto e = edge_type(node1, node2);
-            auto position = find_element_id(edges.begin(), edges.end(), e);
-            if (position.first == false) {
-                std::cout << "Bad bug at " << __FILE__ << "("
-                << __LINE__ << ")" << std::endl;
-                return;
-            }
-            disk::boundary_descriptor bi{0, true};
-            storage->boundary_info.at(position.second) = bi;
-        }
-        
-        storage->edges = std::move(edges);
-        
         std::vector<surface_type> surfaces;
-        surfaces.reserve( polygons.size() );
+        if (!fitted_geometry_builder<mesh_type>::fill_mesh_storage(msh, points, vertices, facets, boundary_edges, polygons, surfaces))
+            return;
         
         std::vector<int> materials;
         materials.reserve( polygons.size() );
-        
-        int compteur = 0;
         for (auto& p : polygons) {
-            compteur = compteur + 1;
-            std::vector<typename edge_type::id_type> surface_edges;
-            for (auto& e : p.m_member_edges) {
-                assert(e[0] < e[1]);
-                auto n1 = typename node_type::id_type(e[0]);
-                auto n2 = typename node_type::id_type(e[1]);
-                
-                edge_type edge(n1, n2);
-                auto edge_id = find_element_id(storage->edges.begin(),
-                storage->edges.end(), edge);
-                if (!edge_id.first)
-                {
-                    std::cout << "Bad bug at " << __FILE__ << "("
-                    << __LINE__ << ")" << std::endl;
-                    return;
-                }
-                
-                surface_edges.push_back(edge_id.second);
-                
-                
-            }
-            auto surface = surface_type(surface_edges);
-            surface.set_point_ids(p.m_member_nodes.begin(), p.m_member_nodes.end());
-            surfaces.push_back( surface );
             materials.push_back(p.m_material);
         }
         
@@ -1588,20 +1191,8 @@ public:
         //////////////////////////////////////////////////
         
         std::sort(surfaces.begin(), surfaces.end());
-        storage->surfaces = std::move(surfaces);
+        msh.backend_storage()->surfaces = std::move(surfaces);
         
-    }
-    
-    // Print in log file relevant mesh information
-    void print_log_file(){
-        fitted_geometry_builder<mesh_type>::m_n_elements = polygons.size();
-        std::ofstream file;
-        file.open (fitted_geometry_builder<mesh_type>::m_log_file.c_str());
-        file << "Number of polygons : " << polygons.size() << std::endl;
-        file << "Number of skeleton edges : " << skeleton_edges.size() << std::endl;
-        file << "Number of boundary edges : " << boundary_edges.size() << std::endl;
-        file << "Number of vertices : " << vertices.size() << std::endl;
-        file.close();
     }
     
     const std::vector<point_type>& getPoints() const {
@@ -1667,317 +1258,6 @@ public:
             vertices.push_back(node_type());
         }
     }
-    
-    void refine_cells(const std::vector<size_t>& cell_indices, int refinement_level) {
-        
-        if (refinement_level <= 0) return;
-        
-        // Work on a sorted copy (descending) so that erasing cell at
-        // index i does not shift the indices of cells not yet processed
-        // in the same pass.
-        std::vector<size_t> targets(cell_indices.begin(), cell_indices.end());
-        std::sort(targets.begin(), targets.end(), std::greater<size_t>());
-        
-        for (int pass = 0; pass < refinement_level; ++pass) {
-            
-            if (pass == 0) {
-                // First pass: refine the originally requested cells
-                for (size_t idx : targets)
-                refine_quad_cell(idx);
-            } else {
-                // Subsequent passes: the children of the previous pass
-                // are always the last 4 * targets.size() cells appended.
-                size_t n        = polygons.size();
-                size_t n_new    = targets.size() * 4;
-                size_t start    = n - n_new;
-                
-                // Collect and sort descending so erasure stays safe
-                std::vector<size_t> next_targets(n_new);
-                std::iota(next_targets.begin(), next_targets.end(), start);
-                std::sort(next_targets.begin(), next_targets.end(), std::greater<size_t>());
-                
-                targets = next_targets;
-                for (size_t idx : targets)
-                refine_quad_cell(idx);
-            }
-        }
-    }
-    
-    void refine_quad_cell(size_t cell_index) {
-        
-        assert(cell_index < polygons.size());
-        
-        // Copy all needed data upfront before any modification of
-        // polygons[] or facets[] that could invalidate references.
-        const std::vector<size_t>              parent_nodes = polygons[cell_index].m_member_nodes;
-        const std::set<std::array<size_t, 2>>  parent_edges = polygons[cell_index].m_member_edges;
-        const int                              parent_level = polygons[cell_index].m_refinement_level;
-        const int                              parent_mat   = polygons[cell_index].m_material;
-        const bool                             parent_elas  = polygons[cell_index].m_elastic_material;
-        
-        assert(parent_nodes.size() == 4);
-        
-        // ----------------------------------------------------------------
-        // 1. Retrieve the 4 vertices in order
-        // ----------------------------------------------------------------
-        const size_t n0 = parent_nodes[0];
-        const size_t n1 = parent_nodes[1];
-        const size_t n2 = parent_nodes[2];
-        const size_t n3 = parent_nodes[3];
-        
-        // ----------------------------------------------------------------
-        // 2. Create the 4 edge midpoints and the barycenter
-        // ----------------------------------------------------------------
-        
-        auto get_or_create_midpoint = [&](size_t na, size_t nb) -> size_t {
-            point_type mid(
-                (points[na].x() + points[nb].x()) * T(0.5),
-                (points[na].y() + points[nb].y()) * T(0.5)
-            );
-            constexpr T tol = T(1e-14);
-            for (size_t k = 0; k < points.size(); ++k) {
-                T dx = points[k].x() - mid.x();
-                T dy = points[k].y() - mid.y();
-                if (dx*dx + dy*dy < tol*tol)
-                return k;
-            }
-            size_t new_id = points.size();
-            points.push_back(mid);
-            vertices.push_back(node_type(disk::point_identifier<2>(new_id)));
-            return new_id;
-        };
-        
-        const size_t m01 = get_or_create_midpoint(n0, n1);
-        const size_t m12 = get_or_create_midpoint(n1, n2);
-        const size_t m23 = get_or_create_midpoint(n2, n3);
-        const size_t m03 = get_or_create_midpoint(n0, n3);
-        
-        const size_t c = [&]() -> size_t {
-            point_type center(
-                (points[n0].x() + points[n1].x() + points[n2].x() + points[n3].x()) * T(0.25),
-                (points[n0].y() + points[n1].y() + points[n2].y() + points[n3].y()) * T(0.25)
-            );
-            size_t new_id = points.size();
-            points.push_back(center);
-            vertices.push_back(node_type(disk::point_identifier<2>(new_id)));
-            return new_id;
-        }();
-        
-        // ----------------------------------------------------------------
-        // 3. Update boundary edges
-        // ----------------------------------------------------------------
-        
-        auto split_boundary_edge = [&](size_t a, size_t mid, size_t b) {
-            std::array<size_t,2> full_edge = {a, b};
-            validate_edge(full_edge);
-            auto it = std::find(boundary_edges.begin(), boundary_edges.end(), full_edge);
-            if (it != boundary_edges.end()) {
-                boundary_edges.erase(it);
-                std::array<size_t,2> e1 = {a, mid}; validate_edge(e1);
-                std::array<size_t,2> e2 = {mid, b}; validate_edge(e2);
-                boundary_edges.push_back(e1);
-                boundary_edges.push_back(e2);
-            }
-        };
-        
-        split_boundary_edge(n0, m01, n1);
-        split_boundary_edge(n1, m12, n2);
-        split_boundary_edge(n2, m23, n3);
-        split_boundary_edge(n3, m03, n0);
-        
-        // ----------------------------------------------------------------
-        // 4. Update neighboring cells
-        // ----------------------------------------------------------------
-        
-        struct EdgeSplit { size_t a, b, mid; };
-        std::array<EdgeSplit, 4> splits = {{
-            {n0, n1, m01},
-            {n1, n2, m12},
-            {n2, n3, m23},
-            {n0, n3, m03}
-        }};
-        
-        for (auto& [ea, eb, emid] : splits) {
-            
-            std::array<size_t,2> parent_edge = {ea, eb};
-            validate_edge(parent_edge);
-            
-            for (size_t ci = 0; ci < polygons.size(); ++ci) {
-                
-                if (ci == cell_index) continue;
-                
-                polygon_2d& neighbor = polygons[ci];
-                
-                if (neighbor.m_member_edges.find(parent_edge) == neighbor.m_member_edges.end())
-                continue;
-                
-                neighbor.m_member_edges.erase(parent_edge);
-                std::array<size_t,2> e1 = {ea,   emid}; validate_edge(e1);
-                std::array<size_t,2> e2 = {emid, eb  }; validate_edge(e2);
-                neighbor.m_member_edges.insert(e1);
-                neighbor.m_member_edges.insert(e2);
-                
-                auto& nodes = neighbor.m_member_nodes;
-                size_t nn   = nodes.size();
-                for (size_t k = 0; k < nn; ++k) {
-                    size_t cur  = nodes[k];
-                    size_t next = nodes[(k + 1) % nn];
-                    if ((cur == ea && next == eb) || (cur == eb && next == ea)) {
-                        nodes.insert(nodes.begin() + k + 1, emid);
-                        break;
-                    }
-                }
-                break;
-            }
-        }
-        
-        // ----------------------------------------------------------------
-        // 5. Build the 4 child cells
-        // ----------------------------------------------------------------
-        
-        auto make_quad = [&](size_t a, size_t b, size_t d_, size_t e_) -> polygon_2d {
-            polygon_2d q;
-            q.m_member_nodes      = {a, b, d_, e_};
-            q.m_material          = parent_mat;
-            q.m_elastic_material  = parent_elas;
-            q.m_refinement_level  = parent_level + 1;
-            
-            auto add_edge = [&](size_t x, size_t y) {
-                std::array<size_t,2> edge = {x, y};
-                validate_edge(edge);
-                q.m_member_edges.insert(edge);
-                facets.push_back(edge);
-            };
-            add_edge(a, b);
-            add_edge(b, d_);
-            add_edge(d_, e_);
-            add_edge(e_, a);
-            return q;
-        };
-        
-        polygon_2d q0 = make_quad(n0,  m01, c,   m03);
-        polygon_2d q1 = make_quad(m01, n1,  m12, c  );
-        polygon_2d q2 = make_quad(c,   m12, n2,  m23);
-        polygon_2d q3 = make_quad(m03, c,   m23, n3 );
-        
-        // ----------------------------------------------------------------
-        // 6. Remove parent facets, erase parent cell, append children
-        //    Use the copied parent_edges — poly reference is now unsafe
-        // ----------------------------------------------------------------
-        
-        for (const auto& e : parent_edges) {
-            auto it = std::find(facets.begin(), facets.end(), e);
-            if (it != facets.end())
-            facets.erase(it);
-        }
-        
-        polygons.erase(polygons.begin() + cell_index);
-        
-        polygons.push_back(q0);
-        polygons.push_back(q1);
-        polygons.push_back(q2);
-        polygons.push_back(q3);
-        
-        // Remove duplicate facets
-        std::sort(facets.begin(), facets.end());
-        facets.erase(std::unique(facets.begin(), facets.end()), facets.end());
-    }
-    
-    void refine_cell_poly(size_t cell_index, int nelem = 50, int maxiter = 100) {
-        
-        if (cell_index >= polygons.size()) {
-            std::cerr << "Invalid cell index" << std::endl;
-            return;
-        }
-        
-        py::scoped_interpreter guard{};   
-        
-        py::module bridge = py::module::import("polymesher_bridge");
-        
-        const auto& poly = polygons[cell_index];
-        
-        std::vector<std::vector<double>> polygon_points;
-        for (auto node_id : poly.m_member_nodes) {
-            const auto& pt = points[node_id];
-            polygon_points.push_back({pt.x(), pt.y()});
-        }
-        
-        if (polygon_points.front() != polygon_points.back()) {
-            polygon_points.push_back(polygon_points.front());
-        }
-        
-        auto result = bridge.attr("generate_mesh")(polygon_points, nelem, maxiter);
-        auto result_tuple = result.cast<py::tuple>();  // <-- conversion en tuple
-        
-        py::array_t<double> Node = result_tuple[0].cast<py::array_t<double>>();
-        py::array_t<int> Element = result_tuple[1].cast<py::array_t<int>>();
-        
-        auto nodes = Node.unchecked<2>();
-        auto elems = Element.unchecked<2>();
-        
-        std::cout << "Refined cell " << cell_index << ":\n";
-        std::cout << "Nb nodes = " << nodes.shape(0) << "\n";
-        std::cout << "Nb elems = " << elems.shape(0) << "\n";
-    }
-
-    
-    
-    // void refine_cells_with_pypolymesher(const std::vector<size_t>& cell_indices) {
-    
-    //     // Export des polygones à raffiner
-    //     std::ofstream out("cells_to_refine.csv");
-    //     for (auto idx : cell_indices) {
-    //         const auto& poly = polygons[idx];
-    //         for (auto node_id : poly.m_member_nodes) {
-    //             const auto& p = points[node_id];
-    //             out << p.x() << " " << p.y() << " ";
-    //         }
-    //         out << std::endl;
-    //     }
-    //     out.close();
-        
-    //     // Appel Python
-    //     system("python3 /home/mottie0000/Github/Diskpp/Disk/apps/wave_propagation/src/common/pyPolyMesher/refine_cells.py");
-        
-    //     // Import des cellules raffinées
-    //     std::ifstream in("refined_cells.csv");
-    //     size_t new_node_id = points.size();
-    //     std::string line;
-    //     while (std::getline(in, line)) {
-    //         std::stringstream ss(line);
-    //         std::vector<T> coords;
-    //         T x, y;
-    //         while (ss >> x >> y) coords.push_back(x), coords.push_back(y);
-            
-    //         polygon_2d new_poly;
-    //         std::set<std::array<size_t,2>> new_edges;
-    //         for (size_t i = 0; i < coords.size(); i += 2) {
-    //             point_type p(coords[i], coords[i + 1]);
-    //             points.push_back(p);
-    //             new_poly.m_member_nodes.push_back(new_node_id);
-    //             if (i > 0) {
-    //                 new_edges.insert({new_node_id - 1, new_node_id});
-    //             }
-    //             new_node_id++;
-    //         }
-    //         // fermer le polygone
-    //         if(new_poly.m_member_nodes.size() > 2){
-    //             new_edges.insert({new_poly.m_member_nodes.back(), new_poly.m_member_nodes[0]});
-    //         }
-    //         new_poly.m_member_edges = new_edges;
-    //         polygons.push_back(new_poly);
-    //     }
-        
-    //     // Recréer les facets
-    //     facets.clear();
-    //     for (auto& poly : polygons) {
-    //         for (auto& e : poly.m_member_edges) {
-    //             facets.push_back(e);
-    //         }
-    //     }
-    // }
-    
-    
 };
 
 #endif /* fitted_geometry_builder_hpp */

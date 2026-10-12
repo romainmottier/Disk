@@ -6,16 +6,24 @@ Graded quadtree-refined mesh for the PLAIN UNIT SQUARE (0,1)^2, in DiSk++'s
 "poly_2d" text format (read by polygon_2d_mesh_reader).
 
 Same construction and the SAME quadtree/hanging-node machinery as
-../lshape_graded/generate_lshape_graded_mesh.py, minus the notch cut-out:
-grading is centred on the ORDINARY (non-reentrant) corner (0, 0) of the
-plain square, matching the L-SHAPE's OWN topology (graded region touches
-only 2 of the domain's boundary sides, not all 4 the way a CENTER-graded
-mesh does) while still carrying no solution singularity there. Built to
-test whether ../square_graded/'s CENTER-graded variant's anomalous
-N=1->N=2 error INCREASE (unlike the L-shape, which converges cleanly at
-every tested depth with the identical algorithm) is a topology artifact
-of grading a region surrounded on all 4 sides, rather than a corner
-region open on 2 sides like every other mesh validated this session.
+../lshape_graded/generate_lshape_graded_mesh.py, minus the notch cut-out,
+graded toward the centre (0.5, 0.5) by a FIXED number of extra local
+levels (--extra) on top of the uniform background depth ell, so p_global =
+2^extra stays constant across the N sweep. The generate_*_family.py
+scripts of this directory import it to build the other center-square
+families (pfix, haloscale, adaptive, fixedbg, slowbg).
+
+CORNER variant (--anchor corner, meshes in ../corner_square_fixed): grading
+centred on the ORDINARY (non-reentrant) corner (0, 0) of the plain square,
+matching the L-SHAPE's OWN topology (graded region touches only 2 of the
+domain's boundary sides, not all 4 the way a CENTER-graded mesh does)
+while still carrying no solution singularity there. Built to test whether
+../square_graded/'s CENTER-graded variant's anomalous N=1->N=2 error
+INCREASE (unlike the L-shape, which converges cleanly at every tested depth
+with the identical algorithm) is a topology artifact of grading a region
+surrounded on all 4 sides, rather than a corner region open on 2 sides.
+Here the extra (local) depth is FIXED (--extra), keeping p_global=2^extra
+constant across the sweep.
 ===============================================================================
 """
 
@@ -26,7 +34,7 @@ from fractions import Fraction as F
 
 OUTDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meshes")
 
-CENTER = F(1, 2)
+CENTER = F(1, 2)  # grading anchor; (0, 0) with --anchor corner
 GAMMA = F(2, 3)  # kept identical to the L-shape script purely so corner_boost(k)
                   # produces the SAME grading depth per level -- there is no
                   # regularity reason for this exponent here (the solution is
@@ -211,15 +219,25 @@ def main():
                           "every N -- keeps p_global=2^extra constant across "
                           "the whole sweep instead of growing exponentially")
     ap.add_argument("--plot", action="store_true", help="save a PNG plot of each mesh")
+    ap.add_argument("--anchor", choices=["center", "corner"], default="center",
+                     help="grade toward the centre (0.5, 0.5) -> meshes/centersquarefixed_graded_*, or toward "
+                          "the corner (0, 0) -> ../corner_square_fixed/meshes/cornersquarefixed_graded_*")
     args = ap.parse_args()
 
-    os.makedirs(OUTDIR, exist_ok=True)
+    global CENTER
+    outdir, prefix = OUTDIR, "centersquarefixed_graded"
+    if args.anchor == "corner":
+        CENTER = F(0, 1)
+        outdir = os.path.normpath(os.path.join(OUTDIR, "..", "..", "corner_square_fixed", "meshes"))
+        prefix = "cornersquarefixed_graded"
+
+    os.makedirs(outdir, exist_ok=True)
 
     manifest = []
     for ell in args.levels:
         points, polys, bc_ids = generate_mesh(ell, args.k, halo=args.halo, extra=args.extra)
-        fname = f"centersquarefixed_graded_k{args.k}_N{ell}.txt"
-        path = os.path.join(OUTDIR, fname)
+        fname = f"{prefix}_k{args.k}_N{ell}.txt"
+        path = os.path.join(outdir, fname)
         write_poly2d(path, points, polys, bc_ids)
         hmin, hmax = h_min_max(points, polys)
         total_depth = ell + args.extra
@@ -237,12 +255,12 @@ def main():
                 ax.plot(xs, ys, "-", color="#2a78d6", lw=0.5)
             ax.set_aspect("equal")
             ax.set_title(f"Square quadtree mesh, ell={ell}, k={args.k}")
-            png_path = os.path.join(OUTDIR, f"centersquarefixed_graded_k{args.k}_N{ell}.png")
+            png_path = os.path.join(outdir, f"{prefix}_k{args.k}_N{ell}.png")
             fig.savefig(png_path, dpi=150)
             plt.close(fig)
             print(f"             plot -> {png_path}")
 
-    manifest_path = os.path.join(OUTDIR, "manifest.txt")
+    manifest_path = os.path.join(outdir, "manifest.txt")
     with open(manifest_path, "w") as f:
         f.write("# ell  file  n_points  n_cells  h_min  h_max\n")
         for ell, path, npt, nq, hmin, hmax in manifest:

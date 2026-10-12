@@ -3,8 +3,9 @@
 //  Created by Romain Mottier
 //  Explicit (ERK) counterpart of BrainIHHOFirstOrder.hpp, structured after
 //  HeterogeneousEHHOFirstOrder.hpp (the working ERK + elastic/acoustic
-//  coupling pattern - NOT BassinEHHOFirstOrder.hpp, whose time-marching loop
-//  and erk_coupling_hho_scheme setup were left unfinished/commented out).
+//  coupling pattern - NOT BassinEHHOFirstOrder.hpp (removed, see git history),
+//  whose time-marching loop and erk_coupling_hho_scheme setup were left
+//  unfinished/commented out).
 //
 //  Unlike Heterogeneous's simple half-plane split (bar.y() > 0), material
 //  and face classification here follow the mesh's per-polygon material id

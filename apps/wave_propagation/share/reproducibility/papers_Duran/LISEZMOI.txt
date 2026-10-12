@@ -1,0 +1,372 @@
+======================================================================
+ Reproduction des figures de deux articles -- wave_propagation
+======================================================================
+
+Objet : refaire, avec les deux prototypes actuels de wave_propagation
+(HHOFirstOrder, HHOSecondOrder, pilotes par fichier Lua), les figures de
+resultats numeriques de deux articles anterieurs obtenus avec diskpp, et
+les comparer aux figures publiees :
+
+  [CAMC22] E. Burman, O. Duran, A. Ern, "Hybrid high-order methods for
+           the acoustic wave equation in the time domain", Commun. Appl.
+           Math. Comput. 4 (2022) 597-633, hal-02922702, section 5.1
+           (Fig. 1 a 8)
+  [JSC21]  E. Burman, O. Duran, A. Ern, M. Steins, "Convergence analysis
+           of hybrid high-order methods for the wave equation", J. Sci.
+           Comput. 87 (2021) 91, hal-02922720, section 6.1 (Fig. 1 et 2)
+
+Chaque figure est refaite avec les parametres qui reproduisent la figure
+publiee. Quand ils different de ceux de la legende de l'article (section
+4), le fichier Lua de la figure l'explique et des cas « variante » refont
+le calcul avec les parametres de la legende. Les figures sont dessinees
+comme dans les articles (memes courbes, couleurs, marqueurs, legendes) et
+comparees aux valeurs relevees sur les figures publiees
+(valeurs_article.json, section 5).
+
+Les sources (share/reproducibility/papers_Duran) ne contiennent que ce qui
+sert a lancer les campagnes ; CMake les recopie (a la configuration) dans
+le dossier de build, <build>/apps/wave_propagation/reproducibility/
+papers_Duran, et y ecrit paths.json (emplacement des maillages de diskpp).
+Les campagnes sont lancees depuis cette copie et ecrivent leurs resultats
+dans le build, jamais dans les sources (le script refuse d'ecrire dans
+les sources sans --out) ; les configurations suivantes conservent les
+resultats.
+
+Sources :
+  LISEZMOI.txt
+  campaign_common.py      machinerie commune : cas, entrees, lancement en
+                          parallele, fichiers de resultats
+  plot_convergence.py     figures reproduites, comparaison, ordres
+                          observes, rapport (utilisable seul sur un
+                          dossier de resultats)
+  acoustic_camc2022/      [CAMC22] : run_campaign.py (les cas : ce qui
+                          varie d'une courbe a l'autre, ordres attendus,
+                          dessin des courbes), un fichier d'entree Lua
+                          par figure, valeurs_article.json, et meshes/ :
+                          les maillages PolyMesher de l'article (Fig. 7
+                          et 8, comprimes, 20 x 2^l cellules, l = 0..8)
+  elastic_jsc2021/        [JSC21] : idem (sans maillages) ; les fichiers
+                          fig2_publiee_*.lua refont les calculs
+                          acoustiques dont la Fig. 2 publiee montre les
+                          images (section 4)
+
+Resultats, dans la copie du build, dossier de chaque article :
+  figure_<n>/             un dossier par figure de l'article :
+    <ART>_figure_<n>.png  la figure reproduite, panneaux disposes et
+                          dessines comme dans l'article
+    <ART>_figure_<n>_comparaison.png
+                          la meme avec les valeurs relevees sur la
+                          figure publiee (cercles noirs) et le rapport
+                          nous/article de chaque panneau
+    <ART>_fig<n>_<panneau>.png   chaque panneau seul
+    variantes/            les panneaux des cas « variante »
+    ordres_observes/      une figure par panneau et par norme : ordre
+                          observe (OCV) de chaque segment, droite de
+                          l'ordre attendu (style P_Laplacien)
+    <cas>/<cas>.lua       entree complete du cas, executee telle quelle :
+                          le fichier de la figure suivi des parametres
+                          propres au cas ; le cas se relance seul depuis
+                          ce dossier
+    <cas>/log.txt, <cas>.txt, <cas>.dat, <cas>.json, <cas>_energy.dat
+                          sortie, tableau, donnees, resultats (lus par
+                          plot_convergence.py), historique d'energie
+    meshes/               (figure_8 de CAMC22) maillages PolyMesher
+                          decompresses ; figure_7 les dessine
+  rapport.md              par figure : images, parametres, ecarts a la
+                          legende, rapports nous/article, ordres attendus
+                          et observes, statut (apercu Markdown)
+  <article>_recapitulatif.png   tous les panneaux reproduits, avec les
+                          valeurs relevees sur les figures publiees
+  rapide/                 la meme chose pour une campagne --quick
+
+Exemple, relancer un cas a la main dans le build :
+
+  cd acoustic_camc2022/figure_3/camc22_fig3_tau1_k2 && ../../../../../wave_propagation camc22_fig3_tau1_k2.lua
+
+
+----------------------------------------------------------------------
+1. Utilisation
+----------------------------------------------------------------------
+
+L'executable doit etre compile a partir des sources actuelles (le main a
+deux prototypes pilotes par Lua ; solutions en cos et donnees de
+Dirichlet nulles de la section 4) : make wave_propagation dans le dossier
+de build. Puis, dans la copie du build, un script par article :
+
+  cd acoustic_camc2022
+  python3 run_campaign.py                 # figures 1 a 8, ~ 30 min sur 24 coeurs
+  python3 run_campaign.py --quick         # maillages <= niveau 4, ~ 5 min -> rapide/
+  python3 run_campaign.py --only fig4     # les cas dont le nom contient fig4
+  python3 run_campaign.py --list          # cas, dossier de figure, duree, variantes
+  python3 run_campaign.py --dry-run       # entree de chaque cas, sans rien executer
+  cd ../elastic_jsc2021
+  python3 run_campaign.py                 # figures 1 et 2, ~ 35 min sur 24 coeurs
+
+  python3 plot_convergence.py acoustic_camc2022/    # figures et rapport seuls (depuis papers_Duran)
+  python3 plot_convergence.py acoustic_camc2022/ --format png,pdf   # PDF en plus (fond transparent, LaTeX)
+
+Les deux campagnes peuvent tourner en meme temps (12 cas en parallele
+chacune sur 24 coeurs). L'executable est cherche dans les dossiers parents
+(<build>/apps/wave_propagation/wave_propagation), puis dans le PATH ;
+--exe en donne un autre, --out un autre dossier de resultats.
+
+Chaque cas tourne avec OMP_NUM_THREADS = MKL_NUM_THREADS = 1 ; --jobs cas
+en parallele (defaut : la moitie des coeurs), les plus longs d'abord
+(duree de chaque cas indiquee par --list). Une campagne ne peut pas
+durer moins que son cas le plus long ([JSC21] : jsc21_fig2_time_s3, cas
+« variante », ~ 25 min). Code de retour 1 si une verification echoue.
+
+Arithmetique flottante : diskpp compile par defaut avec OPT_AGGRESSIVE_FP
+= ON (-ffast-math, denormaux mis a zero). Une campagne compilee avec
+OPT_AGGRESSIVE_FP = OFF (IEEE strict) donne les memes statuts et les
+memes ordres retenus, avec des erreurs qui different au plus de 1e-7
+relativement a la plus grande erreur de chaque courbe. Sur une meme
+machine et avec la meme configuration, les resultats sont identiques au
+bit pres.
+
+
+----------------------------------------------------------------------
+2. Verification
+----------------------------------------------------------------------
+
+Deux verifications, dans rapport.md :
+
+  - Comparaison a la figure publiee : rapport nous/article aux points
+    releves sur la figure (valeurs_article.json, precision ~ 2 %) ;
+    mediane et min-max par courbe et par panneau, « concorde » si la
+    mediane est a 10 % de 1 et tous les rapports dans [0.75, 1.33],
+    « proche » si la mediane est a 30 % de 1, « ecart » sinon.
+  - Ordres de convergence : ordre observe retenu (comme le floor_idx du
+    code P_Laplacien) = moyenne des deux derniers ordres observes (OCV)
+    fiables ; le plancher final -- erreur en espace atteinte dans une
+    etude en temps, erreur en temps ou arrondi dans une etude en espace
+    -- est exclu : c'est la plus longue suite finale de segments dont
+    l'OCV est < 0.8 x l'ordre attendu (pas d'exclusion si tous les
+    segments le sont : convergence lente). Dans une etude en temps, le
+    premier segment (dt = 0.1, pre-asymptotique) est ignore. Une fenetre
+    explicite peut etre donnee par cas ([CAMC22] Fig. 2 gauche, k = 2 :
+    saturation par l'erreur en temps, signalee par l'article).
+    Statut OK si retenu >= attendu - 0.3 pour un ordre optimal annonce
+    par l'article (une superconvergence n'est pas un echec) et si
+    |retenu - attendu| <= 0.3 pour un ordre sous-optimal annonce (L2 avec
+    tau = O(1) : k+1 au lieu de k+2). Tolerance 0.4 dans deux situations
+    justifiees dans run_campaign.py : flux de [CAMC22] Fig. 4 droite avec
+    s = 3 et H1 avec tau = O(1) et k = 0 (pentes < 1 aussi dans
+    l'article). Tolerances augmentees de 0.2 en mode --quick. Statut
+    ECHEC aussi si une valeur manque, n'est pas finie ou n'est pas
+    positive (calcul instable ou interrompu), ou si le tableau n'a pas le
+    nombre de lignes attendu. Energie : max_n |E^n - E^0| / E^0 <= 1e-10
+    pour Newmark (beta, gamma) = (1/4, 1/2) ([CAMC22] Fig. 2 droite,
+    [JSC21] Fig. 1 bas droite) ; les autres courbes d'energie sont
+    comparees a l'article.
+
+Grandeurs (colonnes des tableaux) :
+  formulation d'ordre 2 (Newmark) : acoustic_phi = L2 de la pression p
+    (inconnues de cellule), acoustic_grad_phi = H1 (gradient reconstruit) ;
+    elastic_u = L2 du deplacement, elastic_sigma = contrainte de la
+    reconstruction (meme ordre que l'erreur H1)
+  formulation d'ordre 1 (SDIRK, ERK) : acoustic_p = L2 de v = d_t p,
+    acoustic_q = L2 de sigma = grad p (erreur H1 de l'article) ;
+    elastic_v = L2 de la vitesse, elastic_sigma = L2 de la contrainte
+  energie : Newmark, energie (39) de [CAMC22] / (69) de [JSC21] avec
+    delta = 0, faces de Dirichlet = donnees ; ordre 1, E = 1/2 x^T M x
+    (inconnues de cellule) ; perte relative |E^n - E^0| / E^0
+
+
+----------------------------------------------------------------------
+3. Figures et parametres
+----------------------------------------------------------------------
+
+Stabilisation du code des articles, retenue partout : poids 1 (tau =
+1/(rho c) en acoustique, rho c_S en elastique), multiplie par 1/h_F
+(diametre de la face, space.stabilization_size = "face") pour tau =
+O(1/h) ; HHO (19) de [CAMC22] en ordre egal, Lehrenfeld-Schoberl (20)
+en ordre mixte. Newmark sur maillages cartesiens : stabilisation HHO de
+diskpp (1/h_T).
+
+[CAMC22] acoustique, Omega = (0,1)^2, T = 1, rho = kappa = 1, maillages
+cartesiens h = 2^-l, k = 0..2 :
+  Fig. 1 gauche   Newmark, ordre egal, sol. (60), l = 1..6        L2 k+2, H1 k+1
+  Fig. 1 droite   Newmark, k = 2, h = 2^-6, dt = 0.1 2^-i,
+                  i = 0..7, p = cos(sqrt2 pi t) x(1-x) y(1-y)     2 en temps
+  Fig. 2 gauche   Newmark, sol. (62), dt = 0.1 2^-6, l = 1..6     L2 k+2, H1 k+1
+  Fig. 2 droite   Newmark (beta, gamma) = (1/4, 1/2), (0.275, 1/2),
+                  (0.275, 0.55), sol. (62), k = 2, h = 2^-6,
+                  dt = 0.1 2^-5 : perte d'energie                 conservee pour (1/4, 1/2)
+  Fig. 3          SDIRK(2,3), ordre mixte, sol. (60), dt = 0.1 2^-6, l = 1..6
+                  tau = O(1)   : L2 k+1, H1 k+1
+                  tau = O(1/h) : L2 k+2, H1 k+1
+  Fig. 4 gauche   SDIRK(3,4), ordre egal, O(1/h), sol. (62),
+                  dt = 0.1 2^-8, l = 1..5                         L2 k+2, H1 k+1
+  Fig. 4 droite   SDIRK(s,s+1), s = 1..3, h = 2^-3, k = 3, (61)   s+1 en temps
+  Fig. 5          SDIRK(3,4), sol. (62), h = 2^-6, dt = 0.1 2^-7, ordre
+                  egal et mixte, tau = O(1) et O(1/h) : perte d'energie
+  Fig. 6          ERK(4), ordre mixte, sol. (62), dt = h/320, l = 1..5
+                  tau = O(1/h) : L2 k+2, H1 k+1 ; tau = O(1) : k+1, k+1
+  Fig. 7          les quatre premiers maillages PolyMesher (dessin)
+  Fig. 8          maillages PolyMesher de l'article, sol. (60), h = plus
+                  petit diametre de cellule ; Newmark (ordre egal et
+                  mixte) et SDIRK(3,4) (ordre egal, tau = O(1) et O(1/h))
+                  sur les 9 maillages, dt = 0.1 2^-5 ; ERK(4) (ordre
+                  mixte, tau = O(1) et O(1/h)) sur les 6 premiers,
+                  dt = h/320 (h/640 pour tau = O(1/h) et k = 2) :
+                  memes ordres que sur les maillages cartesiens
+[JSC21] elastique, Omega = (0,1)^2, rho = 1, vS = 1, vP = sqrt(3) :
+  Fig. 1 haut     Newmark, ordre egal, k = 1..3 : sol. (78), T = 1,
+                  dt = 0.1 2^-7 : L2 k+2, H1 k+1 ; sol. (79), k = 2,
+                  h = 2^-6 : 2 en temps
+  Fig. 1 bas      sol. (80) : erreurs en h, T = 0.125, dt = 0.1 2^-10,
+                  L2 k+2, H1 k+1 ; perte d'energie, k = 2, h = 2^-6,
+                  dt = 0.1 2^-7, donnees de Dirichlet de t = 0 (nulles)
+  Fig. 2          telle que publiee : les calculs acoustiques de [CAMC22]
+                  Fig. 3 droite, Fig. 4 droite et Fig. 5 (tau = O(1))
+                  dont elle montre les images ; telle que decrite
+                  (variantes) : SDIRK(2,3) sur (78), k = 1..3 (L2 k+2,
+                  H1 k+1), SDIRK(s,s+1) sur (79), k = 2, h = 2^-6 (s+1
+                  en temps), perte d'energie de SDIRK(3,4) sur (80),
+                  h = 2^-5, k = 1..3, ordre egal et mixte
+
+
+----------------------------------------------------------------------
+4. Ecarts entre les articles et les figures publiees, par cas test
+----------------------------------------------------------------------
+
+Cas tests = solutions analytiques des sections 5.1 de [CAMC22] et 6.1 de
+[JSC21]. Les parametres qui reproduisent les figures publiees ont ete
+trouves en comparant nos calculs aux valeurs relevees sur les figures
+(section 5) et en relisant le code d'origine des articles (prototypes
+acoustics_old et elastodynamics_old de wave_propagation, au commit
+ab2ae4a). « Conforme » : parametres de l'article, rapports nous/article
+de 0.98 a 1.02 en mediane (detail dans rapport.md). Chaque ecart a la
+legende est explique dans le fichier Lua de la figure ; les cas
+« variante » refont le calcul avec les parametres de la legende.
+
+Commun a tous les cas tests : stabilisation du code des articles, poids 1
+(tau = 1/(rho c), rho c_S en elastique), multiplie par 1/h_F pour
+tau = O(1/h) ; Newmark : acceleration initiale = projection de
+l'acceleration exacte (cellules et faces), comme le code d'origine, au
+lieu de la resolution decrite dans [JSC21] (sans effet ici).
+
+[CAMC22] acoustique, Omega = (0,1)^2, rho = kappa = 1
+
+  Cas test (60), p = t^2 sin(pi x) sin(pi y), quadratique en temps
+    - Newmark (Fig. 1 gauche), SDIRK(2,3) en ordre mixte (Fig. 3) et les
+      six schemas de la Fig. 8 sur les maillages PolyMesher de l'article
+      (meshes/, les 9 fichiers lus par son code d'origine) : conformes.
+      Fig. 8 : h = plus petit diametre de cellule, comme l'abscisse de la
+      figure ; ERK(4), tau = O(1/h), k = 2 : dt = h/640 au lieu de h/320,
+      la limite de stabilite (en h^2 avec tau = O(1/h), texte de
+      l'article) etant depassee sur les maillages 5 et 6 (valeurs non
+      finies) ; memes erreurs a 6 chiffres sur les maillages 1 a 4.
+    - Ecart non explique : maillages polygonaux, ordre egal (Newmark et
+      SDIRK(3,4) avec tau = O(1/h)), erreur L2 de k = 0 : la notre
+      decroit plus vite (rapport nous/article de 0.9 a 0.3 du maillage le
+      plus grossier au plus fin) ; toutes les autres courbes concordent a
+      10 % pres.
+
+  Cas test (61), p = sin(sqrt2 pi t) x(1-x) y(1-y), quadratique en espace
+    - SDIRK(s,s+1), s = 1..3 (Fig. 4 droite) : conforme.
+    - Newmark, etude en temps (Fig. 1 droite) : les erreurs publiees sont
+      celles de p = cos(sqrt2 pi t) x(1-x) y(1-y) et non de (61) (sin).
+      L'erreur de Newmark est une erreur de phase, w^3 T dt^2 / 12
+      (w = sqrt2 pi), multipliee par |cos wT| pour sin et |sin wT| pour
+      cos : avec sin, les erreurs sont |tan(sqrt2 pi)| = 3.6 fois plus
+      petites (une analyse modale exacte du schema redonne nos valeurs a
+      tous les chiffres) ; avec cos, rapports 1.00 a 1.02 sur les 16
+      points. Variante : (61) avec sin.
+
+  Cas test (62), p = sin(sqrt2 pi t) sin(pi x) sin(pi y) / (sqrt2 pi), f = 0
+    - SDIRK(3,4) en ordre egal (Fig. 4 gauche) et ERK(4) en ordre mixte
+      avec tau = O(1) (Fig. 6 droite) : conformes.
+    - Newmark, erreurs en h (Fig. 2 gauche) : dt = 0.1 2^-6 et non
+      0.1 2^-7 ; le plancher en temps de k = 2 (5.4e-7) vaut 4 fois celui
+      de dt = 0.1 2^-7, et toutes les valeurs concordent avec 0.1 2^-6.
+      Variante : dt de la legende.
+    - Newmark, energie (Fig. 2 droite) : dt = 0.1 2^-5 et non 0.1 2^-7 ;
+      avec 0.1 2^-7, les variations d'energie sont 16 fois (0.275, 1/2 :
+      (beta - 1/4) dt^2 w^2 sin^2 wt) et 4 fois (0.275, 0.55 :
+      (gamma - 1/2) w^2 dt t) plus petites. Variante : dt de la legende.
+    - SDIRK(3,4), perte d'energie (Fig. 5) : h = 2^-6 et non 2^-5 (avec
+      2^-5, pertes 2 a 60 fois plus grandes) ; 11 des 12 courbes
+      concordent a 2 % ; les pertes sont presque identiques en ordre egal
+      et mixte, dans l'article comme ici. Ecart non explique : la courbe
+      k = 1, tau = O(1) de l'ordre egal est 4 fois au-dessous de la notre
+      (entre nos resultats a h = 2^-6 et 2^-7), alors que la meme courbe
+      en ordre mixte concorde.
+    - ERK(4) en ordre mixte avec tau = O(1/h) (Fig. 6 gauche) : ecart non
+      explique, erreurs H1 1.2 a 1.3 fois au-dessus de l'article, L2 de
+      k = 0 environ 10 fois au-dessous. La discretisation en espace est
+      celle de la Fig. 3 droite (cas test (60)), qui concorde, et ERK(4)
+      donne ici les memes erreurs que SDIRK(3,4) a 7 chiffres : l'ecart
+      vient du calcul de l'article, que le code d'origine disponible ne
+      permet pas d'identifier.
+
+[JSC21] elastique, Omega = (0,1)^2, rho = 1, vS = 1, vP = sqrt(3)
+
+  La Fig. 2 publiee ne montre aucun calcul elastique : ses quatre panneaux
+  sont des images de resultats acoustiques de [CAMC22] (ci-dessous). La
+  campagne refait ces calculs acoustiques (figure telle que publiee) et
+  ceux que decrit l'article, en elastodynamique (variantes, k = 1, 2, 3,
+  dt et h non precises : 0.1 2^-7, 2^-6), sans reference publiee.
+
+  Cas test (78), u = t^2 (-sin(pi x) cos(pi y), cos(pi x) sin(pi y)),
+  quadratique en temps
+    - Newmark (Fig. 1 haut gauche) : conforme.
+    - SDIRK(2,3) (Fig. 2 haut gauche) : l'image publiee est celle du cas
+      test (60) de [CAMC22] en ordre mixte avec tau = O(1/h) ([CAMC22]
+      Fig. 3 droite, memes octets) ; d'ou sa legende k = 0, 1, 2, alors
+      que le texte donne k = 1, 2, 3 (et k >= 1 en elasticite).
+
+  Cas test (79), u = sin(sqrt2 pi t) x(1-x) y(1-y) (1,1), quadratique en
+  espace
+    - Newmark, etude en temps (Fig. 1 haut droite) : conforme (avec sin,
+      contrairement au cas test (61) de [CAMC22]).
+    - SDIRK(s,s+1) (Fig. 2 haut droite) : les courbes publiees sont celles
+      du cas test (61) de [CAMC22], k = 3, h = 2^-3 ([CAMC22] Fig. 4
+      droite, memes pixels hors legende).
+
+  Cas test (80), u = sin(sqrt2 pi t) (-sin(pi x) cos(pi y), cos(pi x)
+  sin(pi y)), non polynomial, f = 0
+    - Newmark, erreurs en h (Fig. 1 bas gauche) : temps final T = 0.125,
+      celui du code de l'article pour ce cas test (IHHOSecondOrder,
+      tf = 0.125), et non T = 1 ; a T = 1, erreurs H1 1.6 a 1.9 fois plus
+      grandes.
+    - Newmark, energie (Fig. 1 bas droite) : l'energie publiee de
+      (1/4, 1/2) est conservee a 1e-15, ce qu'interdisent les donnees de
+      Dirichlet de (80), qui dependent du temps (bilan discret de
+      Newmark : travail de la reaction discrete sur l'increment des
+      donnees, derive en O(dt^2), 5e-6 ici). Le code d'origine evalue la
+      fonction des donnees a t = 0 (nulle pour (80)) : la figure
+      correspond a des donnees non mises a jour. problem.dirichlet =
+      "zero" (donnees nulles, donnees initiales de (80)) donne la
+      conservation a 1e-15, le palier de (0.275, 1/2) et la perte
+      croissante de (0.275, 0.55), avec des amplitudes 2 a 6 fois plus
+      faibles (ecart non explique ; h = 2^-7, k = 3 ou un autre dt ne
+      l'expliquent pas). Variante : donnees exactes.
+    - SDIRK(3,4), perte d'energie (Fig. 2 bas) : les courbes publiees sont
+      les courbes tau = O(1) du cas test (62) de [CAMC22] (Fig. 5 gauche et
+      droite), k = 0, 1, 2 legendes k = 1, 2, 3 (memes valeurs a 5 % pres) ;
+      la courbe k = 2 publiee (ordre egal) est donc la courbe k = 1 non
+      expliquee du cas test (62).
+
+Hors campagne : [CAMC22] Table 1 (limites de stabilite des ERK), sections
+5.2-5.3 et [JSC21] section 6.2 (Ricker, gar6more2d) ne sont pas des figures
+de convergence.
+
+
+----------------------------------------------------------------------
+5. Valeurs relevees sur les figures publiees
+----------------------------------------------------------------------
+
+valeurs_article.json (dossier de chaque article) : valeurs lues sur les
+images des figures des PDF des articles, pour la comparaison. Chaque
+panneau est calibre par ses lignes de grille (abscisses des points :
+diametres des cellules, plus petits diametres sur les maillages
+polygonaux, pas de temps, instants), chaque courbe reperee par sa
+couleur et suivie par continuite d'un point au suivant, la valeur etant
+la mediane des pixels de la courbe autour de l'abscisse ; la legende est
+exclue. Les points caches par une autre courbe (courbes L2 et H1 de meme
+pente superposees) ou douteux (plus de 1.5 decade de l'interpolation de
+leurs voisins) sont omis (null). Precision ~ 2 % (epaisseur des traits),
+moins au debut tres raide des courbes d'energie (instants t < 0.1 non
+compares).

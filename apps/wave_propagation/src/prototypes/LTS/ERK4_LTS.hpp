@@ -1,11 +1,16 @@
-
-
 //  Created by Romain Mottier
-
+//
+// Two-level ERK(4)-LTS on the elasto-acoustic coupling manufactured
+// solution (EFunctionNonPolynomial), elastic x<0 / acoustic x>0 on
+// [-1,1]x[0,1], cells around (-0.5,0.5) and (0.5,0.5) locally refined
+// (-p levels), coarse/fine split by assemble_P(0.75 h_max, 1).
+//   ERK4_LTS           : nx x ny = 4 x 2, global erk_weight_LTS_coarse/fine.
+//   ERK4_LTS_optimised : nx x ny = 6 x 3, the restricted kernels
+//                        erk_weight_LTS_coarse/fine_restricted on the
+//                        subspaces of build_LTS_subspaces.
+//
 // ../../wave_propagation -k3 -s0 -r0 -c0 -m0 -l4 -n500 -p1 -f1 -e0
-void ERK4_LTS(int argc, char **argv);
-
-void ERK4_LTS(int argc, char **argv){
+static void ERK4_LTS_run(int argc, char **argv, size_t nx, size_t ny, bool restricted){
     
     // #############################################################################################
     // ############################## Simulation paramaters ######################################## 
@@ -68,8 +73,6 @@ void ERK4_LTS(int argc, char **argv){
     else {
         RealType lx = 2.0;  
         RealType ly = 1.0;          
-        size_t nx = 4;
-        size_t ny = 2;
         cartesian_2d_mesh_builder<RealType> mesh_builder(lx,ly,nx,ny);
         mesh_builder.refine_mesh(sim_data.m_n_divs);
         mesh_builder.set_translation_data(-1.0, 0.0);
@@ -78,8 +81,6 @@ void ERK4_LTS(int argc, char **argv){
         if (local_refinement) {
             RealType lx = 2.0;  
             RealType ly = 1.0;          
-            size_t nx = 4;
-            size_t ny = 2;
             cartesian_2d_mesh_builder<RealType> mesh_builder(lx,ly,nx,ny);
             mesh_builder.refine_mesh(sim_data.m_n_divs);
             mesh_builder.set_translation_data(-1.0, 0.0);
@@ -363,7 +364,7 @@ void ERK4_LTS(int argc, char **argv){
     };
     
     assembler.assemble_P(msh, h_c, 1);
-    // erk_an.build_LTS_subspaces(assembler.Pcoarse, assembler.Pfine);
+    if (restricted) erk_an.build_LTS_subspaces(assembler.Pcoarse, assembler.Pfine);
     size_t nb_silo_files = 25;
     size_t step_interval = std::max(size_t(1), nt / nb_silo_files);
     std::cout << bold << red << "   TIME MARCHING SCHEME: " << reset << std::endl;
@@ -393,7 +394,10 @@ void ERK4_LTS(int argc, char **argv){
             Matrix<RealType, Dynamic, 1> Fn12 = eval_F(tn12);
             Matrix<RealType, Dynamic, 1> Fn1  = eval_F(tn1);
             erk_an.ZeroFc();   
-            erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, Fn, Fn12, Fn1, dt);
+            if (restricted)
+                erk_an.erk_weight_LTS_coarse_restricted(x_dof_n, assembler.Pcoarse, w, Fn, Fn12, Fn1, dt);
+            else
+                erk_an.erk_weight_LTS_coarse(x_dof_n, assembler.Pcoarse, w, Fn, Fn12, Fn1, dt);
         }
 
         //////////////////////////////////////////////////////////////////////////
@@ -405,7 +409,10 @@ void ERK4_LTS(int argc, char **argv){
             Matrix<RealType, Dynamic, 1> Fmh = eval_F(tn + tmh);
             Matrix<RealType, Dynamic, 1> Fm1 = eval_F(tn + tm1);
 
-            erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, w, Fm, Fmh, Fm1, tm, dtau);
+            if (restricted)
+                erk_an.erk_weight_LTS_fine_restricted(x_dof_n, assembler.Pfine, w, Fm, Fmh, Fm1, tm, dtau);
+            else
+                erk_an.erk_weight_LTS_fine(x_dof_n, assembler.Pfine, w, Fm, Fmh, Fm1, tm, dtau);
 
         }
         
@@ -441,3 +448,7 @@ void ERK4_LTS(int argc, char **argv){
     std::cout << bold << red << std::endl << "   TOTAL CPU TIME: " << cpu << std::endl << std::endl;
         
 }
+
+void ERK4_LTS(int argc, char **argv) { ERK4_LTS_run(argc, argv, 4, 2, false); }
+
+void ERK4_LTS_optimised(int argc, char **argv) { ERK4_LTS_run(argc, argv, 6, 3, true); }

@@ -14,6 +14,14 @@ comes from the L-shape's corner singularity or from the multi-level
 algorithm itself: same graded multi-band mesh structure, same mesh-reading
 path, only the geometry (no cut) and the manufactured solution (smooth
 sinusoidal, defined in the C++ driver, not here) differ.
+
+CORNER variant (--anchor corner, meshes in ../corner_square_graded):
+grading centred on the ORDINARY (non-reentrant) corner (0, 0) of the plain
+square, matching the L-SHAPE's OWN topology (graded region touches only 2
+of the domain's boundary sides, not all 4 the way a CENTER-graded mesh
+does) while still carrying no solution singularity there -- to test
+whether the CENTER-graded variant's anomalous N=1->N=2 error INCREASE is a
+topology artifact of grading a region surrounded on all 4 sides.
 ===============================================================================
 """
 
@@ -24,7 +32,7 @@ from fractions import Fraction as F
 
 OUTDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meshes")
 
-CENTER = F(1, 2)
+CENTER = F(1, 2)  # grading anchor; (0, 0) with --anchor corner
 GAMMA = F(2, 3)  # kept identical to the L-shape script purely so corner_boost(k)
                   # produces the SAME grading depth per level -- there is no
                   # regularity reason for this exponent here (the solution is
@@ -193,15 +201,25 @@ def main():
                           "neighbourhood around the centre refined at every "
                           "centre-only pass")
     ap.add_argument("--plot", action="store_true", help="save a PNG plot of each mesh")
+    ap.add_argument("--anchor", choices=["center", "corner"], default="center",
+                     help="grade toward the centre (0.5, 0.5) -> meshes/square_graded_*, or toward "
+                          "the corner (0, 0) -> ../corner_square_graded/meshes/cornersquare_graded_*")
     args = ap.parse_args()
 
-    os.makedirs(OUTDIR, exist_ok=True)
+    global CENTER
+    outdir, prefix = OUTDIR, "square_graded"
+    if args.anchor == "corner":
+        CENTER = F(0, 1)
+        outdir = os.path.normpath(os.path.join(OUTDIR, "..", "..", "corner_square_graded", "meshes"))
+        prefix = "cornersquare_graded"
+
+    os.makedirs(outdir, exist_ok=True)
 
     manifest = []
     for ell in args.levels:
         points, polys, bc_ids = generate_mesh(ell, args.k, halo=args.halo)
-        fname = f"square_graded_k{args.k}_N{ell}.txt"
-        path = os.path.join(OUTDIR, fname)
+        fname = f"{prefix}_k{args.k}_N{ell}.txt"
+        path = os.path.join(outdir, fname)
         write_poly2d(path, points, polys, bc_ids)
         hmin, hmax = h_min_max(points, polys)
         total_depth = int(round(float(corner_boost(args.k) * ell)))
@@ -219,12 +237,12 @@ def main():
                 ax.plot(xs, ys, "-", color="#2a78d6", lw=0.5)
             ax.set_aspect("equal")
             ax.set_title(f"Square quadtree mesh, ell={ell}, k={args.k}")
-            png_path = os.path.join(OUTDIR, f"square_graded_k{args.k}_N{ell}.png")
+            png_path = os.path.join(outdir, f"{prefix}_k{args.k}_N{ell}.png")
             fig.savefig(png_path, dpi=150)
             plt.close(fig)
             print(f"             plot -> {png_path}")
 
-    manifest_path = os.path.join(OUTDIR, "manifest.txt")
+    manifest_path = os.path.join(outdir, "manifest.txt")
     with open(manifest_path, "w") as f:
         f.write("# ell  file  n_points  n_cells  h_min  h_max\n")
         for ell, path, npt, nq, hmin, hmax in manifest:

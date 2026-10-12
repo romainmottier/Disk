@@ -174,7 +174,11 @@ class dirk_coupling_hho_scheme {
 // x_dof_n IN PLACE from U^n to U^{n+1}), but takes:
 //   - erk_an       : the SAME erk_coupling_hho_scheme used for the coarse
 //                     precompute (reused for B = erk_weight)
-//   - dirk_op      : the pre-factorized (I - gamma*dt*B*P) operator above
+//   - dirk_op      : the pre-factorized (I - gamma*dt*B*P) operator: any
+//                     class exposing solve(RHS) -> full (n_c+n_f) vector
+//                     (dirk_coupling_hho_scheme above, or its condensed /
+//                     halo-restricted twins dirk_coupling_hho_scheme_
+//                     condensed, _condensed_local, _condensed_local_v2)
 //   - Pfine        : boolean diagonal fine-region projector
 //   - w            : frozen coarse Taylor coefficients from
 //                     erk_weight_LTS_coarse (called ONCE per step, BEFORE
@@ -189,9 +193,9 @@ class dirk_coupling_hho_scheme {
 //                     dirk_butcher_tableau::sdirk_tables(3, a, b, c)
 //   - gamma        : the SDIRK diagonal entry (a_tab(i,i) for all i)
 // =====================================================================
-template<typename T>
+template<typename T, typename DirkOp>
 void dirk_weight_LTS_fine(erk_coupling_hho_scheme<T> & erk_an,
-                           dirk_coupling_hho_scheme<T> & dirk_op,
+                           DirkOp & dirk_op,
                            Matrix<T, Dynamic, 1> & x_dof_n,
                            const Eigen::SparseMatrix<T> & Pfine,
                            const std::vector<Matrix<T, Dynamic, 1>> & w,

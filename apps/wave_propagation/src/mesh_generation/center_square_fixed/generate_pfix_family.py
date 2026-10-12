@@ -5,8 +5,9 @@ Wrapper around generate_center_square_fixed_mesh.py's generate_mesh() to
 produce the "centersq_pfix{pfam}_k{k}_N{N}.txt" mesh family: n0=4, halo=0.0,
 extra=pfam (so p_global = 2^pfam is CONSTANT across the whole N=0..4 sweep).
 This is the naming convention read directly by ERK4_MLTS_CenterSquare_
-TwoLevel_conv_test.hpp, ERK4_MLTS_CenterSquare_ClassicalTwoLevel_conv_test.hpp
-and ERK4_MLTS_CenterSquare_FixedLevel_conv_test.hpp (via MLTS_PFAM).
+TwoLevel_conv_test / _FixedLevel_conv_test (LTS/mlts_2026/square/
+ERK4_MLTS_square_conv_tests.hpp) and ERK4_MLTS_CenterSquare_ClassicalTwoLevel_
+conv_test (ERK4_MLTS_ClassicalTwoLevel_square_conv_tests.hpp), via MLTS_PFAM.
 
 pfam=1..5 (p=2,4,8,16,32) already exist from an earlier ad-hoc run; this
 script exists so deeper families (pfam=6,8,10 -> p=64,256,1024, needed for

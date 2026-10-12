@@ -1,0 +1,308 @@
+======================================================================
+ Recapitulatif des parametres -- wave_propagation (couplage
+ elasto-acoustique HHO, formulations d'ordre 1 et d'ordre 2)
+======================================================================
+
+Le programme n'a que deux prototypes, choisis par le fichier d'entree
+Lua (lu avec sol2, comme les autres applications diskpp) :
+
+  ./wave_propagation mon_fichier.lua ["instructions lua" ...]
+
+  formulation = "first_order"   -> HHOFirstOrder  (vitesse-contrainte /
+                                   vitesse-pression, assembleur 4 champs)
+  formulation = "second_order"  -> HHOSecondOrder (deplacement / potentiel
+                                   des vitesses, assembleur 2 champs)
+
+Les arguments qui suivent le fichier sont executes comme du Lua APRES
+lui : ils surchargent le fichier sans le copier, par exemple
+
+  ./wave_propagation first_order.lua "time.scheme = 'sdirk'; time.n_steps = 20"
+
+Toute entree absente prend sa valeur par defaut ; une entree inconnue
+(faute de frappe) est signalee par un WARNING au lancement. Le fichier
+etant du Lua, on peut y utiliser variables, boucles et expressions.
+
+Ou trouver les fichiers :
+  - modeles annotes (toutes les cles, valeurs par defaut) :
+      share/first_order.lua, share/second_order.lua
+  - un exemple par couple formulation x schema, avec les reglages des
+    articles : share/examples/*.lua
+  - la campagne de verification des resultats de convergence de deux
+    articles anterieurs (Burman-Duran-Ern 2022, Burman-Duran-Ern-Steins
+    2021) : share/reproducibility/papers_Duran/ (voir son LISEZMOI.txt),
+    recopiee dans <build>/apps/wave_propagation/reproducibility/papers_Duran
+  - la campagne des cas tests de Mottier-Ern-Khot-Guillot (M2AN 2025)
+    et Mottier-Ern-Guillot (CMAME 2025) : share/reproducibility/
+    papers_Mottier/ (LISEZMOI.txt ; cles Lua correspondantes en section 6)
+  - CMake recopie ces fichiers dans le dossier de build a la
+    configuration : editer une copie sous un autre nom, ou la source.
+  - l'ancien programme avec tous les prototypes de recherche :
+      src/wave_propagation_legacy.cpp, compile seulement avec
+      -DWAVE_PROPAGATION_LEGACY=ON (executable wave_propagation_legacy).
+
+Code : lecture et verification des parametres dans
+src/common/lua_parameters.hpp (struct wave_parameters,
+load_wave_parameters) ; prototypes dans src/prototypes/coupling/
+(HHOFirstOrder.hpp, HHOSecondOrder.hpp, coupling_common.hpp).
+
+
+----------------------------------------------------------------------
+1. Discretisation en espace -- table "space"
+----------------------------------------------------------------------
+
+  Cle               Valeurs                  Signification
+  ------------------------------------------------------------------------
+  k                 entier >= 0              degre des faces
+  order             "equal" | "mixed"        cellules de degre k ou k+1
+  stabilization     "least_squares" | "hho"  moindres carres (plain LS en
+                                             ordre egal, Lehrenfeld-Schoberl
+                                             en ordre mixte) ou stabilisation
+                                             HHO avec terme de correction
+  scaling           "1" | "1/h"              poids de stabilisation O(1) ou
+                                             en 1/h
+  weight            nombre | "auto"          ordre 2 : poids gamma de la
+                                             stabilisation ; "auto" =
+                                             weight_factor * gamma*
+  weight_factor     nombre                   ordre 2 (defaut 3)
+
+Correspondance avec les articles :
+  - MEG (CMAME), main.tex l.935-950 : tau^f = (rho c_p)^-1 h~^-alpha,
+    tau^s = rho c_s h~^-alpha. alpha = 0 <-> scaling = "1",
+    alpha = 1 <-> scaling = "1/h". Plain LS + alpha = 0 pour
+    l'explicite, Lehrenfeld-Schoberl + alpha = 1 pour l'implicite.
+    Code : elastoacoustic_four_fields_assembler, e_mixed_operator /
+    a_mixed_operator (eta = 1.5 / 0.8, coefficients de reference),
+    set_least_squares_stabilization, set_scaled_stabilization.
+  - Steins-Ern-Jamond-Drui (M2AN 57, 2023) : poids gamma de la
+    stabilisation, sigma* = partie face-face (bloc-diagonale) de la
+    stabilisation, gamma* = poids critique du splitting calcule
+    cellule par cellule sans conditions aux limites (Lemme 4.3,
+    Tableau 1), reglage optimal gamma dans [3 gamma*, 5 gamma*] en
+    ordre mixte (Sec. 5.1.2).
+    Code : elastoacoustic_two_fields_assembler, e_laplacian_operator /
+    a_laplacian_operator (2 mu (R + gamma S) + lambda D,
+    (R + gamma S) / rho), set_stabilization_weight,
+    set_stabilization_scaling, face_stabilization_mass (sigma*),
+    HHOSecondOrder.hpp problem::critical_weight (gamma*).
+
+Contraintes verifiees au lancement :
+  - stabilization = "hho" impose scaling = "1/h" (la stabilisation HHO
+    de diskpp est toujours en 1/h).
+  - ordre 1 : erk, lts et li eliminent les faces avec le bloc face-face
+    bloc-diagonal des moindres carres -> stabilization = "least_squares".
+
+
+----------------------------------------------------------------------
+2. Faces algebriques de l'ordre 2 -- table "faces"
+----------------------------------------------------------------------
+
+Schemas explicites (erk, lts) et li uniquement ; sdirk resout les faces
+dans ses systemes d'etage.
+
+  solver           "splitting" : D a^{m+1} = r - (K_aa - D) a^m,
+                   D = gamma sigma* (Steins et al., Sec. 4), totalement
+                   explicite, contraction gamma*/gamma
+                   "direct" : factorisation creuse de K_aa
+  tolerance        increment relatif d'arret du splitting (1e-14)
+  max_iterations   (20000)
+
+En ordre egal avec la stabilisation "hho", alpha_solide =
+lambda_max(S_aa, sigma*_aa) - 1 vaut 1.63 / 0.91 / 1.79 pour
+k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
+(Lemme 4.4) -> utiliser l'ordre mixte ou solver = "direct".
+
+
+----------------------------------------------------------------------
+3. Schema en temps -- table "time", table "solver"
+----------------------------------------------------------------------
+
+  scheme       "erk"   : ERK(s), s = stages = 1..4
+               "sdirk" : SDIRK(s, s+1), s = 1..3 (une factorisation)
+               "newmark" : Newmark(beta, gamma), formulation d'ordre 2
+                         uniquement, sur toutes les inconnues (cellules
+                         et faces) ; newmark_beta = 1/4, newmark_gamma =
+                         1/2 par defaut (energie exactement conservee)
+               "lts"   : LTS-RK4 a deux niveaux (coefficients de Taylor
+                         grossiers, sous-pas RK4 dans la zone fine)
+               "li"    : LI-SDIRK(4,3), ERK4 grossier + SDIRK(3,4) fin
+  stages       0 = 4 pour erk, 3 pour sdirk
+  final_time   temps final
+  n_steps      pas de temps sur le premier maillage de l'etude
+               (dt = final_time / n_steps), double a chaque niveau d'une
+               etude "space"
+  substeps     lts : sous-pas fins (0 = round(h_max / h_min))
+  fine_size    lts, li : cellules plus petites que fine_size (+ une couche
+               de voisines par sommet) = zone fine ; 0 = 0.75 h_max
+               (tout le maillage s'il est uniforme)
+  newmark_beta, newmark_gamma  parametres de Newmark (beta > 0, gamma >= 1/2)
+  solver.static_condensation   sdirk d'ordre 1, newmark : condensation
+                               statique des cellules
+
+Ordre 2 : variable auxiliaire v = u_T' (vitesse des cellules) ; les
+inconnues d'interface (acoustique + composante normale elastique, par
+QR local du bloc de couplage) sont dynamiques, les autres faces
+algebriques. Les schemas explicites affichent omega_max (iteration de
+puissance) et un WARNING si dt depasse leur limite de stabilite.
+
+Code : HHOFirstOrder.hpp (integrate_erk / sdirk / lts / li sur
+erk_coupling_hho_scheme, dirk_hho_scheme, dirk_coupling_hho_scheme),
+HHOSecondOrder.hpp (second_order_system : eval, solve_faces,
+factorize_stage / stage_solve ; lts_coarse).
+
+
+----------------------------------------------------------------------
+4. Maillage, probleme, etude, sorties
+----------------------------------------------------------------------
+
+  mesh.type               "cartesian" (defaut) ou "fvca5" (fichiers au
+                          format du benchmark FVCA5, par exemple les
+                          maillages polygonaux de diskpp,
+                          refactor_old_diskpp_code/meshes/2D_hex) ;
+                          mesh.files = {"f1", "f2", ...} : le niveau l lit
+                          mesh.files[l] (l >= 1)
+  mesh.x, mesh.y          rectangle ; en milieu couple, l'interface x = 0
+                          doit etre une ligne du maillage grossier
+  mesh.nx, mesh.ny        cellules du maillage grossier
+  mesh.level              raffinements uniformes
+  mesh.refine_points      points {{x, y}, ...} : les cellules a moins
+                          d'une taille de maille sont raffinees ...
+  mesh.refine_levels      ... ce nombre de fois (noeuds pendants) : zone
+                          fine de lts et li (niveau >= 1 sinon la zone
+                          couvre tout le maillage)
+  problem.medium          "coupled" (defaut : solide x < 0, fluide x > 0,
+                          interface x = 0), "acoustic" ou "elastic" (un
+                          seul milieu)
+  problem.solution        milieu couple : "interface_coupling" (traces
+                          non nulles sur l'interface, teste le couplage)
+                          ou "non_polynomial" (nulle avec son gradient sur
+                          l'interface) ; milieu acoustique (Burman-Duran-
+                          Ern 2022) : "acoustic_quadratic_in_time" (60),
+                          "acoustic_quadratic_in_space" (61),
+                          "acoustic_non_polynomial" (62) ; milieu
+                          elastique (Burman-Duran-Ern-Steins 2021) :
+                          "elastic_quadratic_in_time" (78),
+                          "elastic_quadratic_in_space" (79),
+                          "elastic_non_polynomial" (80). Materiaux :
+                          solide rho = 1, vp = sqrt(3), vs = 1 ; fluide
+                          rho = 1, vp = 1 (scal_vec_analytic_functions)
+  study.type              "run" (un calcul), "space" (niveaux
+                          mesh.level .. last_level), "time" (n_steps 2^i,
+                          i < time_levels, maillage mesh.level)
+  study.refine_dt         etude "space" : dt divise par 2 avec h (true,
+                          defaut) ou fixe (false)
+  study.reference         etude "time" : "numerical" (defaut ; contre une
+                          reference reference_factor fois plus fine du meme
+                          schema, normes M et energie) ou "exact" (erreurs
+                          contre la solution exacte seulement)
+  output.file             tableau de convergence ("" = nom construit a
+                          partir des parametres)
+  output.table            les memes erreurs sans les ordres, une ligne par
+                          niveau, colonnes nommees dans un en-tete "#"
+                          ("" = output.file avec l'extension .dat) : lu
+                          par les scripts de la campagne
+  output.energy           newmark : historique de l'energie discrete (69)
+                          de Burman-Duran-Ern-Steins 2021,
+                          1/2 v^T M v + 1/2 somme_T u_T^T A_T u_T, les
+                          faces de Dirichlet portant les donnees au temps t
+                          (<table>_energy.dat) ; conservee exactement
+                          (beta = 1/4, gamma = 1/2) sans source et avec
+                          des donnees de Dirichlet constantes en temps
+
+
+----------------------------------------------------------------------
+5. Reglages des articles et pieges connus
+----------------------------------------------------------------------
+
+  Ordre 1, explicite (erk, lts, li) : order "equal", "least_squares",
+           scaling "1" (un facteur 1/h degraderait la CFL).
+  Ordre 1, implicite (sdirk) : order "mixed", "least_squares"
+           (Lehrenfeld-Schoberl), scaling "1/h".
+  Ordre 2, explicite (erk, lts, li) : reglage optimal de Steins :
+           order "mixed", "least_squares", scaling "1/h", weight
+           "auto", weight_factor dans [3, 5], faces.solver "splitting".
+  Ordre 2, implicite (sdirk) : order "mixed", "least_squares",
+           scaling "1/h", weight 1.
+
+  - SDIRK (ordre d'etage 1) avec des donnees de Dirichlet non
+    homogenes dependant du temps et un grand pas : reduction d'ordre
+    (ordre 2 a 2.5 au lieu de s+1) ; disparait quand dt diminue ou
+    avec des donnees homogenes. Ce n'est pas un defaut du code.
+  - Ordre 2 : un seul niveau de raffinement local (h/2) ne change
+    presque pas omega_max ; lts et li ne sont utiles qu'avec
+    refine_levels >= 2.
+  - Etude "time" d'un schema implicite a maillage fixe : tant que
+    dt omega_max >> 1, les hautes frequences ne sont pas resolues et la
+    distance a la reference plafonne (surtout en norme d'energie).
+
+
+----------------------------------------------------------------------
+6. Ordre 1 : cles ajoutees pour les campagnes papers_Mottier
+----------------------------------------------------------------------
+
+Les cas tests de Mottier-Ern-Khot-Guillot (M2AN 2025) et Mottier-Ern-
+Guillot (CMAME 2025), relances par share/reproducibility/papers_Mottier
+(voir son LISEZMOI.txt ; un fichier Lua par figure ou tableau, qui
+sert d'exemple pour chacune de ces cles).
+
+  space.weight_acoustic,   poids eta^f, eta^s des stabilisations acoustique
+  space.weight_elastic     et elastique (defaut 0.8 / 1.5, ou space.weight)
+  space.stabilization_size h du poids en 1/h : "diskpp" (defaut), "cell"
+                           (diametre de la cellule) ou "face"
+  space.elastic_formulation "velocity_stress" (defaut) ou "three_fields"
+                           (elastique seul, Burman-Duran-Ern-Steins 2021)
+  space.interface_quadrature  "exact" (defaut : regle de degre 2k pour le
+                           couplage) ou "legacy" (regle de degre k du code
+                           des articles, couplage de rang deficient pour
+                           k >= 1) : seulement pour comparer aux resultats
+                           publies
+  solver.iterative         sdirk : BiCGSTAB + ILU au lieu de Pardiso ;
+  solver.tolerance         residu relatif (defaut 1e-6) ;
+  solver.tolerance_growth  etude "space" : tolerance multipliee par ce
+                           facteur d'un niveau au suivant
+  time.dt_h                > 0 : dt = dt_h h_min sur chaque maillage (au
+                           lieu de n_steps)
+  time.steps_growth        etude "space" : nombre de pas multiplie par ce
+                           facteur d'un niveau au suivant (defaut 2)
+  mesh.type                aussi "polymesher" (fichiers PolyMesher) et
+                           "polygons" (polygones avec une etiquette par
+                           cellule, format ecrit par
+                           share/reproducibility/papers_Mottier/meshes.py)
+  problem.interface        "x" (defaut : solide x < 0), "y" (solide y < 0)
+                           ou "tags" (milieu et materiau par etiquette de
+                           maillage : problem.zones = {[1] = {medium =
+                           "elastic", rho = .., vp = .., vs = ..}, ...})
+  problem.acoustic,        materiaux {rho, vp} et {rho, vp, vs}
+  problem.elastic
+  problem.dirichlet        "exact" (defaut) ou "zero"
+  problem.source           "solution" (defaut) ou "zero"
+  problem.solution         aussi "coupled_sinusoidal" (problem.omega,
+                           problem.theta), "coupled_poly_in_space",
+                           "coupled_poly_in_time" et "ricker" : ondelette
+                           initiale problem.ricker = {field =
+                           "acoustic_flux" | "elastic_velocity" |
+                           "acoustic_pressure", center, frequency,
+                           amplitude, velocity} (lambda = velocity /
+                           frequency), sans source, Dirichlet homogene
+  study.type               aussi "cfl" (Algorithme 1 de CMAME 2025 : seuil
+                           study.cfl_threshold (5 %), decrement
+                           study.cfl_decrement (1 %), study.cfl_runs,
+                           study.cfl_absolute) et "spectrum" (rayon
+                           spectral de la partie spatiale, normalise par
+                           racine du nombre de cellules)
+  output.energy            ordre 1 : historique de 1/2 x^T M x (inconnues
+                           de cellule), total, acoustique, elastique
+  output.sensors           {{name = "S", x = .., y = .., fields = {..}}}
+                           parmi acoustic_pressure, acoustic_flux,
+                           elastic_velocity, elastic_stress,
+                           interface_pressure, interface_velocity ; un
+                           fichier <table>_<name>.csv par capteur ;
+                           output.sensor_every
+  output.snapshots         instants des instantanes (valeurs de cellule,
+                           <table>_cells.dat et <table>_snapshot_<i>.dat)
+  output.cpu               colonnes cpu (secondes d'assemblage et
+                           d'integration), dofs et face_dofs (inconnues
+                           avant / apres condensation statique)
+  output.errors            "fields" (defaut) ou "energy" : composantes des
+                           normes de M2AN 2025 (hho_p, hho_v, dg_m, dg_s,
+                           erreurs contre les projections et normes L2
+                           simples)

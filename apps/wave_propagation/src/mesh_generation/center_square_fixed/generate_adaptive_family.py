@@ -4,8 +4,9 @@
 "centersquareadaptive_graded_k{k}_N{N}.txt" mesh family: n0=4, halo=0.0,
 extra=2*N, so p_global = 4^N GROWS with N (1, 4, 16, 64, 256 for N=0..4).
 Fed through the natural (unforced) threshold rule already used by
-ERK4_MLTS_CenterSquare_FixedLevel_conv_test.hpp / ERK4_MLTS_CenterSquareCoarse_
-PellSparse_conv_test.hpp, this p growth maps to L = 1, 1, 2, 3, 4 across
+ERK4_MLTS_CenterSquare_FixedLevel_conv_test / ERK4_MLTS_CenterSquareCoarse_
+PellSparse_conv_test (LTS/mlts_2026/square/ERK4_MLTS_square_conv_tests.hpp),
+this p growth maps to L = 1, 1, 2, 3, 4 across
 N=0..4 -- a genuine, monotonically-growing multilevel trace (unlike the
 earlier centersquarecoarse_graded family, extra=N, which only reached L=2
 at its very last point).

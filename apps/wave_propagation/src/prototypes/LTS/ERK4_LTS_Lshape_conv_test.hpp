@@ -24,7 +24,8 @@
 // where Delta w = 100 in Omega, w=0 on the boundary. In our first-order
 // (v,p) = (grad u, u_dot) state this maps to: v(0)=0 (since u(0)=0), and
 // p(0) = -w. w is obtained by a one-off HHO Poisson solve (same mesh, same
-// hho_di) via acoustic_one_field_assembler + linear_solver, then injected as
+// hho_di) via elastoacoustic_two_fields_assembler (acoustic cells only) +
+// linear_solver, then injected as
 // the acoustic-pressure initial condition through the existing
 // project_over_cells/project_over_faces L2-projection API (same API already
 // used for manufactured-solution ICs in ERK4_LTS_conv_test.hpp) via a
@@ -53,7 +54,8 @@ void ERK4_LTS_Lshape_conv_test(int argc, char **argv);
 // -----------------------------------------------------------------------
 
 // Layout: contiguous n_cbs scalar coefficients per cell (as produced by
-// acoustic_one_field_assembler, e.g. the Poisson solve for w).
+// elastoacoustic_two_fields_assembler on a pure acoustic domain, e.g. the
+// Poisson solve for w).
 template<typename Mesh>
 double evaluate_one_field_at_point(
     Mesh& msh, disk::hho_degree_info& hho_di,
@@ -192,19 +194,24 @@ void ERK4_LTS_Lshape_conv_test(int argc, char **argv)
         // -----------------------------------------------------------------
         // Auxiliary elliptic HHO solve: Delta w = 100 in Omega, w=0 on dOmega
         // (same mesh, same hho_di as the wave problem below), following
-        // EllipticOneFieldConvergenceTest.hpp's acoustic_one_field_assembler
-        // + linear_solver pattern.
+        // EllipticOneFieldConvergenceTest.hpp's (acoustics_old, removed) one-field assembler
+        // + linear_solver pattern, with the second-order coupled assembler restricted to acoustic cells.
         // -----------------------------------------------------------------
         Matrix<RealType, Dynamic, 1> w_dof;
         {
             auto rhs_fun = [](const typename mesh_type::point_type&) -> RealType { return 100.0; };
+            disk::BoundaryConditions<mesh_type, false> w_e_bnd(msh);
             disk::BoundaryConditions<mesh_type, true> w_bnd(msh);
             w_bnd.addDirichletEverywhere(null_s_fun);
 
-            auto w_assembler = acoustic_one_field_assembler<mesh_type>(msh, hho_di, w_bnd);
-            acoustic_material_data<RealType> unit_material(1.0, 1.0);
-            w_assembler.load_material_data(msh, unit_material);
-            w_assembler.assemble(msh, rhs_fun);
+            // Pure acoustic domain with unit material: the acoustic block of the second-order assembler is the HHO Laplacian
+            std::map<size_t, elastic_material_data<RealType>> w_e_material;
+            std::map<size_t, acoustic_material_data<RealType>> w_a_material;
+            for (auto & cell : msh) {
+                w_a_material.insert(std::make_pair(msh.lookup(cell), acoustic_material_data<RealType>(1.0, 1.0)));
+            }
+            auto w_assembler = elastoacoustic_two_fields_assembler<mesh_type>(msh, hho_di, w_e_bnd, w_bnd, w_e_material, w_a_material);
+            w_assembler.assemble(msh, null_fun, rhs_fun);
             w_assembler.apply_bc(msh);
 
             linear_solver<RealType> w_analysis(w_assembler.LHS);

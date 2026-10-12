@@ -239,8 +239,8 @@ void IHHOSecondOrder(int argc, char **argv){
 
             std::cout << bold << yellow << "Time step number : " << it << " being executed." << reset << std::endl;
 
-            // Manufactured solution
-            RealType t = dt*it+ti;
+            // Manufactured solution (function-scope t: the Dirichlet functions stored in the assembler capture it by reference)
+            t = dt*it+ti;
             auto u_fun      = functions.Evaluate_u(t);
             auto v_fun      = functions.Evaluate_v(t);
             auto f_fun      = functions.Evaluate_f(t);
@@ -295,7 +295,6 @@ void IHHOSecondOrder(int argc, char **argv){
         simulation_log.flush();
     }
     
-    return 0;
     
 }
 

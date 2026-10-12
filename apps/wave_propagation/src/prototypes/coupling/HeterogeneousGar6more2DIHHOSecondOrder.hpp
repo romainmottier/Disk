@@ -73,8 +73,8 @@ void HeterogeneousGar6more2DIHHOSecondOrder(int argc, char **argv){
             return material;
         };
     
-    auto null_fun = [](const mesh_type::point_type& pt) -> static_vector<RealType, 2> {
-            static_vector<RealType, 2> f{0,0};
+    auto null_fun = [](const mesh_type::point_type& pt) -> disk::static_vector<RealType, 2> {
+            disk::static_vector<RealType, 2> f{0,0};
             return f;
     };
     auto null_s_fun = [](const mesh_type::point_type& pt) -> RealType {
@@ -309,6 +309,5 @@ void HeterogeneousGar6more2DIHHOSecondOrder(int argc, char **argv){
         simulation_log.flush();
     }
     
-    return 0;
     
 }

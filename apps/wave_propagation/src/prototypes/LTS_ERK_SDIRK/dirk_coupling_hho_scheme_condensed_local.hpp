@@ -56,7 +56,7 @@
 #include <vector>
 #include <unordered_map>
 
-#include "../../common/erk_coupling_hho_scheme.hpp"
+#include "dirk_coupling_hho_scheme.hpp" // erk_coupling_hho_scheme + dirk_weight_LTS_fine (any DirkOp)
 
 template<typename T>
 class dirk_coupling_hho_scheme_condensed_local {
@@ -227,74 +227,5 @@ class dirk_coupling_hho_scheme_condensed_local {
     size_t n_active_c() const { return m_active_c.size(); }
     size_t n_active_f() const { return m_active_f.size(); }
 };
-
-
-// Twin of dirk_weight_LTS_fine, templated on the operator type (identical
-// to dirk_weight_LTS_fine_condensed in dirk_coupling_hho_scheme_condensed.hpp
-// -- duplicated here rather than shared so this file has no dependency on
-// that one, keeping the three variants fully independent/additive).
-template<typename T, typename DirkOp>
-void dirk_weight_LTS_fine_condensed_local(erk_coupling_hho_scheme<T> & erk_an,
-                                           DirkOp & dirk_op,
-                                           Matrix<T, Dynamic, 1> & x_dof_n,
-                                           const Eigen::SparseMatrix<T> & Pfine,
-                                           const std::vector<Matrix<T, Dynamic, 1>> & w,
-                                           const T tn,
-                                           const T dt,
-                                           const std::function<Matrix<T, Dynamic, 1>(T)> & eval_F,
-                                           const Matrix<double, Dynamic, Dynamic> & a_tab,
-                                           const Matrix<double, Dynamic, 1> & b_tab,
-                                           const Matrix<double, Dynamic, 1> & c_tab,
-                                           const T gamma) {
-
-    const size_t s = 3;
-    const size_t ndof = x_dof_n.rows();
-
-    auto Taylor_w = [&](T tau) -> Matrix<T, Dynamic, 1> {
-        T tau2 = tau*tau, tau3 = tau*tau2;
-        return w[0] + tau*w[1] + (tau2/2.0)*w[2] + (tau3/6.0)*w[3];
-    };
-
-    Matrix<T, Dynamic, 1> Un = x_dof_n;
-    std::vector<Matrix<T, Dynamic, 1>> k(s);
-
-    for (size_t i = 0; i < s; i++) {
-
-        T tau_i = (T)c_tab(i,0) * dt;
-
-        Matrix<T, Dynamic, 1> Ffull = eval_F(tn + tau_i);
-        Matrix<T, Dynamic, 1> PF    = Pfine * Ffull;
-
-        erk_an.SetFg(PF);
-        Matrix<T, Dynamic, 1> zero = Matrix<T, Dynamic, 1>::Zero(ndof);
-        Matrix<T, Dynamic, 1> MinvPF;
-        erk_an.erk_weight(zero, MinvPF);
-        erk_an.ZeroFc();
-
-        Matrix<T, Dynamic, 1> w_tau = Taylor_w(tau_i);
-
-        Matrix<T, Dynamic, 1> RHS = Un;
-        for (size_t l = 0; l < i; l++)
-            RHS += dt * (T)a_tab(i,l) * k[l];
-        RHS += gamma*dt*MinvPF + gamma*dt*w_tau;
-
-        Matrix<T, Dynamic, 1> Util = dirk_op.solve(RHS);
-
-        Matrix<T, Dynamic, 1> Py = Pfine * Util;
-        erk_an.SetFg(PF);
-        Matrix<T, Dynamic, 1> ki;
-        erk_an.erk_weight(Py, ki);
-        erk_an.ZeroFc();
-        ki += w_tau;
-
-        k[i] = ki;
-    }
-
-    Matrix<T, Dynamic, 1> Unp1 = Un;
-    for (size_t i = 0; i < s; i++)
-        Unp1 += dt * (T)b_tab(i,0) * k[i];
-
-    x_dof_n = Unp1;
-}
 
 #endif /* dirk_coupling_hho_scheme_condensed_local_hpp */

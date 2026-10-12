@@ -21,9 +21,11 @@
 // refinement earlier this session; a properly graded mesh should recover
 // the full h^{k+1} rate).
 //
-// Reuses the acoustic_one_field_assembler + linear_solver + a
+// Reuses the second-order assembler (elastoacoustic_two_fields_assembler,
+// acoustic cells only) + linear_solver + a
 // compute_errors_one_field-style loop, following the pattern of
-// EllipticOneFieldConvergenceTest.hpp -- a single sparse solve per level,
+// EllipticOneFieldConvergenceTest.hpp (acoustics_old, removed) -- a single
+// sparse solve per level,
 // no time-stepping, no reference mesh needed since the exact solution is
 // known in closed form.
 //
@@ -78,6 +80,7 @@ void EllipticLshape_conv_test(int argc, char **argv)
     };
 
     auto null_rhs_fun = [](const typename mesh_type::point_type&) -> RealType { return 0.0; };
+    auto null_e_rhs_fun = [](const typename mesh_type::point_type&) -> disk::static_vector<RealType, 2> { return disk::static_vector<RealType, 2>::Zero(); };
     acoustic_material_data<RealType> unit_material(1.0, 1.0);
 
     // ---------------- mesh sequence: same generator as the LTS test ----------------
@@ -109,12 +112,18 @@ void EllipticLshape_conv_test(int argc, char **argv)
         std::cout << bold << red << "\n   MESH LEVEL N=" << N << reset << std::endl;
         std::cout << bold << cyan << "      n_cells=" << msh.cells_size() << "  h_max=" << h_max << reset << std::endl;
 
+        disk::BoundaryConditions<mesh_type, false> e_bnd(msh);
         boundary_type bnd(msh);
         bnd.addDirichletEverywhere(exact_scal_fun);
 
-        auto assembler = acoustic_one_field_assembler<mesh_type>(msh, hho_di, bnd);
-        assembler.load_material_data(msh, unit_material);
-        assembler.assemble(msh, null_rhs_fun);
+        // Pure acoustic domain with unit material: the acoustic block of the second-order assembler is the HHO Laplacian
+        std::map<size_t, elastic_material_data<RealType>> e_material;
+        std::map<size_t, acoustic_material_data<RealType>> a_material;
+        for (auto & cell : msh) {
+            a_material.insert(std::make_pair(msh.lookup(cell), unit_material));
+        }
+        auto assembler = elastoacoustic_two_fields_assembler<mesh_type>(msh, hho_di, e_bnd, bnd, e_material, a_material);
+        assembler.assemble(msh, null_e_rhs_fun, null_rhs_fun);
         assembler.apply_bc(msh);
 
         linear_solver<RealType> analysis(assembler.LHS);

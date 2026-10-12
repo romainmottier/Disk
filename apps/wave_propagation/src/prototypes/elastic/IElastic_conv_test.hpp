@@ -339,7 +339,7 @@ void IElastic_conv_test(int argc, char **argv){
             Matrix<double, Dynamic, 1> Fg, Fg_c,xd;
             xd = Matrix<double, Dynamic, 1>::Zero(n_dof, 1);
             
-            RealType t;
+            // stage times update the function-scope t: the Dirichlet functions stored in the assembler capture it by reference
             Matrix<double, Dynamic, 1> yn, ki;
             
             x_dof_n = x_dof;

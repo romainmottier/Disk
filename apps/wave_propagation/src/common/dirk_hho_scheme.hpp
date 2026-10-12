@@ -21,6 +21,8 @@ class dirk_hho_scheme {
     T m_scale;
     SparseMatrix<T> m_Mg;
     SparseMatrix<T> m_Kg;
+    SparseMatrix<T>* m_Mg_ref = nullptr;     // reference mode: K and M of the caller, neither copied nor modified
+    SparseMatrix<T>* m_Kg_ref = nullptr;
     Matrix<T, Dynamic, 1> m_Fg;
     linear_solver<T>  m_analysis;
     std::vector<std::pair<size_t,size_t>> m_cell_basis_data;
@@ -40,6 +42,18 @@ class dirk_hho_scheme {
         m_iteraive_solver_Q = false;
     }
     
+    // Reference mode (large problems): K and M are referenced, not copied; the caller keeps them alive and unchanged,
+    // and the cell and face-face blocks of the composed matrix are released after the static condensation
+    struct by_reference_t {};
+    dirk_hho_scheme(SparseMatrix<T> & Kg, Matrix<T, Dynamic, 1> & Fg, SparseMatrix<T> & Mg, by_reference_t){
+        m_Mg_ref = &Mg;
+        m_Kg_ref = &Kg;
+        m_Fg = Fg;
+        m_scale = 0.0;
+        m_global_sc_Q = false;
+        m_iteraive_solver_Q = false;
+    }
+
     dirk_hho_scheme(SparseMatrix<T> & Kg, Matrix<T, Dynamic, 1> & Fg, SparseMatrix<T> & Mg, T scale){
         m_Mg = Mg;
         m_Kg = Kg;
@@ -64,6 +78,15 @@ class dirk_hho_scheme {
     }
     
     void condense_equations() {
+        if (m_Kg_ref) {
+            {
+                SparseMatrix<T> K = Mg() + m_scale * Kg();
+                m_analysis.set_Kg(K,m_n_f_dof);
+            }
+            m_analysis.condense_equations(m_cell_basis_data);
+            m_analysis.release_condensed_blocks();
+            return;
+        }
         SparseMatrix<T> K = m_Mg + m_scale * m_Kg;
         m_analysis.set_Kg(K,m_n_f_dof);
         m_analysis.condense_equations(m_cell_basis_data);
@@ -73,7 +96,7 @@ class dirk_hho_scheme {
         if(m_global_sc_Q) 
             condense_equations();
         else{
-            SparseMatrix<T> K = m_Mg + m_scale * m_Kg;
+            SparseMatrix<T> K = Mg() + m_scale * Kg();
             m_analysis.set_Kg(K);
         }
     }
@@ -81,6 +104,12 @@ class dirk_hho_scheme {
     void setIterativeSolver() {
         m_iteraive_solver_Q = true;
         m_analysis.set_iterative_solver(false, 1.0e-1);
+    }
+
+    // BiCGSTAB with incomplete LU (linear_solver), relative residual tolerance
+    void setIterativeSolver(T tolerance) {
+        m_iteraive_solver_Q = true;
+        m_analysis.set_iterative_solver(false, tolerance);
     }
         
     void DecomposeMatrix() {
@@ -92,11 +121,11 @@ class dirk_hho_scheme {
     }
     
     SparseMatrix<T> & Mg(){
-        return m_Mg;
+        return m_Mg_ref ? *m_Mg_ref : m_Mg;
     }
     
     SparseMatrix<T> & Kg(){
-        return m_Kg;
+        return m_Kg_ref ? *m_Kg_ref : m_Kg;
     }
     
     Matrix<T, Dynamic, 1> & Fg(){

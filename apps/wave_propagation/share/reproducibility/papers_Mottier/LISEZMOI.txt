@@ -1,0 +1,412 @@
+======================================================================
+ Reproduction des cas tests de deux articles -- wave_propagation
+======================================================================
+
+Objet : refaire, avec le prototype d'ordre un de wave_propagation
+(HHOFirstOrder, pilote par fichier Lua), tous les cas tests des sections
+numeriques de deux articles sur le couplage elasto-acoustique par
+methodes HHO, et les comparer aux figures et tableaux publies :
+
+  [M2AN25]  R. Mottier, A. Ern, R. Khot, L. Guillot, "Hybrid high-order
+            methods for elasto-acoustic wave propagation in the time
+            domain", ESAIM Math. Model. Numer. Anal. 59 (2025)
+            2685-2715, section 6 (Fig. 3 a 15, Tables 1 et 2)
+            -> dossier elastoacoustic_m2an2025
+  [CMAME25] R. Mottier, A. Ern, L. Guillot, "Elasto-acoustic wave
+            propagation in geophysical media using hybrid high-order
+            methods on general meshes", Comput. Methods Appl. Mech.
+            Engrg. (2025), section 5 (Fig. 5 a 17, Tables 2 a 5)
+            -> dossier geophysics_cmame2025
+
+Chaque figure ou tableau est refait avec les parametres qui reproduisent
+la version publiee. Quand ils different du texte de l'article (section
+4), le fichier Lua l'explique et, quand c'est utile, des variantes
+refont le calcul avec les parametres du texte. Les references
+semi-analytiques des ondelettes de Ricker sont calculees avec Gar6more2D
+(telecharge et compile par la campagne, section 1.3).
+
+Les sources (share/reproducibility/papers_Mottier) ne contiennent que ce
+qui sert a lancer les campagnes ; CMake les recopie (a la configuration)
+dans <build>/apps/wave_propagation/reproducibility/papers_Mottier et y
+ecrit paths.json. Les campagnes sont lancees depuis cette copie et
+ecrivent leurs resultats dans le build, jamais dans les sources (le
+script refuse d'ecrire dans les sources sans --out).
+
+Sources :
+  LISEZMOI.txt
+  campaign_mottier.py     machinerie commune : cas, entrees, lancement en
+                          parallele (fils et memoire limites), sorties
+  plot_mottier.py         contexte des figures, traces communs, rapport
+  meshes.py               maillages : PolyMesher, gmsh, symetrie,
+                          conversion VTK, raffinement non conforme
+  gar6more.py             references Gar6more2D (compilation, entrees,
+                          mise a l'echelle vers les unites de diskpp)
+  elastoacoustic_m2an2025/, geophysics_cmame2025/ :
+    run_campaign.py       les cas (ce qui varie d'un calcul a l'autre),
+                          les references Gar6more2D
+    figures.py            figures et tableaux de l'article, comparaison,
+                          sections du rapport
+    *.lua                 un fichier d'entree par figure ou tableau
+                          (parametres de l'article, ecarts commentes)
+    valeurs_article.json  valeurs relevees sur les figures publiees,
+                          valeurs exactes des tableaux (section 5)
+    meshes/               maillages comprimes (bz2), format "polygons"
+
+Resultats, dans la copie du build, dossier de chaque article :
+  figure_<n>/, tableau_<n>/   un dossier par figure ou tableau :
+    <ART>_figure_<n>.png  la figure reproduite (panneaux comme dans
+                          l'article) ; valeurs relevees sur la figure
+                          publiee superposees (symboles vides, pointilles
+                          ou bandes grises) ; variantes eventuelles
+    <cas>/                un dossier par calcul : <cas>.lua (entree
+                          complete, relancable seule), log.txt, <cas>.txt
+                          (journal), <cas>.dat (tableau), <cas>.json
+                          (resultats relus par les figures), et selon le
+                          cas <cas>_energy.dat, <cas>_<capteur>.csv,
+                          <cas>_cells.dat, <cas>_snapshot_<i>.dat
+  references/<ref>/       traces Gar6more2D aux capteurs (unites de
+                          diskpp et brutes), entrees Gar6more2D.dat
+  meshes/                 maillages decompresses ou construits
+  rapport.md              par figure / tableau : parametres, ecarts,
+                          comparaison chiffree avec l'article, statut
+
+----------------------------------------------------------------------
+1. Utilisation
+----------------------------------------------------------------------
+
+1.1 Campagne complete (dans le build, dossier de l'article)
+
+  cd <build>/apps/wave_propagation/reproducibility/papers_Mottier/elastoacoustic_m2an2025
+  python3 run_campaign.py
+  cd ../geophysics_cmame2025
+  python3 run_campaign.py
+
+Options : --list (cas, duree, fils, memoire), --only <regex>, --quick
+(niveaux et durees reduits, resultats dans rapide/), --jobs N (fils,
+defaut : la moitie des coeurs), --mem G (memoire utilisable par les cas
+simultanes, defaut 80 % de la machine ; un cas dont la memoire estimee
+depasse G n'est pas lance), --mem-file F (memoire utilisable lue dans le
+fichier F toutes les 30 s : budget ajustable pendant la campagne, les cas
+trop gros attendent), --skip-done (ne relance pas les cas dont le
+resultat est deja ok : reprise d'une campagne interrompue), --no-run
+(figures et rapport a partir des resultats existants), --no-plot,
+--dry-run, --exe, --out, --gar6more, --format png,pdf.
+
+Les cas partent par duree decroissante ; quand le suivant ne tient pas
+dans les fils et la memoire restants, le premier qui tient part a sa
+place.
+
+Cas chronometres : les Figs. 7 a 9 et la Table 4 de [CMAME25] comparent
+des temps de calcul (horloge). Les lancer un par un et seuls sur la
+machine, aucun autre calcul en meme temps (environ 40 min) :
+  python3 run_campaign.py --only '^(?!cmame_(eff|tab4))'     puis
+  python3 run_campaign.py --only 'cmame_(eff|tab4)' --jobs 1
+
+Duree et memoire (station de 12 coeurs physiques, 24 fils, 86 Go) :
+[M2AN25] environ 24 h, borne par les historiques d'energie jusqu'a
+t = 10 (Figs. 13 et 14 gauche, 51 200 pas SDIRK(3,4) sur 16 384 cellules,
+24 h chacun sur 6 fils), par le granite-eau realiste (Fig. 15, 26 Go, 7 h
+sur 8 fils) et par les maillages polygonaux les plus fins de la Fig. 7
+(k = 4 : 17 Go, 6 a 11 h). La memoire limite le nombre de calculs
+simultanes : les cas a calcul long et le granite-eau realiste ont ete
+repartis a la main (PROVENANCE.txt).
+
+1.2 Un cas seul
+
+Chaque dossier de cas contient l'entree complete : depuis ce dossier,
+  <build>/apps/wave_propagation/wave_propagation <cas>.lua
+
+1.3 Gar6more2D
+
+Les traces de reference des ondelettes de Ricker sont calculees par
+Gar6more2D (J. Diaz, A. Ezziani, INRIA, licence CeCILL,
+https://gitlab.inria.fr/jdiaz/gar6more2d). Sans --gar6more, la campagne
+le clone dans papers_Mottier/gar6more2d/src et le compile (cmake,
+gfortran, BLAS/LAPACK) dans papers_Mottier/gar6more2d/build.
+
+Equivalence (gar6more.py) : Gar6more2D resout P_tt - c^2 Delta P =
+delta(x - x_s) f(t), f derivee d'une gaussienne. Une donnee initiale
+gaussienne exp(-pi^2 r^2 / lambda^2) donne, par decomposition en ondes
+planes et pour t >> 1/f_c, la solution de la source ponctuelle de
+signature derivee d'une gaussienne en temps (f_0 = c / lambda = f_c),
+retardee ; l'erreur est d'ordre exp(-pi^2 f_c^2 t^2). Flux initial
+(theta) : derivee seconde (Ricker), p = S P, v = -S V avec
+S = c rho theta lambda^3 / (2 pi^5/2) ; pression initiale (amplitude A) :
+derivee premiere, S = c A lambda / sqrt(pi). Verifie : solution HHO
+k = 4 sur 64 x 64 carres et Gar6more2D concordent a 3e-6 (pression) et
+3e-4 (vitesse du solide) pres (l2 en temps) aux capteurs du cas
+academique de [M2AN25].
+
+Retard du signal source (Reference(delay=...), en periodes 1/f0) : le
+resultat ne devrait pas en dependre, mais la contribution de l'onde
+conique de Gar6more2D est faussee a partir de son instant d'arrivee moins
+ce retard. [M2AN25] : 1.5 / f0, comme les references publiees ; avec
+2 / f0, le premier creux de la pression du cas granite-eau est faux de
+15 %. Capteur sur l'interface : evalue cote solide, a 1e-3 (|x_c| +
+|y_c|) de l'interface (sur l'interface meme, l'integrale de Gar6more2D
+devient instable).
+
+----------------------------------------------------------------------
+2. Modifications de wave_propagation pour ces campagnes
+----------------------------------------------------------------------
+
+Prototype d'ordre un (src/prototypes/coupling/HHOFirstOrder.hpp) et
+parametres Lua (src/common/lua_parameters.hpp), sans changement des
+resultats existants (cas de papers_Duran identiques au bit pres) :
+  - materiaux et interface : problem.acoustic / problem.elastic,
+    problem.interface = "x" | "y" | "tags", problem.zones (milieu et
+    materiau par etiquette de maillage, mesh.type = "polygons") ;
+  - solutions : coupled_sinusoidal (problem.omega, problem.theta),
+    coupled_poly_in_space, coupled_poly_in_time ; problem.solution =
+    "ricker" (problem.ricker : champ, centre, frequence, amplitude,
+    vitesse), problem.source / problem.dirichlet = "zero" ;
+  - poids de stabilisation par milieu : space.weight_acoustic,
+    space.weight_elastic ;
+  - etudes : study.type = "cfl" (Algorithme 1 de [CMAME25]) et
+    "spectrum" (rayon spectral de [M2AN25]) ;
+  - sorties : output.sensors (capteurs ponctuels, inconnues de cellule et
+    de face d'interface), output.snapshots, energie acoustique /
+    elastique, output.cpu (temps, inconnues avant / apres condensation),
+    output.errors = "energy" (composantes des erreurs des normes de
+    [M2AN25]) ;
+  - solveur iteratif (solver.iterative, solver.tolerance,
+    solver.tolerance_growth), time.steps_growth (efficacite) ;
+  - space.interface_quadrature = "legacy" : couplage integre avec la
+    regle de degre k du code des articles (operateur de rang deficient
+    pour k >= 1, corrige : regle de degre 2k par defaut), seulement pour
+    comparer aux resultats publies (section 4) ;
+  - memoire : operateur ERK construit a la demande, matrices du schema
+    DIRK referencees au lieu d'etre copiees, triplets et blocs inutiles
+    liberes (la memoire de pointe SDIRK est divisee par deux).
+
+----------------------------------------------------------------------
+3. Figures, tableaux et parametres
+----------------------------------------------------------------------
+
+Voir les fichiers Lua de chaque dossier (un par figure ou tableau) et
+rapport.md. Conventions de niveaux identifiees sur les figures publiees :
+  - [M2AN25] : l est le niveau du code de l'article (option -l), pas
+    h = 2^-l : (-1,1) x (0,1) en (4 x 2) 2^l carres (h = sqrt(2) 2^-(l+1),
+    abscisses des Figs. 6 et 7), (-0.5,0.5)^2 en (2 x 2) 2^l carres pour
+    les ondelettes de Ricker (Figs. 9 a 13) ;
+  - [CMAME25] : h = 2^-l pour les Figs. 5, 7 a 9 et 11 ; les CFL* de la
+    Fig. 6 au niveau 2 et des Tables 2 et 3 au niveau 4 du code de
+    l'article (16 x 8 et 64 x 32 carres).
+
+----------------------------------------------------------------------
+4. Ecarts entre les articles et les figures publiees, par cas test
+----------------------------------------------------------------------
+
+Les parametres qui reproduisent les figures publiees ont ete trouves en
+comparant nos calculs aux valeurs relevees sur les figures (section 5).
+Chaque ecart au texte est explique dans le fichier Lua de la figure ; les
+cas « variante » refont le calcul avec les parametres du texte. Rapports
+nous / article : mediane [min, max] sur les points releves (detail dans
+rapport.md). « Conforme » : parametres du texte, rapports de 0.95 a 1.05.
+
+[M2AN25] (dossier elastoacoustic_m2an2025), 369 cas (variantes comprises)
+
+  Commun : l est le niveau du code de l'article (option -l), pas
+  h = 2^-l : (-1,1) x (0,1) en (4 x 2) 2^l carres (Figs. 3 a 7), et
+  (-0.5,0.5)^2 en (2 x 2) 2^l carres (ondelettes de Ricker, Figs. 9 a 13).
+
+  Rayon spectral (Fig. 3, Tables 1 et 2), maillage "l1" (8 x 4 carres,
+  32 cellules), rayon normalise par sqrt(#cellules)
+    - Fig. 3 (cas purs et couplage, eta^f = eta^s = eta) : conforme
+      (rapports 0.97 a 1.04 sur les 126 points releves).
+    - Table 1 : les valeurs publiees sont celles des poids elastiques
+      1.75 (ordre egal) et 1.04 (ordre mixte), pas des eta_* de (6.2)
+      (1.54, 1.38) : avec eta_*, nos valeurs valent 1.14 fois les
+      publiees pour w < 0 et 0.88 fois pour w >= 0 en ordre egal, 0.75
+      a 0.84 puis 1.32 en ordre mixte ; avec les poids effectifs
+      (variante), 0.999 [0.993, 1.000] sur les 28 valeurs. Le rayon
+      spectral du couplage ne depend pratiquement que du poids
+      elastique.
+    - Table 2 (poids effectifs) : simplexes 0.995 / 0.997, quadrangles
+      0.995 / 1.000 (ordre egal / mixte, k = 1..6) ; polygones 0.88 /
+      0.87 : les maillages de l'article ne sont pas disponibles et les
+      polygones PolyMesher regeneres (32 germes par carre unite,
+      symetrises) ont d'autres cellules.
+
+  Convergence en temps (Fig. 5), solution polynomiale en espace, k = 4,
+  l = 1
+    - Reproduite (rapports 1.00 [0.95, 1.05] sur ||.||_dG et ||.||_HHO)
+      avec deux differences avec la legende : les normes sont les
+      normes L2 completes (e_p^2 + e_v^2)^1/2 et (e_m^2 + e_s^2)^1/2,
+      sans le facteur 1/2 sur la partie elastique des Figs. 6 et 7
+      (0.7 a 0.8 sinon) ; les ERK(s) publies sont stables aux six pas
+      de temps, ce que donne la stabilisation O(1) : avec la O(1/h) de
+      la legende (variante), ERK(2) a ERK(4) explosent aux deux plus
+      grands pas (memes erreurs ailleurs). La legende inverse les
+      panneaux (ERK a gauche). Reste : ||.||_HHO des schemas d'ordre 4
+      (ERK(4), SDIRK(3,4)) 1.4 fois au-dessus, a tous les pas.
+
+  Convergence en espace (Figs. 6 et 7), solution polynomiale en temps,
+  n = 8, l = 2..5
+    - Aucune convention de normes ne reproduit les trois panneaux ;
+      chaque panneau est reproduit par l'une d'elles (tracees en
+      variantes) :
+        gauche (ordre egal, O(1), ERK(4)) : erreurs L2, contributions
+          elastiques divisees par deux : 0.93 a 1.00 (Fig. 6) ;
+        centre (ordre mixte, O(1), ERK(4)) : erreurs contre les
+          projections et poids elastique 1.04 (celui de la Table 1) :
+          0.96 a 1.01 ;
+        droite (ordre mixte, O(1/h), SDIRK(3,4)) : erreurs contre les
+          projections, poids eta_* : 1.00 a 1.04 (dG), 1.09 a 1.11
+          (HHO).
+      La definition (6.3) du texte (normes d'energie) donne 0.54 a 3.7.
+    - Fig. 7 : maillages polygonaux regeneres (poly_128 ... poly_8192,
+      symetrises, ceux de l'article ne sont pas disponibles) : nos
+      erreurs sont plus faibles que les publiees, d'autant plus que k
+      est grand (convention de la Fig. 6 : gauche 0.6 a 0.2, centre 0.76
+      a 0.20, droite 0.6 a 0.014 de k = 1 a k = 4) ; sur les maillages
+      les plus fins, k = 1 et 2 concordent a un facteur 1.5 pres. Les
+      courbes publiees convergent moins vite que les notres sur ces
+      maillages : ecart non explique (maillages differents).
+
+  Ondelette de Ricker, milieux academiques (Figs. 8 a 10)
+    - Conforme : ecart L2 en temps a Gar6more2D, l = 5, k = 4 : 3e-6
+      (pression en S^f), 3e-4 (vitesse en S^s) ; instantanes (Fig. 9)
+      qualitativement identiques.
+    - Reference : Gar6more2D (source ponctuelle equivalente a la donnee
+      initiale gaussienne, section 1.3) ; les figures sont tracees dans
+      les unites de Gar6more2D (valeurs HHO divisees par S).
+
+  Ondelette de Ricker, milieux contrastes (Figs. 11 et 12)
+    - Capteurs (-0.1, 0.05) et (-0.1, -0.05) : ceux du code de l'article
+      (le texte donne (-0.05, +-0.1)) ; cas granite-air : rho^f = c^f =
+      1/2.75.
+    - Retard du signal source de Gar6more2D : 1.5 / f0, comme les
+      references publiees (petit defaut de l'onde conique en t = 0.24
+      visible sur la courbe publiee) ; avec 2 / f0, ce defaut de
+      Gar6more2D tombe en t = 0.19 et fausse de 15 % le premier creux de
+      la pression : le resultat de Gar6more2D ne devrait pas dependre de
+      ce retard.
+    - Granite-eau, l = 6, k >= 3 : 5e-4 (vitesse en S^s), 2.5e-2
+      (pression en S^f : le defaut de Gar6more2D ci-dessus).
+    - Granite-air : compare pour t <= 0.42 (ensuite, les ondes rapides
+      du solide, c_p = 6.36, reflechies sur le bord du domaine de calcul
+      atteignent S^s, absentes des demi-espaces de Gar6more2D) : l = 6,
+      k = 4 : 3e-4 (pression), 3e-3 (vitesse du solide), courbes
+      publiees superposees.
+
+  Energie (Figs. 13 et 14 gauche), SDIRK(3,4), n = 9
+    - Repartition (k = 3, l = 6, t <= 10, 51 200 pas) : concorde jusqu'a
+      t ~ 2 (meme energie initiale, memes echanges), puis les
+      oscillations se decalent un peu : ecart quadratique moyen de
+      l'energie acoustique 2.9 % de E0 (t <= 2) et 2.4 % (2 <= t <= 10) ;
+      energie totale conservee a 5e-4 pres sur [0, 10].
+    - Granite-eau (Fig. 14 gauche, k = 3, l = 6, t <= 10) : courbes
+      superposables a la figure publiee sur tout l'intervalle (creux de
+      l'energie acoustique 1.10e-6 a t = 0.4, pic 1.20e-6 a t = 1.75,
+      palier 1.07 a 1.13e-6 ensuite) ; energie totale conservee a 8e-4
+      pres (la publiee baisse legerement).
+    - Perte relative (Fig. 13 droite) : k = 1 conforme (perte a t = 1 :
+      0.41 / 0.064 / 0.0032 pour l = 4 / 5 / 6, rapports 1.0 a 1.5) ;
+      k = 2, l = 4, 5 : 1.7 a 2.5 ; ecart non explique pour les
+      discretisations plus fines : nos pertes sont bien plus faibles
+      (k = 3, l = 6 : 2.5e-5 contre 6e-4 a t = 1) et n'augmentent pas
+      quand l'onde atteint l'interface (t ~ 0.05), contrairement aux
+      courbes publiees. Le code de l'article integrait le couplage avec
+      une quadrature de degre k (operateur de rang deficient, corrige
+      dans ce code) : avec space.interface_quadrature = "legacy", la
+      perte de k = 3, l = 4 a t = 1 passe de 9.4e-3 a 1.8e-2 (article
+      1.4e-2), mais le saut publie vers t = 0.05 n'est pas reproduit.
+
+  Granite-eau realiste (Figs. 14 droite et 15), SDIRK(3,4), k = 3, n = 8
+    - Source a 100 m de l'interface, pas aux y_c = 500 m du texte : les
+      figures publiees (instantanes aux pas 768 et 2304 de 0.425 / 2560,
+      t = 0.1275 et 0.3825) montrent un anneau de pression centre a 90 a
+      110 m de l'interface et une energie elastique non nulle des
+      t ~ 0.03 ; nos courbes d'energie concordent (minimum de l'energie
+      acoustique 1.78e11 a t = 0.155 contre 1.80e11 a 0.16, pic de
+      l'energie elastique 0.31e11 contre 0.33e11, valeur finale 0.19e11
+      dans les deux cas). Variante y_c = 500 m : rien n'atteint
+      l'interface avant t ~ 0.28.
+    - 280 x 280 cellules au lieu de 560 x 560 : ce maillage demanderait
+      environ 85 Go avec l'assembleur actuel (station de 86 Go).
+    - L'energie totale publiee baisse de 1 % ; la notre est conservee a
+      2e-4 pres (meme remarque que pour la Fig. 13 : dissipation a
+      l'interface du code de l'article).
+
+[CMAME25] (dossier geophysics_cmame2025)
+
+  Commun : h = 2^-l (Figs. 5, 7 a 9 et 11) ; CFL* = c dt / h_min, h_min
+  plus petit diametre de cellule, dt = T / (dernier nombre de pas
+  stable) de l'Algorithme 1 (croissance signee de l'energie de 5 %, pas
+  diminues de 1 %).
+
+  CFL* des cas purs (Fig. 6), ERK(4), ordre egal, O(1)
+    - Reproduite au niveau 2 du code de l'article (16 x 8 carres),
+      que le texte ne precise pas : rapports 0.94 a 1.00 en mediane
+      (min 0.87). Le niveau 4 des tableaux donne des CFL* plus faibles.
+
+  CFL* du probleme couple (Tables 2 et 3), ERK(s), poids 0.8 / 1.5
+    - Table 2 (64 x 32 carres, niveau 4) : conforme, 9 valeurs sur 9 a
+      1 % pres.
+    - Table 3 : triangles (gmsh, lc = 0.035) 0.98 a 0.99 ; polygones
+      (PolyMesher, 1024 germes par carre unite) 0.98 (k = 1) puis 0.90
+      a 0.92 (k = 2, 3) : maillages regeneres (ceux de l'article ne
+      sont pas disponibles).
+
+  Efficacite explicite / implicite (Figs. 7 a 9) : 39 cas chronometres,
+  calcules un par un, seuls sur la machine (PROVENANCE.txt) ; l'article ne donne ni
+  les niveaux, ni dt_0, ni Tol_0 : etude refaite selon la procedure
+  decrite (fichier Lua), comparaison qualitative (analyse en cours).
+
+  Erreurs sur les conditions de couplage (Fig. 11), Ricker theta = 1
+    - Capteur S^i = (-0.15, 0), celui du croquis de la Fig. 10 (le texte
+      donne (-0.3, 0)) : avec (-0.3, 0), l'onde arriverait 0.13 s plus
+      tard que sur les courbes publiees.
+    - Seule la courbe cinematique k = 1, l = 4 concorde (maximum 0.873
+      contre 0.867) ; ailleurs les maxima different d'un facteur 0.1 a
+      20 : nos erreurs decroissent regulierement avec l, les publiees
+      stagnent pour k = 3. Ce n'est pas le pas de temps (Delta t 8 fois
+      plus grand change nos maxima de moins de 15 %) ; avec la
+      quadrature d'interface du code de l'article ("legacy"), k = 3,
+      l = 5 : dynamique 0.174 (article 0.214, exacte 0.067), cinematique
+      0.092 (article 0.022, exacte 0.056). Ecart non explique.
+
+  Granite-eau realiste (Table 4, Figs. 12 et 13)
+    - Maillage de carres de 33.3 m (114 x 78) : les pas adimensionnes
+      de la Table 4 (c_p^s dt / h = 0.398 pour dt = 0.1 x 2^-5) imposent
+      h = 47.1 m, diametre de ces carres (le texte donne 23.6 m, la
+      moitie).
+    - La reference SEM3D de l'article n'est pas disponible : reference
+      Gar6more2D (valable avant les reflexions sur les bords).
+    - Traces publiees (Fig. 13) : la pression en S^f concorde (facteur
+      ajuste 0.998) ; la courbe publiee en S^i vaut le dixieme de la
+      vitesse physique (facteur 9.94 : vraisemblablement 10^8 au lieu
+      de 10^9 pour le passage en nm/s) et celle de S^s est de signe
+      oppose (facteur -1.005) ; remises a l'echelle, elles se superposent
+      a la reference (variante de la figure).
+    - Table 4 (analyse en cours) : temps de calcul (un cas a la fois,
+      seul sur la machine) SDIRK(3,4) direct k = 1 / 3 : 17 / 65 s
+      (article 207 / 1095 s), ERK(4) : 5 / 83 s (article 161 / 3322 s) :
+      rapports ERK / SDIRK 0.29 et 1.3 (article 0.78 et 3.0). Erreurs aux capteurs environ 10 fois les publiees :
+      la reference Gar6more2D a ici un defaut de l'ordre de 1 % (onde
+      conique, voir section 1.3), une reference HHO fine reste a
+      calculer. Solveur iteratif, k = 3 : divergence (k = 1 : memes
+      resultats que le solveur direct), a analyser.
+
+  Bassin sedimentaire (Table 5, Figs. 14 a 17) : en attente (cas non
+  lances, a la demande) ; les maillages de la these de l'auteur sont
+  plus grossiers que ceux de l'article (132 439 triangles contre
+  185 923, 71 178 quadrangles contre 94 019, 67 952 cellules hybrides
+  contre 93 490) ; le maillage non conforme est construit en raffinant
+  une fois les quadrangles dans l'atmosphere et le bassin (179 448
+  cellules contre 84 204). La reference SEM3D n'etant pas disponible, la
+  campagne prevoit une reference HHO k = 4 sur les triangles (Delta t / 2).
+
+----------------------------------------------------------------------
+5. Valeurs relevees sur les figures publiees
+----------------------------------------------------------------------
+
+valeurs_article.json (dossier de chaque article) : valeurs relevees sur
+les images des figures (sources LaTeX des articles, dossier images/) par
+calibration sur les graduations des axes et reperage des couleurs des
+courbes et des marqueurs ; valeurs exactes des tableaux. Les traces sont
+relevees la ou les courbes sont visibles (courbe de reference et k = 1, 2
+le plus souvent : les autres sont confondues avec la reference). Les
+figures d'efficacite de [CMAME25] sont relevees par groupes de marqueurs
+de meme couleur (marqueurs souvent superposes).
