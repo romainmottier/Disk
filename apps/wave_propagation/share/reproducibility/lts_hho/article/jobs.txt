@@ -1,0 +1,150 @@
+# Sections 5 and 6 of the LTS_HHO preprint (main.tex), one job at a time (timed): dir|threads|input|Lua statements
+# 6.2 formulations: ERK4 on Cartesian meshes 8^2..64^2; ERK4 and MLTS on the 16^2 mesh refined three times
+alg/o1_l0|6|alg.lua|study = { type = 'run' }; mesh.level = 0; time.n_steps = 160
+alg/o2_l0|6|alg2.lua|study = { type = 'run' }; mesh.level = 0; time.n_steps = 160; output.cpu = true
+alg/o1_l1|6|alg.lua|study = { type = 'run' }; mesh.level = 1; time.n_steps = 320
+alg/o2_l1|6|alg2.lua|study = { type = 'run' }; mesh.level = 1; time.n_steps = 320; output.cpu = true
+alg/o1_l2|6|alg.lua|study = { type = 'run' }; mesh.level = 2; time.n_steps = 640
+alg/o2_l2|6|alg2.lua|study = { type = 'run' }; mesh.level = 2; time.n_steps = 640; output.cpu = true
+alg/o1_l3|6|alg.lua|study = { type = 'run' }; mesh.level = 3; time.n_steps = 1280
+alg/o2_l3|6|alg2.lua|study = { type = 'run' }; mesh.level = 3; time.n_steps = 1280; output.cpu = true
+form/o1_erk|6|alg.lua|study = { type = 'run' }; mesh.level = 1; mesh.refine_levels = 3; mesh.refine_box = {0.375, 0.625, 0.375, 0.625}; time.n_steps = 1250
+form/o1_mlts|6|alg.lua|study = { type = 'run' }; mesh.level = 1; mesh.refine_levels = 3; mesh.refine_box = {0.375, 0.625, 0.375, 0.625}; time.scheme = 'mlts'; time.n_steps = 160
+form/o2_erk|6|alg2.lua|study = { type = 'run' }; mesh.level = 1; mesh.refine_levels = 3; mesh.refine_box = {0.375, 0.625, 0.375, 0.625}; time.n_steps = 1500; output.cpu = true
+form/o2_mlts|6|alg2.lua|study = { type = 'run' }; mesh.level = 1; mesh.refine_levels = 3; mesh.refine_box = {0.375, 0.625, 0.375, 0.625}; time.scheme = 'mlts'; time.n_steps = 200; output.cpu = true
+# 6.2 small refined patch: 64 x 64 cells, the 4 cells around (1/2, 1/2) refined 3 times (p = 8), t_f = 1/4
+form/o1_erk_p|6|alg.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 3; time.final_time = 0.25; time.n_steps = 1400
+form/o1_mlts_p|6|alg.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 3; time.final_time = 0.25; time.scheme = 'mlts'; time.n_steps = 175
+form/o2_erk_p|6|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 3; time.final_time = 0.25; time.n_steps = 1700; output.cpu = true
+form/o2_mlts_p|6|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 3; time.final_time = 0.25; time.scheme = 'mlts'; time.n_steps = 210; output.cpu = true
+# 6.2 small refined patch, p = 16: 64 x 64 cells, the 4 cells around (1/2, 1/2) refined 4 times, t_f = 1
+form/o1_erk_q|6|alg.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.n_steps = 9800
+form/o1_mlts_q|6|alg.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.scheme = 'mlts'; time.n_steps = 620
+form/o2_erk_q|6|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.n_steps = 11700
+form/o2_mlts_q|6|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.scheme = 'mlts'; time.n_steps = 740
+# 6.3 spectral radius of a step at the fixed step dt = 0.9 x 7.09e-3 (400 steps), p = 2^L
+rho/L0_erk|6|stab.lua|mesh.refine_levels = 0|time.scheme = 'erk'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L0_lts|6|stab.lua|mesh.refine_levels = 0|time.scheme = 'lts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L0_mlts|6|stab.lua|mesh.refine_levels = 0|time.scheme = 'mlts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L0_li|6|stab.lua|mesh.refine_levels = 0|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L1_erk|6|stab.lua|mesh.refine_levels = 1|time.scheme = 'erk'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L1_lts|6|stab.lua|mesh.refine_levels = 1|time.scheme = 'lts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L1_mlts|6|stab.lua|mesh.refine_levels = 1|time.scheme = 'mlts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L1_li|6|stab.lua|mesh.refine_levels = 1|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L2_erk|6|stab.lua|mesh.refine_levels = 2|time.scheme = 'erk'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L2_lts|6|stab.lua|mesh.refine_levels = 2|time.scheme = 'lts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L2_mlts|6|stab.lua|mesh.refine_levels = 2|time.scheme = 'mlts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L2_li|6|stab.lua|mesh.refine_levels = 2|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L3_erk|6|stab.lua|mesh.refine_levels = 3|time.scheme = 'erk'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L3_lts|6|stab.lua|mesh.refine_levels = 3|time.scheme = 'lts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L3_mlts|6|stab.lua|mesh.refine_levels = 3|time.scheme = 'mlts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L3_li|6|stab.lua|mesh.refine_levels = 3|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L4_erk|6|stab.lua|mesh.refine_levels = 4|time.scheme = 'erk'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L4_lts|6|stab.lua|mesh.refine_levels = 4|time.scheme = 'lts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L4_mlts|6|stab.lua|mesh.refine_levels = 4|time.scheme = 'mlts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L4_li|6|stab.lua|mesh.refine_levels = 4|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L5_erk|6|stab.lua|mesh.refine_levels = 5|time.scheme = 'erk'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L5_lts|6|stab.lua|mesh.refine_levels = 5|time.scheme = 'lts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L5_mlts|6|stab.lua|mesh.refine_levels = 5|time.scheme = 'mlts'; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+rho/L5_li|6|stab.lua|mesh.refine_levels = 5|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.final_time = 2.5524; time.n_steps = 400|study = { type = 'rho' }
+# 6.5 smooth solution: dt = 1/(20 n) on the n x n meshes (5 meshes): 45 % of the coarse limit, LI time error below the space error
+conv/erk_u|6|cart.lua|time.n_steps = 160|study = { type = 'space', last_level = 4 }
+conv/mlts_g|6|cart.lua|mesh.refine_levels = 3|time.scheme = 'mlts'; time.n_steps = 160|study = { type = 'space', last_level = 4 }
+conv/li_g|6|cart.lua|mesh.refine_levels = 3|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 160|study = { type = 'space', last_level = 4 }
+tconv/mlts|6|cart.lua|mesh.level = 1; mesh.refine_levels = 3|time.scheme = 'mlts'; time.n_steps = 160|study = { type = 'time', time_levels = 4, reference = 'numerical', reference_factor = 4 }
+tconv/li|6|cart.lua|mesh.level = 1; mesh.refine_levels = 3|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 160|study = { type = 'time', time_levels = 4, reference = 'numerical', reference_factor = 4 }
+meshes/cart_u0|1|cart.lua|mesh.level = 0; mesh.refine_levels = 0|time.n_steps = 1; time.final_time = 1e-6; output.snapshots = {1e-6}
+meshes/cart_u1|1|cart.lua|mesh.level = 1; mesh.refine_levels = 0|time.n_steps = 1; time.final_time = 1e-6; output.snapshots = {1e-6}
+meshes/cart_u2|1|cart.lua|mesh.level = 2; mesh.refine_levels = 0|time.n_steps = 1; time.final_time = 1e-6; output.snapshots = {1e-6}
+meshes/cart_g0|1|cart.lua|mesh.level = 0; mesh.refine_levels = 3|time.n_steps = 1; time.final_time = 1e-6; output.snapshots = {1e-6}
+meshes/cart_g1|1|cart.lua|mesh.level = 1; mesh.refine_levels = 3|time.n_steps = 1; time.final_time = 1e-6; output.snapshots = {1e-6}
+meshes/cart_g2|1|cart.lua|mesh.level = 2; mesh.refine_levels = 3|time.n_steps = 1; time.final_time = 1e-6; output.snapshots = {1e-6}
+# 6.6 L-shape, mu = 1/5, n = 4, 6, 8, 12, 16, dt = 0.05 / n (MLTS: the three deepest levels merged)
+ls/mlts_l1|6|lshape.lua|mesh.level = 1|time.scheme = 'mlts'; time.n_steps = 40; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 8}
+ls/li_l1|6|lshape.lua|mesh.level = 1|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 40
+ls/mlts_l2|6|lshape.lua|mesh.level = 2|time.scheme = 'mlts'; time.n_steps = 60; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 8}
+ls/li_l2|6|lshape.lua|mesh.level = 2|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 60
+ls/mlts_l3|6|lshape.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 80; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}
+ls/li_l3|6|lshape.lua|mesh.level = 3|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 80
+ls/mlts_l4|6|lshape.lua|mesh.level = 4|time.scheme = 'mlts'; time.n_steps = 120; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}
+ls/li_l4|6|lshape.lua|mesh.level = 4|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 120
+ls/mlts_l5|6|lshape.lua|mesh.level = 5|time.scheme = 'mlts'; time.n_steps = 160; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}
+ls/li_l5|6|lshape.lua|mesh.level = 5|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 160
+ls/erk_l1|6|lshape.lua|mesh.level = 1|time.scheme = 'erk'; time.n_steps = 50000
+# 6.7 head: snapshots sampled 8 x 8 per cell (MLTS, thin levels merged)
+head/l2_snap|6|head.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_tolerance = 0.1; time.n_steps = 974; time.level_ratios = {2, 2, 16}; output.snapshot_samples = 8; output.snapshots = {30.0, 60.0, 90.0, 120.0}
+# 6.6 LI at dt / 2 (its time error, that of SDIRK(3,4), below the space error on the coarse meshes)
+ls/li2_l1|6|lshape.lua|mesh.level = 1|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 80
+ls/li2_l2|6|lshape.lua|mesh.level = 2|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 120
+ls/li2_l3|6|lshape.lua|mesh.level = 3|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 160
+ls/li2_l4|6|lshape.lua|mesh.level = 4|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 240
+ls/li2_l5|6|lshape.lua|mesh.level = 5|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 320
+# 6.2 the patch runs on one thread
+form/o1_erk_q1|1|alg.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.n_steps = 9800
+form/o1_mlts_q1|1|alg.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.scheme = 'mlts'; time.n_steps = 620
+form/o2_erk_q1|1|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.n_steps = 11700
+form/o2_mlts_q1|1|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.scheme = 'mlts'; time.n_steps = 740
+# 6.7 transcranial focused ultrasound (250 kHz) through a titanium plate: fitted meshes (generate_head_model_fitted.py
+# --delta 0.3), LI production, LI at dt / 2 and MLTS references; voxel-staircase meshes (generate_head_model.py) with MLTS
+# for the energy budget. Figures: make_tfus.py <out> <figures>
+fit/plate_li|6|tfus_fit.lua|mesh.level = 2
+fit/intact_li|6|tfus_fit.lua|mesh.level = 1
+fit/water_li|6|tfus_fit.lua|mesh.level = 1|problem.zones = { [1] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [2] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [3] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [4] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [5] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [6] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [7] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [8] = { medium = "acoustic", rho = 1.0, vp = 1.5 } }|output.snapshots = {}; output.sensors = { { name = "focus", x = 120.5, y = 179.6, fields = { "acoustic_pressure" } } }
+fit/plate_li_dt2|6|tfus_fit.lua|mesh.level = 2|time.n_steps = 2788|output.snapshots = {}
+fit/plate_mlts|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_ratios = {2, 2, 4, 4, 4}|output.snapshots = {}
+tfus/plate_mlts|6|tfus.lua|mesh.level = 2
+tfus/intact_mlts|6|tfus.lua|mesh.level = 1
+tfus/water_mlts|6|tfus.lua|mesh.level = 1|problem.zones = { [1] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [2] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [3] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [4] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [5] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [6] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [7] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [8] = { medium = "acoustic", rho = 1.0, vp = 1.5 } }|output.sensors = { { name = "focus", x = 120.5, y = 179.6, fields = { "acoustic_pressure" } } }
+# 6.7 cost of ERK4 on the fitted plate mesh: stable step (random data), then 8 us at 0.9 of it (10150 steps, extrapolated
+# to 80 us: all its steps are alike), on six threads and on one thread (t1/*, with MLTS and LI over the same 8 us)
+fit/cfl_erk|6|tfus_fit.lua|mesh.level = 2|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0; output.profile = false|time.scheme = 'erk'; time.final_time = 0.5; time.n_steps = 500
+fit/plate_erk_8us|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'erk'; time.final_time = 8.0; time.n_steps = 10150|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+t1/erk_8us|1|tfus_fit.lua|mesh.level = 2|time.scheme = 'erk'; time.final_time = 8.0; time.n_steps = 10150|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+t1/mlts_8us|1|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_size = 'width'; time.mlts_reuse = true; time.level_ratios = {2, 2, 4, 8}; time.final_time = 7.9786; time.n_steps = 139|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+t1/li_8us|1|tfus_fit.lua|mesh.level = 2|time.final_time = 7.9786; time.n_steps = 139|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+# 6.7 MLTS variants on the fitted plate mesh, 139 macro steps (8 us), no output: levels from 4|T|/|dT| ("area") or from
+# the cell width, chain reused, level ratios; the best (width, reuse, 2 2 4 8) is run in full (fit/plate_mlts_w)
+mv/v0_area|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_ratios = {2, 2, 4, 4, 4}; time.final_time = 7.9786; time.n_steps = 139|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+mv/v1_width_r2_reuse|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_size = 'width'; time.level_ratios = {2}; time.mlts_reuse = true; time.final_time = 7.9786; time.n_steps = 139|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+mv/v2_w_22228|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_size = 'width'; time.mlts_reuse = true; time.level_ratios = {2, 2, 2, 2, 8}; time.final_time = 7.9786; time.n_steps = 139|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+mv/v3_w_22216|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_size = 'width'; time.mlts_reuse = true; time.level_ratios = {2, 2, 2, 16}; time.final_time = 7.9786; time.n_steps = 139|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+mv/v4_w_2248|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_size = 'width'; time.mlts_reuse = true; time.level_ratios = {2, 2, 4, 8}; time.final_time = 7.9786; time.n_steps = 139|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0
+fit/plate_mlts_w|6|tfus_fit.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_size = 'width'; time.mlts_reuse = true; time.level_ratios = {2, 2, 4, 8}|output.snapshots = {}
+# 6.7 polytopal (Voronoi) head mesh with the plate: stable step of LI (random data, 2 us), then the full LI run at 0.9 of
+# it (0.069 us: 1290 steps)
+vor/cfl_li|6|tfus_vor.lua|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0; output.profile = false|time.final_time = 2.0; time.n_steps = 35
+vor/plate_li|6|tfus_vor.lua|time.n_steps = 1290
+# 6.2 second order, p = 16 patch: MLTS with the projected condensation (faces.projected, 0 ring), six threads and
+# one thread (same binary as form/o2_erk_q* and form/o2_mlts_q*, rerun on 2026-10-16)
+form/o2_mltsp_q|6|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.scheme = 'mlts'; time.n_steps = 740; faces.projected = true; faces.projected_rings = 0
+form/o2_mltsp_q1|1|alg2.lua|study = { type = 'run' }; mesh.level = 3; mesh.refine_points = {{0.5, 0.5}}; mesh.refine_levels = 4; time.final_time = 1.0; time.scheme = 'mlts'; time.n_steps = 740; faces.projected = true; faces.projected_rings = 0
+# 6.3 stability, second-order formulation (setting (2E), k = 2 mixed): CFL limit of ERK4 (p <= 8), of LTS and MLTS with
+# the exact condensation and with the projected one (0 ring), p = 2^L (not timed: may run in parallel)
+stab2/L0_erk|2|stab2.lua|mesh.refine_levels = 0; time.scheme = 'erk'
+stab2/L0_lts|2|stab2.lua|mesh.refine_levels = 0; time.scheme = 'lts'
+stab2/L0_ltsp|2|stab2.lua|mesh.refine_levels = 0; time.scheme = 'lts'; faces.projected = true; faces.projected_rings = 0
+stab2/L0_mlts|2|stab2.lua|mesh.refine_levels = 0; time.scheme = 'mlts'
+stab2/L0_mltsp|2|stab2.lua|mesh.refine_levels = 0; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 0
+stab2/L1_erk|2|stab2.lua|mesh.refine_levels = 1; time.scheme = 'erk'
+stab2/L1_lts|2|stab2.lua|mesh.refine_levels = 1; time.scheme = 'lts'
+stab2/L1_ltsp|2|stab2.lua|mesh.refine_levels = 1; time.scheme = 'lts'; faces.projected = true; faces.projected_rings = 0
+stab2/L1_mlts|2|stab2.lua|mesh.refine_levels = 1; time.scheme = 'mlts'
+stab2/L1_mltsp|2|stab2.lua|mesh.refine_levels = 1; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 0
+stab2/L2_erk|2|stab2.lua|mesh.refine_levels = 2; time.scheme = 'erk'
+stab2/L2_lts|2|stab2.lua|mesh.refine_levels = 2; time.scheme = 'lts'
+stab2/L2_ltsp|2|stab2.lua|mesh.refine_levels = 2; time.scheme = 'lts'; faces.projected = true; faces.projected_rings = 0
+stab2/L2_mlts|2|stab2.lua|mesh.refine_levels = 2; time.scheme = 'mlts'
+stab2/L2_mltsp|2|stab2.lua|mesh.refine_levels = 2; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 0
+stab2/L3_erk|2|stab2.lua|mesh.refine_levels = 3; time.scheme = 'erk'
+stab2/L3_lts|2|stab2.lua|mesh.refine_levels = 3; time.scheme = 'lts'
+stab2/L3_ltsp|2|stab2.lua|mesh.refine_levels = 3; time.scheme = 'lts'; faces.projected = true; faces.projected_rings = 0
+stab2/L3_mlts|2|stab2.lua|mesh.refine_levels = 3; time.scheme = 'mlts'
+stab2/L3_mltsp|2|stab2.lua|mesh.refine_levels = 3; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 0
+stab2/L4_lts|2|stab2.lua|mesh.refine_levels = 4; time.scheme = 'lts'
+stab2/L4_ltsp|2|stab2.lua|mesh.refine_levels = 4; time.scheme = 'lts'; faces.projected = true; faces.projected_rings = 0
+stab2/L4_mlts|2|stab2.lua|mesh.refine_levels = 4; time.scheme = 'mlts'
+stab2/L4_mltsp|2|stab2.lua|mesh.refine_levels = 4; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 0
+stab2/L5_lts|2|stab2.lua|mesh.refine_levels = 5; time.scheme = 'lts'
+stab2/L5_ltsp|2|stab2.lua|mesh.refine_levels = 5; time.scheme = 'lts'; faces.projected = true; faces.projected_rings = 0
+stab2/L5_mlts|2|stab2.lua|mesh.refine_levels = 5; time.scheme = 'mlts'
+stab2/L5_mltsp|2|stab2.lua|mesh.refine_levels = 5; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 0

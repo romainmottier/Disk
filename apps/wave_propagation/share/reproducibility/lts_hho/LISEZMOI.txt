@@ -1,0 +1,66 @@
+======================================================================
+ Resultats numeriques du preprint LTS_HHO -- wave_propagation
+======================================================================
+
+Objet : refaire tous les resultats du document
+~/Github/Preprints/LTS_HHO/numerical_results_plan.tex (plan detaille
+de la section numerique du preprint "Multilevel explicit local time
+stepping for wave propagations with high-order hybrid nonconforming
+schemes") : modeles reduits, stabilite, convergence (solution reguliere
+et domaine en L), comparaison des formulations d'ordre 1 et 2,
+application elasto-acoustique sur une coupe de tete (IRM).
+
+Contenu :
+  run_plan.sh            lance les calculs de jobs.txt un par un (temps
+                         propres : rien d'autre ne doit tourner sur la
+                         machine), reprend la ou il s'est arrete
+                         (un calcul est fait si <out>/<dir>/time.txt
+                         existe)
+  jobs.txt               un calcul par ligne : dir|fils|entree|lignes Lua
+  inputs/                entrees Lua (chemins absolus des maillages des
+                         sources : mesh_generation/center_square_fixed,
+                         lshape_graded, brain_mri/meshes)
+                           stab1.lua, stab2.lua   stabilite (18 x 18,
+                                                  boite raffinee L fois)
+                           conv1.lua, conv2.lua   convergence, maillages
+                                                  centersquarehaloscale
+                           lshape1.lua            domaine en L
+                           alg.lua, alg2.lua      les deux formulations
+                           brain.lua              coupe de tete (3
+                                                  maillages : b8, w8, i8)
+  make_plan.py           tableaux LaTeX et figures du document a partir
+                         des sorties de run_plan.sh
+  reduced_models/        plan_extra.py (LI-SDIRK, algorithme 4 contre
+                         Almquist-Mehlin, ordres, sur les modeles reduits
+                         de ~/Github/LTS_RK4/modele_final), ses resultats
+                         et figures
+
+Lancement :
+  ./run_plan.sh /chemin/sortie /chemin/vers/wave_propagation
+  python3 reduced_models/plan_extra.py --out reduced_models
+      (MODELE_FINAL=~/Github/LTS_RK4/modele_final par defaut)
+  python3 make_plan.py /chemin/sortie ~/Github/Preprints/LTS_HHO/plan_figures
+  (puis compiler numerical_results_plan.tex dans le dossier du preprint)
+
+Maillages de la tete : mesh_generation/brain_mri/
+generate_brain_quadtree_mesh.py, coupe 80 du sujet 1 de
+~/Downloads/mri_dataset (data/dataset/subject_0001_slice_0080.npy) :
+  b8 : --base 8 --interface 2 --bone 1 --bone-interior 2 --margin 40
+  w8 : --base 8 --interface 2 --bone 2 --bone-interior 2 --margin 40
+       --skull homogeneous --roi 30 70 110 160 --roi-bone 0.5
+  i8 : --base 8 --interface 2 --bone 2 --bone-interior 2 --margin 40
+       --skull homogeneous --inclusion 105 140 0.65 --inclusion-size 0.125
+(fichiers deja generes dans mesh_generation/brain_mri/meshes).
+
+Durees (6 fils, machine de 24 coeurs) : environ 7 h en tout ; les plus
+longs : domaine en L N = 3 en MLTS (1 h 20, un fil), stabilite LI L = 4
+(30 min, 3.4 Go), etudes en temps d'ordre 2 (30 min chacune).
+
+Pieges :
+  - aucun calcul numpy/BLAS en parallele des calculs chronometres
+    (OpenMP sur-souscrit : un calcul de 2 s a pris 80 min) ;
+  - avec -ffast-math (defaut de diskpp), std::isfinite peut etre
+    supprime par le compilateur : les etudes cfl testent la finitude sur
+    les bits (coupling_common::finite_value) ;
+  - le pas des etudes de stabilite et des calculs de la tete depend du
+    schema (90 % de la limite mesuree) : voir jobs.txt.

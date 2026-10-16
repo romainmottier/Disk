@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 meshes.py — maillages des campagnes [M2AN25] et [CMAME25] au format "polygons" de wave_propagation
-(mesh.type = "polygons", lu par tagged_polygon_mesh_reader, src/prototypes/coupling/coupling_common.hpp) :
+(mesh.type = "polygons", lu par tagged_polygon_mesh_reader, src/mesh/domain.hpp) :
 
     # commentaires
     n_points n_cells

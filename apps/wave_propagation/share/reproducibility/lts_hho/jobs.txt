@@ -1,0 +1,162 @@
+brain/cfl_l1_erk|6|brain.lua|mesh.level = 1|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 560
+brain/cfl_l1_lts|6|brain.lua|mesh.level = 1|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'mlts'; time.level_ratios = {16}
+brain/cfl_l1_mlts|6|brain.lua|mesh.level = 1|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'mlts'
+brain/cfl_l1_li|6|brain.lua|mesh.level = 1|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'li'
+brain/cfl_l2_erk|6|brain.lua|mesh.level = 2|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 560
+brain/cfl_l2_lts|6|brain.lua|mesh.level = 2|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'mlts'; time.level_ratios = {32}
+brain/cfl_l2_mlts|6|brain.lua|mesh.level = 2|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'mlts'
+brain/cfl_l2_li|6|brain.lua|mesh.level = 2|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'li'
+stab1/L0_erk|6|stab1.lua|mesh.refine_levels = 0|time.n_steps = 170
+stab1/L0_lts|6|stab1.lua|mesh.refine_levels = 0|time.scheme = 'lts'; time.n_steps = 170
+stab1/L0_mlts|6|stab1.lua|mesh.refine_levels = 0|time.scheme = 'mlts'; time.n_steps = 170
+stab1/L0_mlts_o0|6|stab1.lua|mesh.refine_levels = 0|time.scheme = 'mlts'; time.overlap = 0; time.n_steps = 170
+stab1/L0_li|6|stab1.lua|mesh.refine_levels = 0|time.scheme = 'li'; time.n_steps = 170
+stab1/L1_erk|6|stab1.lua|mesh.refine_levels = 1|time.n_steps = 340
+stab1/L1_lts|6|stab1.lua|mesh.refine_levels = 1|time.scheme = 'lts'; time.n_steps = 170
+stab1/L1_mlts|6|stab1.lua|mesh.refine_levels = 1|time.scheme = 'mlts'; time.n_steps = 170
+stab1/L1_mlts_o0|6|stab1.lua|mesh.refine_levels = 1|time.scheme = 'mlts'; time.overlap = 0; time.n_steps = 170
+stab1/L1_li|6|stab1.lua|mesh.refine_levels = 1|time.scheme = 'li'; time.n_steps = 170
+stab1/L2_erk|6|stab1.lua|mesh.refine_levels = 2|time.n_steps = 680
+stab1/L2_lts|6|stab1.lua|mesh.refine_levels = 2|time.scheme = 'lts'; time.n_steps = 170
+stab1/L2_mlts|6|stab1.lua|mesh.refine_levels = 2|time.scheme = 'mlts'; time.n_steps = 170
+stab1/L2_mlts_o0|6|stab1.lua|mesh.refine_levels = 2|time.scheme = 'mlts'; time.overlap = 0; time.n_steps = 170
+stab1/L2_li|6|stab1.lua|mesh.refine_levels = 2|time.scheme = 'li'; time.n_steps = 170
+stab1/L3_erk|6|stab1.lua|mesh.refine_levels = 3|time.n_steps = 1360
+stab1/L3_lts|6|stab1.lua|mesh.refine_levels = 3|time.scheme = 'lts'; time.n_steps = 170
+stab1/L3_mlts|6|stab1.lua|mesh.refine_levels = 3|time.scheme = 'mlts'; time.n_steps = 170
+stab1/L3_mlts_o0|6|stab1.lua|mesh.refine_levels = 3|time.scheme = 'mlts'; time.overlap = 0; time.n_steps = 170
+stab1/L3_li|6|stab1.lua|mesh.refine_levels = 3|time.scheme = 'li'; time.n_steps = 170
+stab1/L4_erk|6|stab1.lua|mesh.refine_levels = 4|time.n_steps = 2720
+stab1/L4_lts|6|stab1.lua|mesh.refine_levels = 4|time.scheme = 'lts'; time.n_steps = 170
+stab1/L4_mlts|6|stab1.lua|mesh.refine_levels = 4|time.scheme = 'mlts'; time.n_steps = 170
+stab1/L4_mlts_o0|6|stab1.lua|mesh.refine_levels = 4|time.scheme = 'mlts'; time.overlap = 0; time.n_steps = 170
+stab1/L4_li|6|stab1.lua|mesh.refine_levels = 4|time.scheme = 'li'; time.n_steps = 170
+stab2/L0_erk|6|stab2.lua|mesh.refine_levels = 0|time.n_steps = 190
+stab2/L0_lts|6|stab2.lua|mesh.refine_levels = 0|time.scheme = 'lts'; time.n_steps = 190
+stab2/L0_mlts|6|stab2.lua|mesh.refine_levels = 0|time.scheme = 'mlts'; time.n_steps = 190
+stab2/L0_li|6|stab2.lua|mesh.refine_levels = 0|time.scheme = 'li'; time.n_steps = 190
+stab2/L1_erk|6|stab2.lua|mesh.refine_levels = 1|time.n_steps = 380
+stab2/L1_lts|6|stab2.lua|mesh.refine_levels = 1|time.scheme = 'lts'; time.n_steps = 190
+stab2/L1_mlts|6|stab2.lua|mesh.refine_levels = 1|time.scheme = 'mlts'; time.n_steps = 190
+stab2/L1_li|6|stab2.lua|mesh.refine_levels = 1|time.scheme = 'li'; time.n_steps = 190
+stab2/L2_erk|6|stab2.lua|mesh.refine_levels = 2|time.n_steps = 760
+stab2/L2_lts|6|stab2.lua|mesh.refine_levels = 2|time.scheme = 'lts'; time.n_steps = 190
+stab2/L2_mlts|6|stab2.lua|mesh.refine_levels = 2|time.scheme = 'mlts'; time.n_steps = 190
+stab2/L2_li|6|stab2.lua|mesh.refine_levels = 2|time.scheme = 'li'; time.n_steps = 190
+stab2/L3_erk|6|stab2.lua|mesh.refine_levels = 3|time.n_steps = 1520
+stab2/L3_lts|6|stab2.lua|mesh.refine_levels = 3|time.scheme = 'lts'; time.n_steps = 190
+stab2/L3_mlts|6|stab2.lua|mesh.refine_levels = 3|time.scheme = 'mlts'; time.n_steps = 190
+stab2/L3_li|6|stab2.lua|mesh.refine_levels = 3|time.scheme = 'li'; time.n_steps = 190
+conv1/lts|6|conv1.lua|time.scheme = 'lts'
+conv1/mlts|6|conv1.lua|time.scheme = 'mlts'
+conv1/li|6|conv1.lua|time.scheme = 'li'
+conv1/erk_l1|6|conv1.lua|study = { type = 'run' }; mesh.level = 1; time.scheme = 'erk'; time.dt_h = 0.05
+conv1/erk_l2|6|conv1.lua|study = { type = 'run' }; mesh.level = 2; time.scheme = 'erk'; time.dt_h = 0.05
+conv1/erk_l3|6|conv1.lua|study = { type = 'run' }; mesh.level = 3; time.scheme = 'erk'; time.dt_h = 0.05
+conv1/erk_l4|6|conv1.lua|study = { type = 'run' }; mesh.level = 4; time.scheme = 'erk'; time.dt_h = 0.05
+conv2/lts|6|conv2.lua|time.scheme = 'lts'
+conv2/mlts|6|conv2.lua|time.scheme = 'mlts'
+conv2/li|6|conv2.lua|time.scheme = 'li'
+conv2/erk_l1|6|conv2.lua|study = { type = 'run' }; mesh.level = 1; time.scheme = 'erk'; time.dt_h = 0.05
+conv2/erk_l2|6|conv2.lua|study = { type = 'run' }; mesh.level = 2; time.scheme = 'erk'; time.dt_h = 0.05
+conv2/erk_l3|6|conv2.lua|study = { type = 'run' }; mesh.level = 3; time.scheme = 'erk'; time.dt_h = 0.05
+tconv1/lts|6|conv1.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'lts'; time.n_steps = 256
+tconv1/mlts|6|conv1.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'mlts'; time.n_steps = 256
+tconv1/li|6|conv1.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'li'; time.n_steps = 256
+tconv1/mlts_substep|6|conv1.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'mlts'; time.mlts_refresh = 'substep'; time.n_steps = 256
+tconv2/lts|6|conv2.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'lts'; time.n_steps = 256
+tconv2/mlts|6|conv2.lua|mesh.level = 3|study = { type = 'time', time_levels = 3, reference_factor = 2 }|time.scheme = 'mlts'; time.n_steps = 256
+tconv2/li|6|conv2.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'li'; time.n_steps = 256
+lshape/mlts_l1|6|lshape1.lua|mesh.level = 1|time.scheme = 'mlts'; time.n_steps = 29
+lshape/li_l1|6|lshape1.lua|mesh.level = 1|time.scheme = 'li'; time.n_steps = 29
+lshape/erk_l1|6|lshape1.lua|mesh.level = 1|time.scheme = 'erk'; time.dt_h = 0.05
+lshape/mlts_l2|6|lshape1.lua|mesh.level = 2|time.scheme = 'mlts'; time.n_steps = 57
+lshape/li_l2|6|lshape1.lua|mesh.level = 2|time.scheme = 'li'; time.n_steps = 57
+lshape/lts_l2|6|lshape1.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_ratios = {32}; time.n_steps = 57
+lshape/erk_l2|6|lshape1.lua|mesh.level = 2|time.scheme = 'erk'; time.dt_h = 0.05
+lshape/mlts_l3|6|lshape1.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 113
+lshape/li_l3|6|lshape1.lua|mesh.level = 3|time.scheme = 'li'; time.n_steps = 113
+lshape/lts_l3|6|lshape1.lua|mesh.level = 3|time.scheme = 'mlts'; time.level_ratios = {1024}; time.n_steps = 113
+lshape/erk_l3|6|lshape1.lua|mesh.level = 3|time.scheme = 'erk'; time.dt_h = 0.05
+lshape/mlts_l4|6|lshape1.lua|mesh.level = 4|time.scheme = 'mlts'; time.n_steps = 227
+lshape/li_l4|6|lshape1.lua|mesh.level = 4|time.scheme = 'li'; time.n_steps = 227
+alg/o1_l0|6|alg.lua|study = { type = 'run' }; mesh.level = 0; time.n_steps = 160
+alg/o2_l0|6|alg2.lua|study = { type = 'run' }; mesh.level = 0; time.n_steps = 160
+alg/o1_l1|6|alg.lua|study = { type = 'run' }; mesh.level = 1; time.n_steps = 320
+alg/o2_l1|6|alg2.lua|study = { type = 'run' }; mesh.level = 1; time.n_steps = 320
+alg/o1_l2|6|alg.lua|study = { type = 'run' }; mesh.level = 2; time.n_steps = 640
+alg/o2_l2|6|alg2.lua|study = { type = 'run' }; mesh.level = 2; time.n_steps = 640
+alg/o1_l3|6|alg.lua|study = { type = 'run' }; mesh.level = 3; time.n_steps = 1280
+alg/o2_l3|6|alg2.lua|study = { type = 'run' }; mesh.level = 3; time.n_steps = 1280
+alg/o1_cfl_l1|6|alg.lua|mesh.level = 1|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.n_steps = 300
+alg/o2_cfl_l1|6|alg2.lua|mesh.level = 1|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.n_steps = 300
+brain/t6_l1_erk|6|brain.lua|mesh.level = 1|time.scheme = 'erk'; time.n_steps = 2980|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l1_lts|6|brain.lua|mesh.level = 1|time.scheme = 'mlts'; time.level_ratios = {16}; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l1_mlts|6|brain.lua|mesh.level = 1|time.scheme = 'mlts'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l1_li|6|brain.lua|mesh.level = 1|time.scheme = 'li'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l2_erk|6|brain.lua|mesh.level = 2|time.scheme = 'erk'; time.n_steps = 6030|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l2_lts|6|brain.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_ratios = {32}; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l2_mlts|6|brain.lua|mesh.level = 2|time.scheme = 'mlts'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l2_li|6|brain.lua|mesh.level = 2|time.scheme = 'li'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l1_erk|1|brain.lua|mesh.level = 1|time.scheme = 'erk'; time.n_steps = 2980|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l1_lts|1|brain.lua|mesh.level = 1|time.scheme = 'mlts'; time.level_ratios = {16}; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l1_mlts|1|brain.lua|mesh.level = 1|time.scheme = 'mlts'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l1_li|1|brain.lua|mesh.level = 1|time.scheme = 'li'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l2_erk|1|brain.lua|mesh.level = 2|time.scheme = 'erk'; time.n_steps = 6030|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l2_lts|1|brain.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_ratios = {32}; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l2_mlts|1|brain.lua|mesh.level = 2|time.scheme = 'mlts'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l2_li|1|brain.lua|mesh.level = 2|time.scheme = 'li'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+
+brain/o_l1_erk|6|brain.lua|mesh.level = 1|time.scheme = 'erk'; time.n_steps = 2980
+brain/o_l1_lts|6|brain.lua|mesh.level = 1|time.scheme = 'mlts'; time.level_ratios = {16}; time.n_steps = 189
+brain/o_l1_mlts|6|brain.lua|mesh.level = 1|time.scheme = 'mlts'; time.n_steps = 189
+brain/o_l1_li|6|brain.lua|mesh.level = 1|time.scheme = 'li'; time.n_steps = 189
+brain/o_l2_erk|6|brain.lua|mesh.level = 2|time.scheme = 'erk'; time.n_steps = 6030
+brain/o_l2_lts|6|brain.lua|mesh.level = 2|time.scheme = 'mlts'; time.level_ratios = {32}; time.n_steps = 189
+brain/o_l2_mlts|6|brain.lua|mesh.level = 2|time.scheme = 'mlts'; time.n_steps = 189
+brain/o_l2_li|6|brain.lua|mesh.level = 2|time.scheme = 'li'; time.n_steps = 189
+tconv2/lts_direct|6|conv2.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'lts'; time.n_steps = 256; faces.solver = 'direct'
+tconv2/erk_direct|6|conv2.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'erk'; time.n_steps = 16384; faces.solver = 'direct'
+tconv2/erk_split|6|conv2.lua|mesh.level = 3|study = { type = 'time', time_levels = 4, reference_factor = 4 }|time.scheme = 'erk'; time.n_steps = 16384
+brain/cfl_l3_erk|6|brain.lua|mesh.level = 3|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 9000
+brain/cfl_l3_lts|6|brain.lua|mesh.level = 3|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'mlts'; time.level_ratios = {512}
+brain/cfl_l3_mlts|6|brain.lua|mesh.level = 3|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'mlts'
+brain/cfl_l3_li|6|brain.lua|mesh.level = 3|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|time.final_time = 20.0; time.n_steps = 36; time.scheme = 'li'
+lshape/li_stable_l4|6|lshape1.lua|mesh.level = 4|time.scheme = 'li'; time.n_steps = 4270
+lshape/li_ref_l4|6|lshape1.lua|mesh.level = 4|time.scheme = 'li'; time.n_steps = 480; solver.matrix_free = false
+brain/h6_l1_erk|6|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'erk'; time.n_steps = 1490|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l1_lts|6|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'mlts'; time.level_ratios = {16}; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l1_mlts|6|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'mlts'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l1_li|6|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'li'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l2_erk|6|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'erk'; time.n_steps = 3015|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l2_lts|6|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'mlts'; time.level_ratios = {32}; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l2_mlts|6|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'mlts'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l2_li|6|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'li'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l1_erk|1|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'erk'; time.n_steps = 1490|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l1_lts|1|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'mlts'; time.level_ratios = {16}; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l1_mlts|1|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'mlts'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l1_li|1|brain.lua|mesh.level = 1|time.final_time = 50.0; time.scheme = 'li'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l2_erk|1|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'erk'; time.n_steps = 3015|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l2_lts|1|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'mlts'; time.level_ratios = {32}; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l2_mlts|1|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'mlts'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l2_li|1|brain.lua|mesh.level = 2|time.final_time = 50.0; time.scheme = 'li'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l3_erk|6|brain.lua|mesh.level = 3|time.scheme = 'erk'; time.n_steps = 51560|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l3_lts|6|brain.lua|mesh.level = 3|time.scheme = 'mlts'; time.level_ratios = {512}; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l3_mlts|6|brain.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t6_l3_li|6|brain.lua|mesh.level = 3|time.scheme = 'li'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l3_erk|6|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'erk'; time.n_steps = 25780|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l3_lts|6|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'mlts'; time.level_ratios = {512}; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l3_mlts|6|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'mlts'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h6_l3_li|6|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'li'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l3_erk|1|brain.lua|mesh.level = 3|time.scheme = 'erk'; time.n_steps = 51560|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l3_lts|1|brain.lua|mesh.level = 3|time.scheme = 'mlts'; time.level_ratios = {512}; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l3_mlts|1|brain.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/t1_l3_li|1|brain.lua|mesh.level = 3|time.scheme = 'li'; time.n_steps = 189|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l3_erk|1|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'erk'; time.n_steps = 25780|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l3_lts|1|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'mlts'; time.level_ratios = {512}; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l3_mlts|1|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'mlts'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/h1_l3_li|1|brain.lua|mesh.level = 3|time.final_time = 50.0; time.scheme = 'li'; time.n_steps = 95|output.energy = false; output.sensors = {}; output.snapshots = {}
+brain/o_l3_erk|6|brain.lua|mesh.level = 3|time.scheme = 'erk'; time.n_steps = 51560
+brain/o_l3_lts|6|brain.lua|mesh.level = 3|time.scheme = 'mlts'; time.level_ratios = {512}; time.n_steps = 189
+brain/o_l3_mlts|6|brain.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 189
+brain/o_l3_li|6|brain.lua|mesh.level = 3|time.scheme = 'li'; time.n_steps = 189

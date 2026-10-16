@@ -60,7 +60,7 @@
 #include <functional>
 #include <vector>
 
-#include "dirk_coupling_hho_scheme.hpp" // erk_coupling_hho_scheme + dirk_weight_LTS_fine (any DirkOp)
+#include "../../time_schemes/dirk_coupling_hho_scheme.hpp" // erk_coupling_hho_scheme + dirk_weight_LTS_fine (any DirkOp)
 
 template<typename T>
 class dirk_coupling_hho_scheme_condensed {

@@ -29,7 +29,7 @@
 #pragma once
 
 #include "../LTS/mlts_2026/square/ERK4_MLTS_ClassicalTwoLevel_square_conv_tests.hpp"
-#include "dirk_coupling_hho_scheme.hpp"
+#include "../../time_schemes/dirk_coupling_hho_scheme.hpp"
 #include "dirk_coupling_hho_scheme_condensed.hpp"
 #include "dirk_coupling_hho_scheme_condensed_local.hpp"
 #include "dirk_coupling_hho_scheme_condensed_local_v2.hpp"

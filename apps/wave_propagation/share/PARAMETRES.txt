@@ -40,10 +40,39 @@ Ou trouver les fichiers :
       src/wave_propagation_legacy.cpp, compile seulement avec
       -DWAVE_PROPAGATION_LEGACY=ON (executable wave_propagation_legacy).
 
-Code : lecture et verification des parametres dans
-src/common/lua_parameters.hpp (struct wave_parameters,
-load_wave_parameters) ; prototypes dans src/prototypes/coupling/
-(HHOFirstOrder.hpp, HHOSecondOrder.hpp, coupling_common.hpp).
+Code (src/, un dossier par theme) :
+  parameters/      lua_parameters.hpp (struct wave_parameters,
+                   load_wave_parameters), preprocessor.hpp (ancien
+                   programme)
+  mesh/            domain.hpp (types communs, maillages, milieux, zone
+                   fine), fitted_geometry_builders.hpp
+  physics/         materiaux, solutions analytiques, choix de la solution
+                   manufacturee (manufactured_solutions.hpp)
+  assembly/        assembleurs (base, quatre champs ordre 1, deux champs
+                   ordre 2, trois champs elastique), assembly_tools.hpp
+                   (mode rapide : boucles paralleles, F(t) garde, classes
+                   geometriques de cellules)
+  solvers/         linear_solver.hpp (condensation statique, Pardiso),
+                   parallel_sparse.hpp (matrice creuse des triplets en
+                   parallele)
+  time_schemes/    runge_kutta.hpp (ERK et SDIRK communs aux deux
+                   formulations, interpolation de la force, polynome de
+                   Taylor, increment RK4), lts.hpp (LTS-RK4 et LI-SDIRK
+                   communs aux deux formulations et aux prototypes),
+                   tableaux de Butcher, erk_coupling_hho_scheme,
+                   dirk_hho_scheme, dirk_coupling_hho_scheme,
+                   mf_erk_operator
+  output/          postprocessor.hpp, display_settings.hpp
+  studies/         convergence.hpp (tableaux, niveaux, pas de temps)
+  first_order/     HHOFirstOrder.hpp (presentation, entree), problem.hpp,
+                   observers.hpp (capteurs, instantanes), time_schemes.hpp,
+                   studies.hpp (convergence, cfl, spectre)
+  second_order/    HHOSecondOrder.hpp (presentation, entree, etudes),
+                   system.hpp (systeme du premier ordre, faces
+                   algebriques), problem.hpp, time_schemes.hpp,
+                   studies.hpp (resumes et controles d'un calcul)
+  prototypes/      prototypes de recherche (programme legacy)
+  mesh_generation/ maillages des essais LTS
 
 
 ----------------------------------------------------------------------
@@ -58,8 +87,16 @@ load_wave_parameters) ; prototypes dans src/prototypes/coupling/
                                              ordre egal, Lehrenfeld-Schoberl
                                              en ordre mixte) ou stabilisation
                                              HHO avec terme de correction
-  scaling           "1" | "1/h"              poids de stabilisation O(1) ou
-                                             en 1/h
+  scaling           "1" | "1/h" | "graded"   poids de stabilisation O(1) ou
+                    | "hybrid"               en 1/h ; "graded" : O(1) multiplie
+                                             par max(1, h_max / h_T) ; "hybrid" :
+                                             1/h dans les cellules plus petites
+                                             que time.fine_size (0.75 h_max par
+                                             defaut ; la zone implicite du
+                                             li), O(1) ailleurs (ordre optimal sur
+                                             maillages fortement gradues avec li ;
+                                             limite de stabilite parabolique des
+                                             cellules en 1/h : pas d'explicite)
   weight            nombre | "auto"          ordre 2 : poids gamma de la
                                              stabilisation ; "auto" =
                                              weight_factor * gamma*
@@ -105,6 +142,37 @@ dans ses systemes d'etage.
                    "direct" : factorisation creuse de K_aa
   tolerance        increment relatif d'arret du splitting (1e-14)
   max_iterations   (20000)
+  localize         (false) lts et mlts avec F = 0 (pas de source,
+                   donnees de Dirichlet nulles) : evaluations locales.
+                   B P z (pas fins) et B Q a_i (coefficients de Taylor)
+                   resolvent les faces depuis zero sur les seules faces
+                   atteintes (un anneau de plus par iteration : memes
+                   valeurs que l'iteration sur toutes les faces depuis
+                   zero) ; B y, B^2 y, B^3 y ne servent que sur la bande
+                   du niveau et sont tronques a la bande + 3R, 2R, R
+                   anneaux de cellules, R = log(tol (1 - rho)) / log rho
+                   + localize_margin, rho = rayon spectral du splitting
+                   (erreur de troncature de l'ordre de tolerance). F
+                   n'est jamais assemble. Resultats egaux a ceux de
+                   localize = false a la tolerance des faces pres. Sans
+                   effet sur erk, sdirk, li, newmark.
+  localize_margin  anneaux ajoutes a R (2)
+  projected        (false) lts et mlts : condensation projetee. Les
+                   sous-pas du niveau l >= 1 utilisent l'operateur B~_l
+                   des niveaux >= l dont les faces ne sont resolues que
+                   sur leurs cellules (+ projected_rings anneaux), nulles
+                   au-dela : probleme HHO local, bloc des faces factorise
+                   une fois (LDL^T). Decoupage exact B = B~_{L-1} +
+                   somme (B~_l - B~_{l+1}), B~_0 = B : le niveau l fige
+                   (B~_l - B~_{l+1}) a_i, a_i derivees de z' = B~_l z +
+                   W(tau) ; seul le niveau 0 evalue B sur tout le
+                   maillage (4 fois par pas grossier). Schema different
+                   de projected = false (memes ordre et stabilite :
+                   limite CFL des cellules grossieres sans recouvrement
+                   supplementaire, verifie jusqu'a p = 16). mlts : F = 0
+                   seulement.
+  projected_rings  anneaux de cellules ajoutes aux faces resolues (2 ;
+                   0 suffit et sert dans le preprint)
 
 En ordre egal avec la stabilisation "hho", alpha_solide =
 lambda_max(S_aa, sigma*_aa) - 1 vaut 1.63 / 0.91 / 1.79 pour
@@ -125,6 +193,13 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
                "lts"   : LTS-RK4 a deux niveaux (coefficients de Taylor
                          grossiers, sous-pas RK4 dans la zone fine)
                "li"    : LI-SDIRK(4,3), ERK4 grossier + SDIRK(3,4) fin
+               "mlts"  : LTS-RK4 multiniveau (algorithme 4 du preprint
+                         LTS_HHO), deux formulations (ordre 1 : mode
+                         rapide de solver.matrix_free ou matrices ;
+                         ordre 2 : lts.hpp sur second_order_system) :
+                         niveaux tires des tailles de cellules, chaque
+                         niveau calcule ses coefficients de Taylor sur sa
+                         fenetre, le plus fin fait les pas RK4
   stages       0 = 4 pour erk, 3 pour sdirk
   final_time   temps final
   n_steps      pas de temps sur le premier maillage de l'etude
@@ -133,10 +208,99 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
   substeps     lts : sous-pas fins (0 = round(h_max / h_min))
   fine_size    lts, li : cellules plus petites que fine_size (+ une couche
                de voisines par sommet) = zone fine ; 0 = 0.75 h_max
-               (tout le maillage s'il est uniforme)
+               (tout le maillage s'il est uniforme) ; space.scaling =
+               "hybrid" : stabilisation 1/h sous ce seuil (0.75 h_max
+               sinon)
+  fine_layers  lts, li : couches de voisines par sommet ajoutees a la zone
+               fine (recouvrement ; defaut 1)
+  fine_measure lts, li : taille d'une cellule comparee a fine_size :
+               "diameter" (defaut) ou "width" (largeur : plus petite
+               hauteur du polygone, min sur les aretes de la distance
+               maximale des sommets a la droite de l'arete ; le pas stable
+               d'une cellule suit sa largeur, pas son diametre : cellules
+               minces, morceaux de cellules coupees)
+  level_ratio  mlts : rapport r >= 2 entre les pas de deux niveaux
+               consecutifs ; cellule T au niveau
+               ceil(log(h_max / h_T) / log r), faces au niveau de leur
+               cellule la plus fine (defaut 2)
+  level_ratios mlts : rapports p_0, p_1, ... par niveau (du plus grossier
+               au plus fin, le dernier repete), au lieu de level_ratio ;
+               cellule T au premier niveau l tel que p_0 ... p_{l-1} >=
+               h_max / h_T. Ex. {2, 2, 2, 8} : niveau le plus fin
+               couvrant trois tailles de cellules (section 7)
+  level_measure mlts : "h" (defaut, x_T = h_max / h_T) ou "h/c"
+               (x_T = max(h / c) / (h_T / c_T), c la vitesse P de la
+               cellule : milieux heterogenes, le CFL d'une cellule
+               suit h_T / c_T) ; le LTS a deux niveaux en milieu
+               heterogene : mlts avec level_ratios = {p}
+  level_size   mlts : taille d'une cellule dans la mesure des niveaux :
+               diametre (defaut), 4 |T| / |dT| ("area") ou largeur
+               ("width", voir fine_measure : recommande pour les cellules
+               minces, morceaux de cellules decoupees le long d'une
+               interface ajustee, dont le diametre surestime la taille)
+  level_tolerance mlts : la mesure x_T est divisee par 1 + level_tolerance
+               avant le choix du niveau (defaut 0) : des milieux de
+               vitesses voisines (tissus mous 1.50 / 1.55) restent au meme
+               niveau ; le pas grossier diminue d'au plus ce facteur
+  li_coupling  li (mode rapide) : "taylor" (defaut) ou "stage" : valeurs
+               grossieres des etages implicites = valeurs d'etage du
+               tableau SDIRK, y_n + dt sum_l a_il Y'(c_l dt), au lieu du
+               polynome de Taylor en t_n + c_i dt : supprime la reduction
+               d'ordre (ordre 2 -> 4 avec dt ~ h_max) ; mise a jour finale
+               inchangee (conditions d'ordre de SDIRK(3,4))
+  li_condensation li (mode rapide) : true = condensation statique du
+               systeme fin (inconnues de cellules eliminees cellule par
+               cellule, LU du complement de Schur sur les faces fines :
+               systeme 4 fois plus petit, 3 a 7 fois plus rapide)
+  li_system    li (mode rapide) : "dynamic" (defaut) ou "constraint" :
+               faces internes a la zone fine donnees par leur
+               condensation statique u_F = G u_T dans les systemes
+               d'etage, pentes (U_i - R_i) / (gamma dt) ; meme schema en
+               arithmetique exacte, systeme bien conditionne quand la zone
+               fine est tres raide (maillages fortement gradues,
+               stabilisation 1/h : le mode "dynamic" donne des NaN)
+  overlap      mlts : couches de cellules voisines (par sommet) ajoutees
+               a chaque niveau depuis le niveau grossier voisin (defaut 1)
+  overlaps     mlts : {o_1, o_2, ...} couches annexees par les niveaux 1,
+               2, ... (le dernier repete), au lieu de overlap
+  mlts_reuse   mlts (mode rapide) : true = coefficients propres d'un niveau
+               tires de la chaine a_{i+1} = B a_i sur ses inconnues
+               profondes (cellules du niveau dont toutes les faces sont du
+               niveau, faces dont toutes les cellules sont profondes),
+               produits masques sur la seule couche de bord, plus un
+               produit B a_3 : environ 4 produits par inconnue au lieu de 7
+               sur un niveau epais (le plus grossier) ; meme schema,
+               resultats egaux aux arrondis pres ; defaut false
+  mlts_refresh mlts : "window" (defaut, algorithme 4 : coefficients d'un
+               niveau calcules une fois par fenetre du niveau) ou
+               "substep" (recalcules a chaque sous-fenetre du niveau
+               suivant, variante des prototypes : r fois plus de
+               coefficients, erreur en temps 16 fois plus petite a dt
+               egal pour r = 2, meme limite de stabilite). Un seul
+               niveau : ERK4.
   newmark_beta, newmark_gamma  parametres de Newmark (beta > 0, gamma >= 1/2)
   solver.static_condensation   sdirk d'ordre 1, newmark : condensation
                                statique des cellules
+  solver.matrix_free           ordre 1, mode rapide (section 7) : erk, lts,
+                               li, mlts et etude "cfl" sur l'operateur explicite
+                               sans matrice globale ; sdirk : produits
+                               paralleles, Pardiso sans raffinement
+                               iteratif ; assemblage parallele, donnees de
+                               F(t) gardees ; defaut false
+  solver.matrix_free_tolerance blocs locaux partages a cette tolerance
+                               relative pres (defaut 1e-10 ; 0 : egalite
+                               bit a bit, < 0 : un bloc par cellule)
+  solver.matrix_free_batch     cellules par produit de blocs (defaut 64)
+  solver.parallel_threshold    lts, mlts, li (mode rapide) : produits sur
+                               un ensemble de plus de parallel_threshold
+                               inconnues sur les fils, les autres sur un
+                               seul fil (defaut 20000)
+  solver.matrix_free_precision "single" : blocs de calcul des cellules en
+                               simple precision (maillages non
+                               structures ; section 7) ; defaut "double"
+  solver.fast                  mode rapide de tous les schemas des deux
+                               formulations (section 7) ; ordre 1 : vaut
+                               matrix_free = true ; defaut false
 
 Ordre 2 : variable auxiliaire v = u_T' (vitesse des cellules) ; les
 inconnues d'interface (acoustique + composante normale elastique, par
@@ -144,10 +308,27 @@ QR local du bloc de couplage) sont dynamiques, les autres faces
 algebriques. Les schemas explicites affichent omega_max (iteration de
 puissance) et un WARNING si dt depasse leur limite de stabilite.
 
-Code : HHOFirstOrder.hpp (integrate_erk / sdirk / lts / li sur
-erk_coupling_hho_scheme, dirk_hho_scheme, dirk_coupling_hho_scheme),
-HHOSecondOrder.hpp (second_order_system : eval, solve_faces,
-factorize_stage / stage_solve ; lts_coarse).
+Code : un seul ERK et un seul SDIRK pour les deux formulations
+(src/time_schemes/runge_kutta.hpp : chaque formulation donne sa pente ou
+sa resolution d'etage), un seul LTS-RK4 et un seul LI-SDIRK
+(src/time_schemes/lts.hpp : coefficients de Taylor de la zone grossiere,
+sous-pas RK4, etages LI) sur l'operateur de chaque formulation :
+erk_coupling_hho_scheme::lts_operator (ordre 1 ; les routines
+erk_weight_LTS_coarse / _coarse_global / _fine et dirk_weight_LTS_fine
+des prototypes y renvoient aussi) et lts_operator de
+src/second_order/time_schemes.hpp (ordre 2, sur second_order_system :
+eval, solve_faces, factorize_stage / stage_solve ; une amorce des faces
+algebriques par evaluation). L'operateur fixe deux conventions :
+  - masquage de la force : l'ordre 1 masque la force avant l'operateur
+    (w_i = f((I-P) F_i, (I-P) a_i), faces recalculees depuis les
+    cellules), l'ordre 2 apres ((I-P) g(F_i), g(F) = f(F, 0)) ;
+  - pente des etages LI : l'ordre 1 la recalcule par l'operateur
+    (k = f(P F, P Z) + w), l'ordre 2 la tire de la resolution
+    (k = (Z - R) / h).
+Seul le masquage de la force change le schema (pres de la frontiere de
+la zone fine, quand il y a une source) ; les deux pentes LI sont
+algebriquement egales (Z = R + h k), elles ne different que par les
+arrondis. Versions _mf de l'ordre 1 : mf_erk_operator.
 
 
 ----------------------------------------------------------------------
@@ -169,6 +350,14 @@ factorize_stage / stage_solve ; lts_coarse).
   mesh.refine_levels      ... ce nombre de fois (noeuds pendants) : zone
                           fine de lts et li (niveau >= 1 sinon la zone
                           couvre tout le maillage)
+  mesh.refine_box         {x0, x1, y0, y1} : les cellules dont le
+                          barycentre est dans la boite sont raffinees
+                          refine_levels fois, avec une transition
+                          graduee (un niveau de moins par couronne,
+                          refine_with_protection des prototypes de
+                          stabilite) ; au lieu de refine_points
+  mesh.type "polygons"    polygones etiquetes (mesh/domain.hpp), par
+                          exemple ceux de mesh_generation/brain_mri
   problem.medium          "coupled" (defaut : solide x < 0, fluide x > 0,
                           interface x = 0), "acoustic" ou "elastic" (un
                           seul milieu)
@@ -282,13 +471,40 @@ sert d'exemple pour chacune de ces cles).
                            "acoustic_flux" | "elastic_velocity" |
                            "acoustic_pressure", center, frequency,
                            amplitude, velocity} (lambda = velocity /
-                           frequency), sans source, Dirichlet homogene
+                           frequency), sans source, Dirichlet homogene ;
+                           shape = "focused" : salve convergente d'un
+                           transducteur focalise (arc de rayon radius
+                           autour du foyer center, axe axis degres du
+                           foyer vers le transducteur, demi-ouverture
+                           aperture degres, cycles cycles a frequency,
+                           enveloppe gaussienne ; pression et flux de
+                           l'onde aller seul vers le foyer, impedance
+                           density x velocity du milieu du transducteur)
+                           "lshape_corner" : domaine en L (0,1)^2 \
+                           [0.5,1)x(0.5,1], u = cos(2t) r^(2/3)
+                           sin(2 theta / 3) ; "lshape_corner_sin" : u =
+                           sin(2t) r^nu sin(nu theta) (v(0) = 0) ;
+                           problem.lshape_corner = {x, y} (coin, defaut
+                           {0.5, 0.5} ; {0, 0} pour les maillages
+                           --corner-origin), problem.lshape_exponent = nu
+                           (2/3 defaut, 4/3 : deuxieme fonction singuliere)
+                           (source et donnees de
+                           Dirichlet non nulles, separables en temps : en
+                           mode rapide F(t) = -2 sin(2t) F_D - 4 cos(2t)
+                           F_S, evaluee par mlts sur les seules cellules
+                           lues), maillages mesh_generation/lshape_graded
   study.type               aussi "cfl" (Algorithme 1 de CMAME 2025 : seuil
                            study.cfl_threshold (5 %), decrement
                            study.cfl_decrement (1 %), study.cfl_runs,
-                           study.cfl_absolute) et "spectrum" (rayon
+                           study.cfl_absolute ; study.cfl_random = true :
+                           donnees initiales de cellule aleatoires, tous
+                           les modes excites ; ordre 2 aussi, energie
+                           controlee au temps final), "spectrum" (rayon
                            spectral de la partie spatiale, normalise par
-                           racine du nombre de cellules)
+                           racine du nombre de cellules) et "rho" (rayon
+                           spectral d'un pas : time.n_steps pas depuis des
+                           donnees aleatoires sans source, rho =
+                           (E_N / E_{N/2})^(1/N), colonnes rho et steps)
   output.energy            ordre 1 : historique de 1/2 x^T M x (inconnues
                            de cellule), total, acoustique, elastique
   output.sensors           {{name = "S", x = .., y = .., fields = {..}}}
@@ -302,7 +518,248 @@ sert d'exemple pour chacune de ces cles).
   output.cpu               colonnes cpu (secondes d'assemblage et
                            d'integration), dofs et face_dofs (inconnues
                            avant / apres condensation statique)
+  output.profile           ordre 1, mode rapide : temps de l'integration
+                           seule ; lts, mlts, li : travail par macro-pas
+                           (inconnues x produits, en pas d'ERK4) et temps
+                           des parties (coefficients par niveau, pas
+                           terminaux, integrales exactes ; li :
+                           factorisation, resolutions, produits)
+  output.snapshot_elastic  "velocity" (defaut, |v| dans les cellules
+                           elastiques des echantillons) ou "stress" :
+                           contrainte moyenne -tr(sigma)/2 (la pression du
+                           solide, continue avec celle du fluide) et
+                           cisaillement max dans <table>_snapshot_<i>_shear.dat
+  output.peak_samples      m > 0 : maximum en temps (tous les sensor_every
+                           pas) de |p| (acoustique) et |tr(sigma)|/2
+                           (elastique) sur une grille m x m de chaque
+                           cellule (<table>_peak_samples.dat) : taches
+                           focales
+  output.snapshot_samples  m > 0 : instantanes aussi echantillonnes sur une
+                           grille m x m de la boite de chaque cellule
+                           (<table>_snapshot_<i>_samples.dat : xmin xmax
+                           ymin ymax puis m x m valeurs, lignes de bas en
+                           haut)
   output.errors            "fields" (defaut) ou "energy" : composantes des
                            normes de M2AN 2025 (hho_p, hho_v, dg_m, dg_s,
                            erreurs contre les projections et normes L2
                            simples)
+
+
+----------------------------------------------------------------------
+7. Mode rapide (solver.fast ; ordre 1 : solver.matrix_free)
+----------------------------------------------------------------------
+
+solver.fast = true : mode rapide de tous les schemas des deux
+formulations (memes schemas, resultats egaux aux arrondis pres ; faces
+algebriques de l'ordre 2 : a faces.tolerance pres). A l'ordre 1 il vaut
+solver.matrix_free = true (cle gardee). Le defaut (false) ne change rien.
+
+Ordre 1. solver.matrix_free = true remplace, pour erk, lts, li et l'etude "cfl",
+les produits par les matrices globales (erk_coupling_hho_scheme) par
+l'operateur de time_schemes/mf_erk_operator.hpp ; memes schemas, resultats
+egaux aux arrondis pres (voir plus bas). Le defaut (false) ne change
+rien.
+
+  Operateur   k_c = Mc^-1 (F_c - Kcc y_c - Kcf y_f), k_f = -Sff^-1 Kfc k_c
+              (stabilisation moindres carres : Sff diagonal par blocs).
+              Chaque cellule K garde D = -Mc^-1 Kcc, E = -Mc^-1 Kcf,
+              M = Mc^-1 et H (colonnes de K dans -Sff^-1 Kfc de ses
+              faces) : k_K = D y_K + E y_f(J_K) (+ M F_K), puis ses
+              contributions H k_K a ses faces ; k_f = somme des
+              contributions des deux cellules de la face.
+  Partage     les blocs identiques (maillages structures : meme
+              materiau, meme taille, meme configuration de bord) sont
+              stockes une fois : 8892 cellules k = 3 -> 2 blocs D, 19 E.
+              Comparaison dans les unites de la norme d'energie
+              (inconnues de cellule ponderees par la racine de la
+              diagonale de la masse, de face par la taille de leur
+              trace) : contraintes et vitesses different de 7 ordres de
+              grandeur, une comparaison relative au maximum du bloc ou
+              de la ligne serait fausse. Les entrees sous la tolerance
+              (arrondi de l'assemblage, environ 1e-11) sont supprimees :
+              il reste 13 a 19 % des entrees, gardees en blocs creux.
+  Calcul      cellules par lots de meme bloc (une colonne par cellule) :
+              une entree de bloc = un AXPY vectorise sur les cellules du
+              lot ; OpenMP sur les lots puis sur les faces ; etapes ERK
+              (combinaisons, mise a jour) fusionnees dans le noyau.
+  LTS, LI     w_i = B_{F_i}((I-P) a_i, (I-P) F_i) calcule comme
+              a_{i+1} - B_{F_i}(P a_i, P F_i) : quatre produits sur tout
+              le maillage par pas (comme une etape ERK4), corrections et
+              sous-pas fins (lts) ou etages implicites (li, systeme
+              restreint aux inconnues fines, LU creux) sur la seule
+              region S ou B P ne s'annule pas ; ailleurs, quadrature
+              RK4 / SDIRK(3,4) du polynome de Taylor en forme close.
+  Assemblage  avec solver.matrix_free : matrices locales calculees en
+              parallele et dispersees dans l'ordre du calcul serie (memes
+              matrices au bit pres), zeros des matrices locales non
+              stockes ; pas d'erk_coupling_hho_scheme (memoire).
+  Fils        OMP_NUM_THREADS <= nombre de coeurs physiques (12 ici) :
+              la boucle est limitee par la bande passante memoire des 6
+              fils environ ; les 24 fils logiques degradent (barrieres).
+              Resultats identiques au bit pres quel que soit le nombre
+              de fils.
+
+Ecarts au calcul de reference (matrices globales), mesures : energie
+1e-12 a 1e-14 en relatif, capteurs 1e-10 a 1e-12, erreurs des etudes
+de convergence 1e-11 (lts, li, maillages raffines localement, second
+membre non nul), etude "cfl" : memes nombres de pas. matrix_free_tolerance
+= -1 (aucun partage, aucune suppression) ramene l'ecart aux arrondis
+(1e-14 sur l'energie).
+
+Temps mesures (12 coeurs, granite-eau 114 x 78 cellules k = 3, Ricker,
+ERK4 300 pas) : 30 s -> 1.7 s au total, 2.5 -> 0.87 Go ; pas ERK4
+70 ms -> 5.5 ms (1 fil), 1.1 ms (12 fils). Meme maillage raffine
+localement (100 pas, 2 sous-pas) : lts 45 s -> 1.4 s, li 40 s ->
+1.5 s. Etude "cfl" k = 3 ERK4 (maillage niveau 4) : 95 s -> 2.7 s.
+
+Maillages non structures (domaine couple (-1,1) x (0,1), Ricker, ERK4,
+12 coeurs, boucle en temps / temps total) : pas de blocs communs sur un
+maillage de Voronoi (16384 polygones, chaque cellule garde ses blocs :
+la boucle est limitee par la lecture des blocs, environ 2 fois moins
+que celle des matrices globales) ; un maillage triangulaire frontal de
+gmsh (15680 triangles) repete des formes (environ 4000 blocs D).
+  polygones k = 1 : boucle 2.5x, total 2.3x ; k = 3 : boucle 3.0x,
+                    total 2.9x (4.9 -> 4.1 Go)
+  triangles k = 1 : boucle 5.1x, total 3.8x ; k = 3 : boucle 6 a 7x,
+                    total 5.3x (3.5 -> 1.4 Go) ; energie 4e-10 en
+                    relatif (formes presque egales partagees a 1e-10
+                    pres ; matrix_free_tolerance = -1 : 1e-14, boucle
+                    2.8x)
+
+SDIRK (solver.matrix_free = true) : K y et les produits de la
+condensation statique sur des copies par lignes (OpenMP), Pardiso sans
+raffinement iteratif (iparm[7] = 0) et avec substitutions paralleles
+(iparm[24] = 2), assemblage parallele sans les zeros des matrices
+locales (moins de memoire, motif plus petit pour Pardiso). MEKG Fig. 13
+(k = 3, niveau 6, 200 pas, 6 fils) : 101 s -> 37 s, energie 1e-13 en
+relatif ; exemple first_order_sdirk.lua : 64 s -> 16 s (erreurs a 2e-10
+pres) ; sans condensation statique : 2 fois plus rapide, 8.4 -> 5.6 Go.
+
+Second membre F(t) (solution manufacturee, donnees de Dirichlet non
+nulles) : avec solver.matrix_free, les operateurs locaux des cellules de
+bord (ils ne dependent pas du temps), les points, poids et valeurs des
+bases des quadratures et les masses factorisees des faces de Dirichlet
+sont gardes (memes operations : le meme F(t) au bit pres), les calculs
+locaux en parallele. Il representait 76 a 93 % du temps des etudes de
+convergence. Exemples first_order_*.lua (4 niveaux, 12 coeurs) :
+erk 41 s -> 3.6 s, lts 126 s -> 8 s, li 99 s -> 8.5 s, sdirk 92 s -> 16 s.
+
+Ordre 1, ajouts du 13/10/2026 (mode rapide) :
+  Classes     operateurs locaux, masses et operateurs des cellules de
+              bord calcules une fois par classe geometrique de cellules
+              (assembly_tools::cell_classes : points de la cellule et de
+              ses faces relatifs au barycentre, arrondis a 1e-9 du plus
+              grand diametre, et materiau) ; egaux a ceux de chaque
+              cellule aux arrondis pres (4.5e-12 en relatif, l'ecart du
+              calcul local lui-meme d'une copie translatee a l'autre).
+  Doublons    blocs de l'operateur sans matrice : une cellule ou une
+              face dont les donnees lues (blocs de K et M, echelles,
+              faces) sont identiques au bit pres a celles d'une autre
+              en reprend les blocs (granite-eau : 50 cellules et 38
+              faces calculees sur 8892 et 17706).
+  Matrices    triplets -> matrice creuse en parallele (memes sommes
+              dans le meme ordre : la matrice de setFromTriplets au bit
+              pres, solvers/parallel_sparse.hpp), projection initiale en
+              parallele, energie et ses deux parties en une passe.
+  SDIRK       condensation statique en parallele (inverses denses des
+              blocs de cellules, complements de Schur locaux). Precision
+              mixte de Pardiso ecartee : un pas de raffinement laisse
+              une erreur ~ (conditionnement x 6e-8)^2, pas l'arrondi.
+  Simple      solver.matrix_free_precision = "single" (non par defaut) :
+  precision   blocs de calcul des cellules en float, produits en double.
+              Voronoi 16384 polygones k = 3 : 42.9 s -> 33.0 s (boucle
+              1.35x), 1344 -> 1025 Mo ; aucun gain sur les maillages
+              structures (blocs partages, en cache). Operateur perturbe a
+              1e-7 : energie 1e-7 en relatif ; etudes de convergence
+              (exemples, niveaux <= 4) : memes ordres, erreurs a 1e-4 pres
+              en relatif (environ 1e-8 en absolu, un plancher a ne pas
+              approcher).
+  Temps (12 coeurs, granite-eau ERK4 k = 3, 1180 pas) : mise en place
+  1.37 s -> 0.88 s (operateur sans matrice 0.2 -> 0.06 s), total 3.1 s
+  -> 2.7 s ; MEKG Fig. 13 SDIRK niveau 6 : mise en place 6.6 -> 5.4 s.
+
+Ordre 2 (solver.fast = true) :
+  Assemblage  en parallele par classes geometriques de cellules ; F(t)
+              avec les donnees gardees (operateurs des cellules de bord,
+              quadratures, masses des faces de Dirichlet), comme l'ordre 1.
+  f(t, y)     copies par lignes des blocs de lignes de K_w (produits
+              OpenMP d'Eigen) : un produit par bloc de lignes au lieu de
+              deux produits complets.
+  Faces       splitting (faces.solver = "splitting") accelere par
+              gradient conjugue preconditionne par D = gamma sigma* :
+              meme solution, meme critere d'arret |D^-1 (r - K_aa a)|
+              <= tol |a| (l'increment d'un pas du splitting), environ 2
+              fois moins d'iterations (16 -> 8 en moyenne) ; "direct" :
+              Pardiso.
+  Etages      SDIRK, LI et Newmark : cellules condensees, faces par
+              Pardiso (linear_solver) au lieu de SparseLU.
+  LTS, LI     time_schemes/lts.hpp, option fast : coefficients
+              grossiers par la recurrence a_{i+1} = B a_i + g_i (11
+              evaluations au lieu de 13), forces et corrections Q g(F)
+              des sous-pas fins calculees une fois par instant (instants
+              des demi-sous-pas, t_n + dt / 2 et t_n + dt exactement).
+  Diagnostics iterations de puissance (omega_max, rayon du splitting)
+              arretees quand l'estimation est stable a 1e-6.
+
+Verification (13/10/2026, 6 fils, reference -> mode rapide). Etudes en
+espace des exemples (ordre 1 : niveaux <= 4, ordre 2 : <= 3) et de JSC21
+Fig. 1 (Newmark, niveaux <= 5), etudes en temps des exemples (4 niveaux
+de pas, solution de reference numerique) : ordres de convergence
+identiques pour tous les schemas (espace : k + 1 ; temps : ERK4 et
+LTS-RK4 4.0, SDIRK 3.6 a 4.0 ; le LI de l'ordre 2 est pre-asymptotique
+aux pas de l'exemple, de la meme facon dans les deux calculs). Ecarts des
+erreurs : ordre 1 <= 2e-11 en relatif (SDIRK 6.5e-10 : Pardiso sans
+raffinement iteratif) ; ordre 2 <= 4e-8 en relatif, environ 1e-13 en
+absolu (faces a 1e-14).
+  espace, ordre 1 : erk 43 -> 4.3 s, lts 124 -> 9.1 s, li 96 -> 9.6 s,
+                    sdirk 114 -> 21 s
+  espace, ordre 2 : erk 29 -> 3.1 s, lts 242 -> 36 s, li 122 -> 22 s,
+                    sdirk 19 -> 2.2 s, newmark 15 -> 1.9 s
+  temps, ordre 1  : erk 2.5 -> 0.55 s, lts 29 -> 7.0 s, li 33 -> 7.4 s,
+                    sdirk 4.1 -> 0.54 s
+  temps, ordre 2  : erk 8.3 -> 0.77 s, lts 433 -> 46 s, li 289 -> 58 s,
+                    sdirk 4.2 -> 0.35 s
+
+MLTS (13/10/2026, mode rapide, maillages centersquarehaloscale k = 3 de
+mesh_generation/center_square_fixed, acoustic_non_polynomial avec
+problem.source = "zero" et problem.dirichlet = "zero", dt = 0.05 h_max).
+Ordre 4 en temps (auto-convergence, N = 1, t_f = 1 : erreur divisee par
+16.0 a 16.2 a chaque division du pas) pour lts, mlts "window" et
+"substep", ratios 2, 4, {2, 8}, {2, 2, 4}, overlap 0 et 1. Meme limite
+de stabilite pour lts et mlts (r = 2 et 4, overlap 0 a 2, "window" et
+"substep" : 64 pas stables, 62 instables a t_f = 1, N = 1), calculs
+bornes a t = 30 a 0.9 et 0.95 de cette limite (lts ; mlts r = 2 et 4,
+overlap 0 et 1 ; "substep" ; {2, 8} overlap 0, meme limite 64 / 62). Cout par macro-pas
+(6 fils ; N = 5 : h_max / h_min = 4096, 16 368 cellules grossieres) :
+  N = 3 : erk 0.13 s, lts 0.086, mlts 0.072 (r = 2), 0.051 (r = 4)
+  N = 4 : erk 1.01 s, lts 0.53, mlts 0.32 (r = 2), 0.25 (r = 4)
+  N = 5 : erk 13.0 s, lts 2.3, mlts 1.08 (r = 2, window), 1.92
+          ("substep"), 0.98 (overlap 0), 0.97 (r = 4),
+          0.81 (level_ratios {2, ..., 2, 8}, overlap 0)
+Le cout de mlts vient surtout des coefficients des niveaux (~80 %,
+noyaux sur des bandes fines de cellules heterogenes, un seul fil) ; le
+nombre de niveaux et les ratios le changent de moins de 30 %. Avec une
+source ou des donnees de Dirichlet non nulles, F(t) est assemble sur tout
+le maillage a chaque sous-pas fin (3 fois par sous-pas RK4) : il domine
+alors le cout de lts et mlts (N = 4 : erk 5.8 s, lts 3.5 s, mlts 5.9 s
+par macro-pas) et efface leur gain, sauf pour une source separable en
+temps (problem.solution = "lshape_corner") : mlts l'evalue alors sur les
+seules cellules lues par chaque niveau et par les sous-pas fins. li
+(mode rapide) affiche la taille, le nombre de coefficients et la memoire
+de la factorisation LU de sa zone fine (assemblee depuis les seuls blocs
+fins de l'operateur sans matrice).
+
+Reproductibilite au bit pres. Avec -ffast-math (OPT_AGGRESSIVE_FP = ON,
+defaut de diskpp), le compilateur peut regrouper autrement les sommes
+des calculs locaux (quadratures) des que le code qui les entoure change,
+meme sans que ce code soit execute : le chemin par defaut (sans
+solver.matrix_free) fait les memes operations qu'avant, mais ses
+resultats peuvent differer du dernier bit de ceux de l'executable des
+campagnes. Mesure : tableaux d'erreurs des exemples identiques ;
+energie 4e-16 a 5e-16 en relatif (Ricker ERK4, MEKG Fig. 13 SDIRK),
+capteurs 1e-14 a 1e-10 sur des composantes presque nulles. Pardiso
+multifil n'est pas reproductible d'un calcul a l'autre (dernier bit),
+le mode rapide l'est (memes resultats quel que soit le nombre de fils).
+Une reproductibilite stable d'une version du code a l'autre demande
+OPT_AGGRESSIVE_FP = OFF (arithmetique IEEE stricte ; tous les resultats
+changent alors une fois du dernier bit).

@@ -42,7 +42,7 @@
 //  Created by Claude (Sonnet 5), for Romain Mottier -- 2026-09-14.
 //
 
-#include "dirk_coupling_hho_scheme.hpp"
+#include "../../time_schemes/dirk_coupling_hho_scheme.hpp"
 #include <regex>
 
 void LI_SDIRK_LTS_conv_test(int argc, char **argv);

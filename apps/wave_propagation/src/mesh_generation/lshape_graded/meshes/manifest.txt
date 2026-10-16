@@ -4,3 +4,18 @@
 2 lshape_graded_k3_N2.txt 665 552 8.6316745750311e-05 0.0883883476483184
 3 lshape_graded_k3_N3.txt 1493 1308 1.34869915234861e-06 0.0441941738241592
 4 lshape_graded_k3_N4.txt 4081 3792 2.1073424255447e-08 0.0220970869120796
+
+# mu-graded quadtrees, corner at the origin (generate_lshape_mu_graded_mesh.py --n N --mu MU --corner-origin),
+# preprint LTS_HHO Section 6.3: file  n_cells  side_min  side_max
+lshape_mu1-3_n16.txt 2559 6.103516e-05 3.125000e-02
+lshape_mu1-3_n32.txt 10290 7.629395e-06 1.562500e-02
+lshape_mu1-3_n4.txt 156 3.906250e-03 1.250000e-01
+lshape_mu1-3_n8.txt 633 4.882812e-04 6.250000e-02
+lshape_mu1-5_n16.txt 5115 1.192093e-07 3.125000e-02
+lshape_mu1-5_n32.txt 20514 3.725290e-09 1.562500e-02
+lshape_mu1-5_n4.txt 309 1.220703e-04 1.250000e-01
+lshape_mu1-5_n8.txt 1290 3.814697e-06 6.250000e-02
+lshape_mu1-6_n16.txt 6447 7.450581e-09 3.125000e-02
+lshape_mu1-6_n32.txt 25725 1.164153e-10 1.562500e-02
+lshape_mu1-6_n4.txt 390 3.051758e-05 1.250000e-01
+lshape_mu1-6_n8.txt 1623 4.768372e-07 6.250000e-02

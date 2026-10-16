@@ -150,8 +150,8 @@ devient instable).
 2. Modifications de wave_propagation pour ces campagnes
 ----------------------------------------------------------------------
 
-Prototype d'ordre un (src/prototypes/coupling/HHOFirstOrder.hpp) et
-parametres Lua (src/common/lua_parameters.hpp), sans changement des
+Prototype d'ordre un (src/first_order/) et
+parametres Lua (src/parameters/lua_parameters.hpp), sans changement des
 resultats existants (cas de papers_Duran identiques au bit pres) :
   - materiaux et interface : problem.acoustic / problem.elastic,
     problem.interface = "x" | "y" | "tags", problem.zones (milieu et

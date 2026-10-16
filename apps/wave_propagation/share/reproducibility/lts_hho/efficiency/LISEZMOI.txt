@@ -1,0 +1,58 @@
+======================================================================
+ Etude d'efficacite LTS / MLTS / LI contre ERK4 -- wave_propagation
+======================================================================
+
+Objet : refaire les figures et les nombres de
+~/Github/Preprints/LTS_HHO/efficiency_study.tex (modeles de cout,
+LTS = MLTS a deux niveaux, recouvrement, deux niveaux contre ERK4,
+multiniveau, MLTS contre LI, procedure de decision).
+
+Options du code utilisees (PARAMETRES.txt) : output.profile (travail
+par macro-pas et temps des parties de lts / mlts / li),
+time.mlts_reuse, time.overlap(s), time.fine_layers,
+time.level_ratios, solver.parallel_threshold.
+
+Deroulement (tout depuis un repertoire de travail W, executable E) :
+  cd W
+  R=<ce dossier>
+  $R/make_meshes_e2.sh                 # maillages a deux tailles (E0, E2)
+  python3 $R/make_jobs_e0.py; python3 $R/make_jobs_e2.py; python3 $R/make_jobs_e3.py
+  python3 $R/make_e4.py && bash make_meshes_e4.sh        # E4 (temps)
+  python3 $R/make_e5.py 0 && python3 $R/make_e5.py 1 && bash make_meshes_e5.sh
+  mkdir -p runs && cat jobs_e0.txt jobs_e2.txt jobs_e3.txt jobs_e4.txt jobs_e5w_o0.txt jobs_e5w_o1.txt > runs/jobs.txt
+  $R/run_efficiency.sh runs E          # un calcul a la fois : RIEN d'autre sur la machine (E4, E5t chronometres)
+  python3 $R/analyze_e2.py; python3 $R/analyze_e4.py; python3 $R/analyze_e5.py
+  python3 $R/make_e5t.py && cat jobs_e5t.txt >> runs/jobs.txt && $R/run_efficiency.sh runs E
+  (E4b, seuil de parallelisme : voir le texte ; facultatif)
+  python3 $R/fit_overhead.py
+  python3 $R/make_eff_figures.py ~/Github/Preprints/LTS_HHO/figures_efficiency
+
+Experiences :
+  E0  LTS = MLTS(2) : meme partition, erreurs egales a 1e-12 (reuse =
+      direct bit a bit) ; en milieu couple apres la correction des
+      anneaux de mark_fine_region (anneaux geometriques, les deux milieux)
+  E2  stabilite selon le recouvrement : saut de taille >= 8 a la frontiere
+      d'un niveau -> un anneau necessaire (0.72, 0.57, 0.42 du pas
+      grossier sans anneau pour p = 8, 16, 32) ; gradue 2:1 -> aucun
+  E3  erreur en temps selon le recouvrement : ordre 4, constante / 1.4
+      par anneau (sans interet en cout)
+  E4  deux niveaux (maillages a deux tailles, p = 2..16, sigma = 0.004
+      .. 0.88, 1 et 6 fils) : G = p / (1 + (p + 1) sigma) a 5-15 % (1 fil)
+  E5  multiniveau (quadtrees gradues, point / courbe / disque, W = 1, 2,
+      4, D jusqu'a 8) : travail de toutes les compositions de niveaux,
+      puis temps ; modele T = kappa (a W + n0 C), erreur mediane 11-13 %
+
+Duree : E0-E3 environ 1 h 30 (E2 gradue L = 5 : 8 min par etude),
+E4 35 min, E5 (travail) 10 min, E5t 10 min (AMD Ryzen AI 9 HX PRO 370).
+
+Ce qui fixe le pas stable d'une cellule (main.tex, 6.4) :
+  ./run_cfl_cells.sh <sortie> <executable>   (maillages de
+  mesh_generation/lts_efficiency/generate_cfl_cells.py : 16 x 16 carres,
+  une cellule modifiee -- rectangle mince, petite face, coin coupe --,
+  ou cellules anisotropes ; pas stable d'ERK4, donnees aleatoires, k = 3
+  et k = 1 ; inputs/cfl_cells.lua), puis analyze_cfl.py <sortie> ecrit
+  <sortie>/cfl.json et ../make_cfl_cells.py <sortie>/cfl.json <figures>
+  trace cfl_cells.pdf. Resultat : dt = C w / c avec w la largeur (plus
+  petite hauteur) : C = 0.26 cellule mince ou triangle isole, 0.115
+  toutes les cellules de largeur w ; taille des faces et diametre sans
+  effet. Pas de chronometrage : peut tourner avec d'autres calculs.

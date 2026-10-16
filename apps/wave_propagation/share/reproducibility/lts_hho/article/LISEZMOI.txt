@@ -1,0 +1,188 @@
+======================================================================
+ Sections 5 et 6 du preprint LTS_HHO (version article) -- wave_propagation
+======================================================================
+
+Objet : refaire toutes les figures et tous les tableaux des sections 5
+et 6 de ~/Github/Preprints/LTS_HHO/main.tex (redigees dans
+numerical_results.tex puis fusionnees dans main.tex le 15 octobre 2026) :
+  5  stabilite sur les modeles reduits (ERK4, LTS, MLTS, LI)
+  6.1  cadre general (pas de calcul)
+  6.2  formulation du premier ou du second ordre (ERK4 et MLTS)
+  6.3  stabilite des schemas complets (16 x 16, boite centrale raffinee
+       L = 0..5 fois)
+  6.4  ce qui fixe le pas stable d'une cellule : la largeur w_T (plus
+       petite hauteur), ni la plus petite face ni le diametre (dossier
+       ../efficiency : run_cfl_cells.sh ; figure ../make_cfl_cells.py)
+  6.5  convergence, solution reguliere, k = 3 : ERK4 sur maillages
+       cartesiens 8x8..128x128, puis les memes raffines au centre
+       (MLTS, LI, ERK4, SDIRK) ; ordre en temps a maillage fixe
+  6.6  domaine en L, k = 3 : MLTS a l'ordre 4 (u = sin(2t) r^(4/3)
+       sin(4 theta / 3), gradation mu = 1/5), LI (stabilisation hybride),
+       singularite r^(2/3) (LI), couts et memoire
+  6.7  ultrasons focalises transcraniens a travers une plaque de titane
+       (modele de tete a sept tissus, IRM) : LI, MLTS, ERK4, maillage
+       polytopal (Voronoi)
+
+Contenu :
+  run_article.sh   lance les calculs de jobs.txt un par un (temps propres :
+                   RIEN d'autre ne doit tourner sur la machine, en
+                   particulier aucun calcul numpy/BLAS), reprend la ou il
+                   s'est arrete (un calcul est fait si <out>/<dir>/time.txt
+                   existe)
+  jobs.txt         un calcul par ligne : dir|fils|entree|lignes Lua
+  inputs/          stab.lua (6.3), cart.lua (6.5), lshape_mu1-5.lua,
+                   lshape_mu1-3.lua, lshape_mu1-6.lua (6.6), tfus_fit.lua,
+                   tfus_vor.lua, tfus.lua (6.7), head.lua (6.7, version
+                   precedente du modele de tete), alg.lua, alg2.lua (6.2)
+                   (chemins absolus des maillages des sources)
+  ../make_article.py   figures (PDF) et tableaux (LaTeX) de 5 et 6.2-6.6
+                   a partir des sorties de run_article.sh
+  ../make_tfus.py      figures tfus_*.pdf de 6.7
+  ../make_cfl_cells.py figure cfl_cells.pdf de 6.4
+  ../reduced_models/   plan_extra.py (LI, MLTS), lts_erk_reduced.py et li_stage_reduced.py (LI corrige)
+                   (LTS, ERK4) : modeles reduits de la section 5 (moteurs
+                   de ~/Github/LTS_RK4/modele_final)
+
+Lancement :
+  ./run_article.sh /chemin/sortie /chemin/vers/wave_propagation
+  (cd ../reduced_models && python3 plan_extra.py && python3 lts_erk_reduced.py && python3 li_stage_reduced.py)
+  ../efficiency/run_cfl_cells.sh /chemin/cfl /chemin/vers/wave_propagation     (6.4, sans chronometrage)
+  python3 ../make_article.py /chemin/sortie ~/Github/Preprints/LTS_HHO/figures_article
+  python3 ../make_tfus.py /chemin/sortie ~/Github/Preprints/LTS_HHO/figures_article
+  python3 ../make_cfl_cells.py /chemin/cfl/cfl.json ~/Github/Preprints/LTS_HHO/figures_article
+  puis compiler main.tex dans le dossier du preprint.
+
+Maillages :
+  - domaine en L : mesh_generation/lshape_graded/meshes/lshape_mu1-{3,5,6}_n{4,8,16,32}.txt
+    (generate_lshape_mu_graded_mesh.py --n N --mu MU --corner-origin ;
+    coin a l'origine : pleine precision relative des coordonnees des
+    plus petites cellules, h_min jusqu'a 1.2e-10) ;
+    generate_lshape_radial_graded_mesh.py : maillages conformes
+    (application radiale), essayes, non utilises dans l'article ;
+  - 6.4 : mesh_generation/lts_efficiency/generate_cfl_cells.py (lance par
+    run_cfl_cells.sh : 16 x 16 carres, une cellule modifiee, eps = 1/2 ..
+    1/64 ; thin, face, corner, aniso, slab) ;
+  - tete (6.7), dans mesh_generation/brain_mri :
+      python3 generate_head_model_fitted.py --output meshes/head_s80_fit_intact.txt --margin 40 --base 4 \
+          --size-soft 1 --size-bone 0.5 --interface 0.5 --size-implant 0.125 --delta 0.3
+      (idem --output meshes/head_s80_fit_plate.txt --plate 50 66)
+      python3 generate_head_model.py --output meshes/head_s80_hf_intact.txt --margin 40 --base 4 \
+          --size-soft 1 --size-bone 0.5 --interface 0.5 --size-implant 0.125   (escalier ; idem _plate --plate 50 66)
+      python3 generate_head_model_voronoi.py --output meshes/head_s80_vor_plate.txt --plate 50 66 --margin 40 \
+          --base 4 --size-soft 1 --size-bone 0.5 --interface 0.5 --size-implant 0.125
+          (defauts : --jitter 0.3 --seed 1 --delta 0.3 --min-width 0.15)
+    (IRM T1 et segmentation FSL de ~/Downloads/mri_dataset, sujet 1,
+    coupe 80 ; tissus : 1 os cortical, 2 os spongieux, 3 eau, 4 scalp,
+    5 LCR, 6 substance grise, 7 substance blanche, 8 titane).
+
+Zone fine de LTS / LI (14 octobre 2026) : les anneaux de recouvrement
+(time.fine_layers) traversent desormais l'interface elasto-acoustique
+(partition geometrique, comme le recouvrement du MLTS ; avant, une
+cellule acoustique touchant une cellule elastique fine n'etait pas
+annexee) : seul le modele de tete est concerne (2553 cellules fines
+au lieu de 2548, memes pas stables, signaux egaux a 1e-8 pres) ; ses
+calculs LTS et LI (cfl/l2_lts, cfl/l2_lis, head/l2_lts, head/l2_lis9,
+head1/l2_lts, head1/l2_lis9) ont ete refaits avec cette version.
+6.6 : LI a dt / 2 (ls/li2_*, constante d'erreur de SDIRK(3,4)) ;
+6.2 : patch aussi sur un fil (form/*_q1).
+
+LI de l'article = LI corrige : time.li_coupling = "stage" (valeurs
+grossieres d'etage coherentes avec SDIRK : plus de reduction d'ordre),
+time.li_condensation = true (systeme fin condense sur les faces fines),
+time.li_system = "constraint" ; les calculs "LI, Taylor coupling" des
+figures sont le LI d'origine (options par defaut).
+
+Options du code utilisees (PARAMETRES.txt) :
+  time.level_tolerance = 0.1 (tete), time.level_ratios = {2, ..., 2, 8}
+  (L : trois niveaux les plus profonds regroupes, 15 % plus rapide,
+  memes erreurs), time.li_system = "constraint" (L : sans cela le LI
+  donne des NaN pour h_max / h_min > 10^6 avec la stabilisation hybride),
+  space.scaling = "hybrid", problem.lshape_exponent = 4/3 ;
+  6.7 : time.level_size = "width" et time.mlts_reuse = true (MLTS),
+  time.fine_measure = "width" (zone implicite du LI sur Voronoi),
+  problem.ricker.shape = "focused", output.snapshot_elastic = "stress",
+  output.peak_samples, output.profile.
+
+Pieges :
+  - le SDIRK en mode rapide (solver.matrix_free = true : Pardiso sans
+    raffinement iteratif) echoue pour certains pas (NaN a dt = 0.04,
+    erreur 7e-3 a dt = 2.5e-3 sur le maillage 16x16 raffine) : les
+    references SDIRK utilisent solver.matrix_free = false ;
+  - le pas de temps du LI ne doit pas depasser la limite CFL de sa
+    partie explicite (7.3e-3 en 6.5) ;
+  - avec -ffast-math (defaut de diskpp), std::isfinite peut etre
+    supprime : les etudes cfl testent la finitude sur les bits ;
+  - un executable compile avant le 15 octobre ignore les options de
+    6.7 (avertissement "unknown parameter problem.ricker.shape") et
+    calcule un autre probleme : verifier l'en-tete de log.txt.
+
+Durees (6 fils, AMD Ryzen AI 9 HX PRO 370, 12 coeurs) :
+  6.3 environ 15 min ; 6.5 environ 40 min (LI 64x64 raffine : 22 min,
+  5.7 Go) ; 6.6 environ 2 h 30, dont 1 h 36 pour MLTS mu = 1/5, n = 16
+  (h_max / h_min = 2.6e5, 19 niveaux : le cout d'un pas grossier est
+  proportionnel a h_max / h_min), et 10 min pour LI, nu = 2/3, n = 32
+  (11 Go, echoue : h_max / h_min = 1.3e8) ;
+  6.7 : voir ci-dessous.
+
+6.7 (version du 15 octobre 2026) : ultrasons focalises transcraniens a
+250 kHz a travers une plaque de titane (tfus_fit.lua, tfus_vor.lua,
+tfus.lua ; calculs fit/*, t1/*, mv/*, vor/* et tfus/* de jobs.txt).
+Interfaces solide / fluide ajustees : cellules du quadtree coupees le
+long de l'os lisse (indicatrice gaussienne, distance signee) et de la
+plaque et des vis exactes (cut_polygons.py) ; sans cela les coins des
+marches de voxels dissipent 8 % (crane intact) et 15 % (plaque) de
+l'energie, contre 0.6 % et 0.8 % avec les cellules coupees (0.2 % pour
+l'eau seule). Largeur minimale des cellules du maillage ajuste :
+0.038 mm, w_T >= 0.24 h_T. Source : problem.ricker.shape = "focused"
+(arc de 80 mm, demi-ouverture 25 degres, 3 cycles).
+Couts (plaque, 80 us ; temps de l'integration, memoire = RSS maximale) :
+  ERK4 : pas stable 8.76e-4 us (fit/cfl_erk), mesure sur 8 us
+         (fit/plate_erk_8us, t1/erk_8us) et extrapolee : 52.1 min sur
+         6 fils, 213 min sur 1 fil, 4.6 Gio ;
+  MLTS : niveaux par la largeur, chaine reutilisee, rapports 2 2 4 8
+         (meilleure des variantes mv/*) : 28.0 min (x1.9), 81 min sur
+         1 fil (x2.6), 4.6 Gio ;
+  LI   : 13.6 min (x3.8), 18.5 min sur 1 fil (x11.5 ; extrapolation sur
+         1 fil : la construction du systeme fin, 11.8 s, comptee une
+         fois), 6.2 Gio (+35 %, nnz(L + U) = 2.3e8).
+Maillage polytopal (vor/*) : 80 975 polygones convexes (3 a 9 sommets),
+aucun carre ; LI (zone implicite w_T < 0.75 mm) : pas stable 0.069 us,
+29 min, 19.9 Gio (nnz(L + U) = 6.0e8) ; pression au foyer a 0.2 % du
+quadtree (signal a 2 % du pic pres) ; MAIS perte d'energie 6.0 % (0.8 %
+sur le quadtree), localisee aux interfaces solide / fluide coupees dans
+les cellules de Voronoi (couche d'os inclinee de 30 degres : 3.6 %
+contre 0.07 % sur carres coupes ; eau ou os seuls : comme les carres).
+
+Resultats principaux (main.tex) :
+  - 6.2 : patch p = 16 : MLTS 2.2 fois plus rapide que ERK4 sur un fil a
+    l'ordre 1 (gain nul sur 6 fils : petits niveaux sur un fil), 2.9 fois
+    plus lent a l'ordre 2 ;
+  - 6.3 : rho(ERK4) = 11.2 (p = 2) .. 1.5e6 (p = 32) ; LTS, MLTS, LI :
+    rho = 1 - O(1e-4), pas stable du maillage non raffine ;
+  - 6.4 : dt = C w / c, C = 0.26 (cellule mince ou triangle isole),
+    0.115 (toutes les cellules de largeur w) ; faces et diametre sans
+    effet ; k = 1 : constantes 3.3 a 4 fois plus grandes ;
+  - 6.5 : dt = 1/(20n) pour tous : MLTS et LI (couplage "stage") d'ordre 4
+    en vitesse et pression, memes erreurs a trois chiffres ;
+  - 6.6 : MLTS (dt = 1/(20n)) et LI (dt = 1/(40n)) d'ordre 4, memes erreurs,
+    LI 340 fois moins cher sur le maillage le plus fin, 0.47 Gio contre
+    0.33 Gio pour MLTS (+45 %) ;
+  - 6.7 : au foyer prevu, pression maximale 2.7 (eau), 1.6 (crane, -4.8 dB),
+    1.2 (plaque, -7.0 dB) ; foyer deplace de 10 mm vers le transducteur ;
+    LI a dt et dt/2 : 1.3e-4 ; MLTS et LI a dt/2 : 7e-5 ; couts ci-dessus
+    (ancienne version, maillage voxels 2 mm, impulsion gaussienne :
+    head/*, cfl/*, head1/*).
+
+2026-10-16, formulation du second ordre : condensation projetee
+(faces.projected = true, faces.projected_rings = 0 ; share/PARAMETRES.txt).
+  - form/o2_mltsp_q, form/o2_mltsp_q1 (6.2) : MLTS projete sur le patch
+    p = 16 ; form/o2_erk_q*, form/o2_mlts_q* relances avec le meme binaire
+    (anciennes valeurs 157 / 440 s et 253 / 746 s). 6 fils : ERK4 153 s,
+    MLTS exact 446 s, MLTS projete 102 s ; 1 fil : 262 / 747 / 106 s ;
+    erreurs du MLTS projete egales a celles du MLTS exact a 3-6 chiffres.
+  - stab2/* (6.3, inputs/stab2.lua, non chronometres) : limite CFL au
+    second ordre, ERK4 162 / 322 / 649 / 1302 pas (p = 1..8), LTS et MLTS
+    exacts et projetes 162 pas pour p = 1..16 (p = 32 en cours).
+  - ordre en temps (hors jobs) : LTS et MLTS projetes d'ordre 4
+    (3.87 / 3.99 en normes masse / energie), comme les versions exactes.
+

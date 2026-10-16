@@ -2,7 +2,7 @@
 //  wave_propagation.cpp
 //
 //  Elasto-acoustic wave propagation with HHO methods. Two prototypes, entirely configured by a Lua input file
-//  (common/lua_parameters.hpp; annotated templates share/first_order.lua and share/second_order.lua):
+//  (parameters/lua_parameters.hpp; annotated templates share/first_order.lua and share/second_order.lua):
 //    formulation = "first_order"  : HHOFirstOrder  (velocity-stress / velocity-pressure, four-field assembler)
 //    formulation = "second_order" : HHOSecondOrder (displacement / velocity potential, two-field assembler)
 //  The input file sets the whole discretization: polynomial degree, equal or mixed order, stabilization and its
@@ -42,24 +42,24 @@ using namespace Eigen;
 #include "diskpp/output/silo.hpp"
 
 // application common sources
-#include "common/display_settings.hpp"
-#include "common/fitted_geometry_builders.hpp"
-#include "common/linear_solver.hpp"
-#include "common/acoustic_material_data.hpp"
-#include "common/elastic_material_data.hpp"
-#include "common/scal_vec_analytic_functions.hpp"
-#include "common/postprocessor.hpp"
-#include "common/lua_parameters.hpp"
+#include "output/display_settings.hpp"
+#include "mesh/fitted_geometry_builders.hpp"
+#include "solvers/linear_solver.hpp"
+#include "physics/acoustic_material_data.hpp"
+#include "physics/elastic_material_data.hpp"
+#include "physics/scal_vec_analytic_functions.hpp"
+#include "output/postprocessor.hpp"
+#include "parameters/lua_parameters.hpp"
 
 // RK schemes
-#include "common/dirk_hho_scheme.hpp"
-#include "common/dirk_butcher_tableau.hpp"
-#include "common/erk_butcher_tableau.hpp"
-#include "common/erk_coupling_hho_scheme.hpp"
+#include "time_schemes/dirk_hho_scheme.hpp"
+#include "time_schemes/dirk_butcher_tableau.hpp"
+#include "time_schemes/erk_butcher_tableau.hpp"
+#include "time_schemes/erk_coupling_hho_scheme.hpp"
 
 // the two prototypes
-#include "prototypes/coupling/HHOFirstOrder.hpp"
-#include "prototypes/coupling/HHOSecondOrder.hpp"
+#include "first_order/HHOFirstOrder.hpp"
+#include "second_order/HHOSecondOrder.hpp"
 
 int main(int argc, char **argv) {
 

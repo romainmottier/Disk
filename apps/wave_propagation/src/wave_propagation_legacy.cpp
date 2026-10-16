@@ -38,20 +38,20 @@ using namespace Eigen;
 #include "diskpp/output/silo.hpp"
 
 // application common sources
-#include "common/display_settings.hpp"
-#include "common/fitted_geometry_builders.hpp"
-#include "common/linear_solver.hpp"
-#include "common/acoustic_material_data.hpp"
-#include "common/elastic_material_data.hpp"
-#include "common/scal_vec_analytic_functions.hpp"
-#include "common/preprocessor.hpp"
-#include "common/postprocessor.hpp"
+#include "output/display_settings.hpp"
+#include "mesh/fitted_geometry_builders.hpp"
+#include "solvers/linear_solver.hpp"
+#include "physics/acoustic_material_data.hpp"
+#include "physics/elastic_material_data.hpp"
+#include "physics/scal_vec_analytic_functions.hpp"
+#include "parameters/preprocessor.hpp"
+#include "output/postprocessor.hpp"
 
 // RK schemes
-#include "common/dirk_hho_scheme.hpp"
-#include "common/dirk_butcher_tableau.hpp"
-#include "common/erk_butcher_tableau.hpp"
-#include "common/erk_coupling_hho_scheme.hpp"
+#include "time_schemes/dirk_hho_scheme.hpp"
+#include "time_schemes/dirk_butcher_tableau.hpp"
+#include "time_schemes/erk_butcher_tableau.hpp"
+#include "time_schemes/erk_coupling_hho_scheme.hpp"
 
 // PROTOTYPES:
 
@@ -108,7 +108,7 @@ using namespace Eigen;
       #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_square_conv_tests.hpp" // Square (hybrid, Pell), PellSparse families, TwoLevel, FixedLevel(+RhsOpt), Adaptive -- PLOT ARTICLES
       #include "prototypes/LTS/mlts_2026/square/ERK4_MLTS_ClassicalTwoLevel_square_conv_tests.hpp" // classical two-level: pfix, HaloScale, PlaneWave, SlowSine -- PLOT ARTICLES
       // LI-SDIRK(4,3): explicit LTS-ERK coarse region + implicit SDIRK(3,4) fine region
-      #include "prototypes/LTS_ERK_SDIRK/dirk_coupling_hho_scheme.hpp"
+      #include "time_schemes/dirk_coupling_hho_scheme.hpp"
       #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_LTS.hpp"
       #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_LTS_conv_test.hpp"
       #include "prototypes/LTS_ERK_SDIRK/LI_SDIRK_LTS_MeshConv_test.hpp"

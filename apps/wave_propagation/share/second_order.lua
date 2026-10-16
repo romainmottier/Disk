@@ -44,7 +44,9 @@ faces = {
 -- Time discretization ---------------------------------------------------------------------------------------------------
 time = {
     scheme = "erk",                 -- "erk": ERK(s) | "sdirk": SDIRK(s, s+1) | "lts": two-level LTS-RK4 | "li":
-                                    --   LI-SDIRK(4,3), ERK4 coarse / SDIRK(3,4) fine (default "erk")
+                                    --   LI-SDIRK(4,3), ERK4 coarse / SDIRK(3,4) fine | "mlts": multilevel LTS-RK4
+                                    --   (keys level_ratio, level_ratios, overlap, mlts_refresh of first_order.lua)
+                                    --   (default "erk")
     stages = 4,                     -- erk: 1..4, sdirk: 1..3; 0: 4 for erk, 3 for sdirk (default 0)
     final_time = 1.0,               -- (default 1)
     n_steps = 120,                  -- time steps on the first mesh of the study, doubled with each level of a space
@@ -53,6 +55,16 @@ time = {
     substeps = 0,                   -- lts: fine substeps, 0: round(h_max / h_min) (default 0)
     fine_size = 0,                  -- lts, li: cells smaller than this (+ one layer of vertex neighbours) are fine;
                                     --   0: 0.75 h_max, everything on a uniform mesh (default 0)
+}
+
+-- Linear solvers --------------------------------------------------------------------------------------------------------
+solver = {
+    static_condensation = false,    -- newmark: static condensation of the cell unknowns (default false)
+    fast = false,                   -- fast mode (PARAMETRES.txt, section 7), same results up to round-off (algebraic
+                                    --   faces: up to faces.tolerance): parallel assembly by classes of cells, cached F(t)
+                                    --   data, parallel products, faces by conjugate gradients (splitting) or Pardiso
+                                    --   (direct), stage systems condensed and solved by Pardiso, shared LTS / LI with
+                                    --   fewer evaluations (default false)
 }
 
 -- Mesh ------------------------------------------------------------------------------------------------------------------

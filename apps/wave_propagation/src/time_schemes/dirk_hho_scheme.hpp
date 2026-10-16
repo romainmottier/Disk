@@ -1,0 +1,178 @@
+//
+//  dirk_hho_scheme.hpp
+//  acoustics
+//
+//  Created by Omar Durán on 4/21/20.
+//
+
+#ifndef dirk_hho_scheme_hpp
+#define dirk_hho_scheme_hpp
+
+#include <Eigen/Dense>
+#include <Eigen/SparseCore>
+#include <Eigen/SparseLU>
+#include "../solvers/linear_solver.hpp"
+
+template<typename T>
+class dirk_hho_scheme {
+
+    private:
+
+    T m_scale;
+    SparseMatrix<T> m_Mg;
+    SparseMatrix<T> m_Kg;
+    SparseMatrix<T>* m_Mg_ref = nullptr;     // reference mode: K and M of the caller, neither copied nor modified
+    SparseMatrix<T>* m_Kg_ref = nullptr;
+    Matrix<T, Dynamic, 1> m_Fg;
+    linear_solver<T>  m_analysis;
+    std::vector<std::pair<size_t,size_t>> m_cell_basis_data;
+    size_t m_n_f_dof;
+    bool m_global_sc_Q;
+    bool m_iteraive_solver_Q;
+    
+    public:
+    
+    dirk_hho_scheme(SparseMatrix<T> & Kg, Matrix<T, Dynamic, 1> & Fg, SparseMatrix<T> & Mg){
+        
+        m_Mg = Mg;
+        m_Kg = Kg;
+        m_Fg = Fg;
+        m_scale = 0.0;
+        m_global_sc_Q = false;
+        m_iteraive_solver_Q = false;
+    }
+    
+    // Reference mode (large problems): K and M are referenced, not copied; the caller keeps them alive and unchanged,
+    // and the cell and face-face blocks of the composed matrix are released after the static condensation
+    struct by_reference_t {};
+    dirk_hho_scheme(SparseMatrix<T> & Kg, Matrix<T, Dynamic, 1> & Fg, SparseMatrix<T> & Mg, by_reference_t){
+        m_Mg_ref = &Mg;
+        m_Kg_ref = &Kg;
+        m_Fg = Fg;
+        m_scale = 0.0;
+        m_global_sc_Q = false;
+        m_iteraive_solver_Q = false;
+    }
+
+    dirk_hho_scheme(SparseMatrix<T> & Kg, Matrix<T, Dynamic, 1> & Fg, SparseMatrix<T> & Mg, T scale){
+        m_Mg = Mg;
+        m_Kg = Kg;
+        m_Fg = Fg;
+        m_scale = scale;
+        m_global_sc_Q = false;
+        m_iteraive_solver_Q = false;
+    }
+    
+    void set_static_condensation_data(std::pair<size_t,size_t> cell_basis_data, size_t n_f_dof){
+        std::vector<std::pair<size_t,size_t>> vec_cell_basis_data(1);
+        vec_cell_basis_data[0] = cell_basis_data;
+        m_cell_basis_data = vec_cell_basis_data;
+        m_n_f_dof = n_f_dof;
+        m_global_sc_Q = true;
+    }
+    
+    void set_static_condensation_data(std::vector<std::pair<size_t,size_t>> cell_basis_data, size_t n_f_dof){
+        m_cell_basis_data = cell_basis_data;
+        m_n_f_dof = n_f_dof;
+        m_global_sc_Q = true;
+    }
+    
+    void condense_equations() {
+        if (m_Kg_ref) {
+            {
+                SparseMatrix<T> K = Mg() + m_scale * Kg();
+                m_analysis.set_Kg(K,m_n_f_dof);
+            }
+            m_analysis.condense_equations(m_cell_basis_data);
+            m_analysis.release_condensed_blocks();
+            return;
+        }
+        SparseMatrix<T> K = m_Mg + m_scale * m_Kg;
+        m_analysis.set_Kg(K,m_n_f_dof);
+        m_analysis.condense_equations(m_cell_basis_data);
+    }
+    
+    void ComposeMatrix() {
+        if(m_global_sc_Q) 
+            condense_equations();
+        else{
+            SparseMatrix<T> K = Mg() + m_scale * Kg();
+            m_analysis.set_Kg(K);
+        }
+    }
+    
+    void setIterativeSolver() {
+        m_iteraive_solver_Q = true;
+        m_analysis.set_iterative_solver(false, 1.0e-1);
+    }
+
+    // BiCGSTAB with incomplete LU (linear_solver), relative residual tolerance
+    void setIterativeSolver(T tolerance) {
+        m_iteraive_solver_Q = true;
+        m_analysis.set_iterative_solver(false, tolerance);
+    }
+        
+    // Fast mode (solver.matrix_free with sdirk): K y on a row-major copy of K (parallel, memory of one more K), fast
+    // mode of the linear solver; results equal up to round-off
+    void set_fast(bool fast) {
+        m_fast = fast;
+        m_analysis.set_fast(fast);
+    }
+
+    void DecomposeMatrix() {
+        m_analysis.factorize();
+    }
+
+    linear_solver<T> & DirkAnalysis() {
+        return m_analysis;
+    }
+    
+    SparseMatrix<T> & Mg(){
+        return m_Mg_ref ? *m_Mg_ref : m_Mg;
+    }
+    
+    SparseMatrix<T> & Kg(){
+        return m_Kg_ref ? *m_Kg_ref : m_Kg;
+    }
+    
+    Matrix<T, Dynamic, 1> & Fg(){
+        return m_Fg;
+    }
+    
+    void SetScale(T & scale){
+        m_scale = scale;
+    }
+    
+    void SetFg(Matrix<T, Dynamic, 1> & Fg) {
+        m_Fg = Fg;
+    }
+    
+    void irk_weight(Matrix<T, Dynamic, 1> & y, Matrix<T, Dynamic, 1> & k, T dt, T a, bool is_sdirk_Q){
+    
+        if (m_fast) {
+            if (m_Kg_rm.rows() == 0) m_Kg_rm = Kg();
+            m_Fg -= m_Kg_rm*y;
+        }
+        else
+            m_Fg -= Kg()*y;
+        if (is_sdirk_Q) 
+            k = DirkAnalysis().solve(m_Fg);
+        else {
+            T scale = a * dt;
+            SetScale(scale);
+            ComposeMatrix();
+            if (m_iteraive_solver_Q) 
+                DirkAnalysis().set_iterative_solver();
+            DecomposeMatrix();
+            k = DirkAnalysis().solve(m_Fg);
+        }
+    }
+    
+
+    private:
+    // fast mode (set_fast); declared last
+    bool m_fast = false;
+    Eigen::SparseMatrix<T, Eigen::RowMajor> m_Kg_rm;
+};
+
+#endif /* dirk_hho_scheme_hpp */
