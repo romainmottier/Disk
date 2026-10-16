@@ -47,7 +47,8 @@ struct simulation_options {
     size_t mesh = 0;           // -M: mesh_kind
     size_t l_divs = 0;         // -l: space refinement levels
     size_t lv_set = 0;         // -i: 0 circle/sphere, 1 flower (55b), 2 square (2D), 3 flower of ProtoN (2D),
-                               //     4 ellipse/ellipsoid, 5 rounded square/cube, 6 annulus/torus
+                               //     4 ellipse/ellipsoid, 5 rounded square/cube, 6 annulus/torus,
+                               //     7 flower of the BVC paper, 8 plane (patch test)
     size_t degree = 0;         // -k: face degree (cell degree k+1)
     size_t int_refsteps = 8;   // -r: the polyline interface has 2^r segments in each cut cell
 #ifdef HAVE_INTEL_MKL
@@ -57,7 +58,7 @@ struct simulation_options {
 #endif
     size_t test_case = 0;      // -t
     size_t debug = 0;          // -f: silo files and pairing arrows
-    size_t contrast = 0;       // -m: kappa_2 = 10^m kappa_1
+    int contrast = 0;          // -m: kappa_2 = 10^m kappa_1 (m < 0: kappa_2 < kappa_1)
     double threshold = 0.3;    // -a: flagging parameter of the ill-cut cells (vartheta)
     double eta_N = -20.0;      // -e: s^N parameter: x >= 0 fixed, x < 0 |x| (k+1)^2 (-1: ProtoN)
     size_t basis = 2;          // -b: cell bases: 0 monomials of the cells, 1 of the subcells (paper), 2 orthonormal
@@ -74,13 +75,23 @@ struct simulation_options {
     size_t refinement = 3;     // -x: the cells that the interface does not cut once are refined, at most x times
                                //     (polytopal meshes; 0: never)
     bool   refined_mesh = false; // set by run_mesh: some cells of the meshes are not cut once, -x > 0
+    size_t base_cells = 0;     // -N: cells per direction of the level 0 (0: 10 in 2D, 5 in 3D)
+    /* boundary value correction (-p2) */
+    std::string bvc_variant = "full"; // -v: full, taylor, gam, naive, ext
+    int    bvc_taylor = -1;    // -T: order m of the Taylor correction (-1: m(k) = ceil((k - 1/2)/2))
+    double bvc_eta = 1.0;      // -E: interface penalty eta kappa_1/h_T
+    size_t bvc_chords = 0;     // -n: 2^n chords per cut cell (2D)
+    size_t bvc_quad_extra = 0; // -Q: degree added to all the quadratures (verification)
+    double bvc_stab = 1.0;     // -A: weight of s° (x >= 0 fixed, x < 0 (k+1)^|x|)
+    size_t bvc_solver = 0;     // -S: 0 Pardiso LU, 1 Pardiso LU structurally symmetric,
+                               //     2 GMRES preconditioned by the Cholesky factorization of the symmetric part
 };
 
 inline void
 simulation_data(int argc, char** argv, simulation_options& opts) {
     int ch;
     optind = 1;
-    while ((ch = getopt(argc, argv, "p:M:l:i:k:r:s:t:f:m:a:e:b:P:c:g:u:R:d:q:z:K:L:x:")) != -1) {
+    while ((ch = getopt(argc, argv, "p:M:l:i:k:r:s:t:f:m:a:e:b:P:c:g:u:R:d:q:z:K:L:x:N:v:T:E:n:Q:S:A:")) != -1) {
         switch (ch) {
             case 'p': opts.prototype = std::atoi(optarg); break;
             case 'M': opts.mesh = std::atoi(optarg); break;
@@ -106,6 +117,14 @@ simulation_data(int argc, char** argv, simulation_options& opts) {
             case 'K': opts.k_min = std::atoi(optarg); break;
             case 'L': opts.l_min = std::atoi(optarg); break;
             case 'x': opts.refinement = std::atoi(optarg); break;
+            case 'N': opts.base_cells = std::atoi(optarg); break;
+            case 'v': opts.bvc_variant = optarg; break;
+            case 'T': opts.bvc_taylor = std::atoi(optarg); break;
+            case 'E': opts.bvc_eta = std::atof(optarg); break;
+            case 'n': opts.bvc_chords = std::atoi(optarg); break;
+            case 'Q': opts.bvc_quad_extra = std::atoi(optarg); break;
+            case 'S': opts.bvc_solver = std::atoi(optarg); break;
+            case 'A': opts.bvc_stab = std::atof(optarg); break;
             default:
                 std::cout << "wrong arguments" << std::endl;
                 exit(1);
@@ -137,14 +156,39 @@ simulation_data(int argc, char** argv, simulation_options& opts) {
     else                       std::cout << "polynomial of degree " << opts.curve << std::endl;
     std::cout << "        Local refinement           -x : " << opts.refinement
               << (opts.refinement > 0 ? " (cells not cut once, if any)" : " (none)") << std::endl;
+    if (opts.base_cells > 0)
+        std::cout << "        Cells per direction, l = 0 -N : " << opts.base_cells << std::endl;
+    if (opts.prototype == 2 || opts.prototype == 3) {
+        std::cout << "        BVC variant                -v : " << opts.bvc_variant << std::endl;
+        std::cout << "        Taylor order               -T : ";
+        if (opts.bvc_taylor < 0) std::cout << "m(k) = ceil((k - 1/2)/2)" << std::endl;
+        else                     std::cout << opts.bvc_taylor << std::endl;
+        std::cout << "        Interface penalty          -E : " << opts.bvc_eta << std::endl;
+        std::cout << "        Weight of s°               -A : ";
+        if (opts.bvc_stab < 0) std::cout << "(k+1)^" << -opts.bvc_stab << std::endl;
+        else                   std::cout << opts.bvc_stab << std::endl;
+        std::cout << "        Chords per cut cell        -n : 2^" << opts.bvc_chords << std::endl;
+        std::cout << "        BVC solver                 -S : " << opts.bvc_solver
+                  << (opts.bvc_solver == 0 ? " (Pardiso LU)" : opts.bvc_solver == 1 ? " (Pardiso LU, symmetric pattern)"
+                                                                 : " (GMRES, Cholesky of the symmetric part)") << std::endl;
+        if (opts.bvc_quad_extra > 0)
+            std::cout << "        Extra quadrature degree    -Q : " << opts.bvc_quad_extra << std::endl;
+    }
     std::cout << "        Debug & Silo files         -f : " << opts.debug << reset << std::endl;
 }
 
-/* Representation of the interface for the degree k (option -g) */
+/* Representation of the interface for the degree k (option -g); flat
+ * interface for the boundary value correction (-p2) */
 inline disk::cut_geometry_options
 geometry_options(const simulation_options& opts, size_t k)
 {
     disk::cut_geometry_options g;
+    if (opts.prototype == 2 || opts.prototype == 3) {
+        g.kind = disk::interface_kind::polyline;
+        g.refine_levels = opts.bvc_chords;
+        g.flat = true;
+        return g;
+    }
     g.refine_levels = opts.int_refsteps;
     if (opts.curve == -1)
         g.kind = disk::interface_kind::implicit;
@@ -199,6 +243,22 @@ public:
                     << " with R = " << R << ", r = " << r << std::endl;
                 return std::make_shared<torus_level_set<T,DIM>>(c, R, r, Q);
             }
+            case 7: {
+                /* flower of the boundary value correction paper (Fig. 2):
+                 * r^2 - R^2 + c cos(4 theta), R = 0.31, c = 0.04 (3D: 4 petals
+                 * around the axis z) */
+                out << "        Level set function         -i : Flower (BVC) R = 0.31, c = 0.04, 4 petals" << std::endl;
+                return std::make_shared<star_level_set<T,DIM>>(c, 0.31, 0.04, 4);
+            }
+            case 8: {
+                /* plane through (0.53, 0, 0) of normal (1, 0.7, 0.4) (patch test) */
+                Eigen::Matrix<T,DIM,1> n;
+                if constexpr (DIM == 2) n << 1.0, 0.7;
+                else                    n << 1.0, 0.7, 0.4;
+                out << "        Level set function         -i : Plane through (0.53, 0" << (DIM == 3 ? ", 0" : "")
+                    << ") of normal (" << n.transpose() << ")" << std::endl;
+                return std::make_shared<plane_level_set<T,DIM>>(n, 0.53);
+            }
             default:
                 break;
         }
@@ -243,11 +303,12 @@ public:
 
     /* Background mesh of the level l: (10*2^l)^2 squares or right triangles,
      * hexagons of the level l+2 of FVCA5, (5*2^l)^3 cubes or Kuhn
-     * tetrahedra, prisms on the hexagons of the level l+1 in 5*2^l layers */
+     * tetrahedra, prisms on the hexagons of the level l+1 in 5*2^l layers
+     * (N0*2^l instead of 10*2^l or 5*2^l if N0 > 0) */
     static void
-    background_mesh(Mesh& msh, size_t l) {
-        size_t N2 = 10 * (size_t(1) << l);
-        size_t N3 = 5 * (size_t(1) << l);
+    background_mesh(Mesh& msh, size_t l, size_t N0 = 0) {
+        size_t N2 = (N0 > 0 ? N0 : 10) * (size_t(1) << l);
+        size_t N3 = (N0 > 0 ? N0 : 5) * (size_t(1) << l);
         if constexpr (std::is_same_v<Mesh, disk::cartesian_mesh<T,2>>)
             unfitted_meshes::make_cartesian_grid(msh, N2, N2);
         else if constexpr (std::is_same_v<Mesh, disk::simplicial_mesh<T,2>>)
@@ -273,8 +334,8 @@ public:
         if constexpr (!std::is_same_v<Mesh, disk::generic_mesh<T,DIM>>)
             throw std::logic_error("The locally refined meshes are polytopal meshes");
         else {
-            size_t N2 = 10 * (size_t(1) << l);
-            size_t N3 = 5 * (size_t(1) << l);
+            size_t N2 = (opts.base_cells > 0 ? opts.base_cells : 10) * (size_t(1) << l);
+            size_t N3 = (opts.base_cells > 0 ? opts.base_cells : 5) * (size_t(1) << l);
             unfitted_meshes::refinable_mesh<T, DIM> rm;
             auto kind = mesh_kind(opts.mesh);
             if constexpr (DIM == 2) {
@@ -312,7 +373,7 @@ public:
         auto ls = make_level_set_function(opts, false);
         for (size_t l = std::min(opts.l_min, opts.l_divs); l <= opts.l_divs; l++) {
             cut_mesh_type msh;
-            background_mesh(msh, l);
+            background_mesh(msh, l, opts.base_cells);
             auto bad = disk::cut_once_violations(msh, *ls, geometry_options(opts, opts.degree));
             if (std::find(bad.begin(), bad.end(), true) != bad.end())
                 return true;
@@ -330,9 +391,12 @@ public:
         if (opts.refined_mesh)
             refined_background_mesh(msh, l, opts, *level_set_function, geometry);
         else
-            background_mesh(msh, l);
+            background_mesh(msh, l, opts.base_cells);
 
         auto stats = disk::make_cut_mesh(msh, level_set_function, geometry, T(opts.threshold));
+        if (stats.shift > 0)
+            std::cout << "         Level " << l << ": mesh vertices lie on the interface, the level set is shifted by "
+                      << stats.shift << std::endl;
         if (stats.clamped > 0)
             std::cout << "         Warning: level " << l << ": the interface crosses a face twice in " << stats.clamped
                       << " cells (the mesh does not resolve the interface: a cell must be cut once);"

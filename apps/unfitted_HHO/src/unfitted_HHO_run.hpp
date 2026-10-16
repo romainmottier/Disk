@@ -38,6 +38,8 @@
 #include "common/cuthho_assemblers.hpp"
 #include "common/postprocessor.hpp"
 #include "common/static_condensation.hpp"
+#include "common/bvc.hpp"
+#include "common/bvc_extension.hpp"
 
 /* Wall clock timer (the timecounter of diskpp can only be included in one
  * translation unit) */
@@ -397,7 +399,10 @@ void run_polyhedra(const simulation_options& opts, bool agglomeration);
 
 /* The convergence test on the meshes of type Mesh or, if the interface does
  * not cut once some of their cells and -x > 0, on their local refinements
- * (polytopal meshes, run by run_polygons and run_polyhedra) */
+ * (polytopal meshes, run by run_polygons and run_polyhedra); -p2, -p3:
+ * unfitted HHO with boundary value correction, stabilized by cell
+ * agglomeration (common/bvc.hpp) or by polynomial extension
+ * (common/bvc_extension.hpp) */
 template<typename Mesh>
 void run_mesh(const simulation_options& opts, bool agglomeration)
 {
@@ -412,5 +417,8 @@ void run_mesh(const simulation_options& opts, bool agglomeration)
             run_polyhedra(ropts, agglomeration);
         return;
     }
-    Elliptic_Interface<Mesh>(opts, agglomeration);
+    if (opts.prototype == 2 || opts.prototype == 3)
+        bvc::run<Mesh, wall_timer>(opts);
+    else
+        Elliptic_Interface<Mesh>(opts, agglomeration);
 }

@@ -4,7 +4,11 @@ Unfitted HHO methods for the elliptic interface problem, ported from ProtoN.
 This app reproduces the numerical results of Section 5 of *Unfitted hybrid
 high-order methods stabilized by polynomial extension for elliptic interface
 problems* (E. Burman, A. Ern, R. Mottier), and runs the same methods on the
-other meshes of diskpp, in 2D and 3D (see *Meshes and dimension*).
+other meshes of diskpp, in 2D and 3D (see *Meshes and dimension*). The
+prototype `-p 2` is the unfitted HHO method with *boundary value correction*
+on a polygonal interface (E. Burman; ProtoN `cuthho_bvc.cpp`), in 2D and 3D;
+`-p 3` is the same method stabilized by polynomial extension instead of cell
+agglomeration, see *Boundary value correction*.
 
 ## Prototypes
 
@@ -12,6 +16,8 @@ other meshes of diskpp, in 2D and 3D (see *Meshes and dimension*).
 |------|--------|
 | `0`  | stabilization of the ill-cut cells by polynomial extension |
 | `1`  | stabilization by cell agglomeration ([12] in the paper) |
+| `2`  | boundary value correction on a flat (polygonal / polyhedral) interface, cell agglomeration (see *Boundary value correction*) |
+| `3`  | boundary value correction, stabilization by polynomial extension (see *Boundary value correction*) |
 
 ## Options
 
@@ -21,17 +27,17 @@ other meshes of diskpp, in 2D and 3D (see *Meshes and dimension*).
 | `-k` | face degree k (cell degree k+1); degrees `-K`..`k` are run | 0 |
 | `-l` | refinement level (quadrangles: mesh of (10·2^l)² cells, see below for the other meshes); levels `-L`..`l` are run | 0 |
 | `-K`, `-L` | first degree / first level of the loops | 0 |
-| `-i` | interface: 0 circle (sphere in 3D), 1 flower (55b) (3D: sphere with 4 petals), 2 square (2D), 3 flower of ProtoN (− c cos nθ, 2D), 4 ellipse (ellipsoid), 5 rounded square (cube), 6 annulus (torus); see *Interfaces* | 0 |
+| `-i` | interface: 0 circle (sphere in 3D), 1 flower (55b) (3D: sphere with 4 petals), 2 square (2D), 3 flower of ProtoN (− c cos nθ, 2D), 4 ellipse (ellipsoid), 5 rounded square (cube), 6 annulus (torus), 7 flower of the BVC paper (3D: 4 petals), 8 plane (patch test); see *Interfaces* | 0 |
 | `-R` | radius of the circle / flower / sphere | 1/3 |
 | `-d` | square interface shifted by δ = 0.5·10^-d (coarsest mesh only: on finer meshes its sides lie on mesh lines) | 2 |
-| `-t` | test case: 0 (56), 1 (57), 2 (58a), 3 (58b), 4 (59), 5 contrast for any interface: u_i = ∏ sin(π x_d) / κ_i (1, 2, 3 need the circle or the sphere) | 0 |
+| `-t` | test case: 0 (56), 1 (57), 2 (58a), 3 (58b), 4 (59), 5 contrast for any interface: u_i = ∏ sin(π x_d) / κ_i (1, 2, 3 need the circle or the sphere); `-p 2`, `-p 3`: 0 contrast ρ⁶/κ_i (circle, sphere), 1 discontinuous ∏ cos / ∏ sin, 2 patch test (plane), 3 geometric checks, 4 jumps (59) as `-p 0`/`-p 1` | 0 |
 | `-m` | contrast κ₂ = 10^m κ₁ | 0 |
 | `-g` | interface in the cut cells: -1 exact (root of the level set), 0 polyline of `-r` (paper), q ≥ 2 polynomial of degree q, -2 polynomial of degree k+2 (2D) | -1 |
 | `-r` | polyline of 2^r segments in each cut cell (`-g 0`, and fallback of the curved interfaces) | 8 |
 | `-a` | flagging parameter ϑ of the ill-cut cells (0: no flagged cell) | 0.3 |
 | `-b` | cell bases: 0 scaled monomials of the cells, 1 scaled monomials of the subcells (paper), 2 orthonormal | 2 |
 | `-P` | neighbor of an ill-cut cell (pairing, agglomeration): 0 as in ProtoN (paper), 1 largest part on the same side | 1 |
-| `-e` | η_N of s^N: x ≥ 0 fixed value, x < 0 \|x\|·(k+1)² (`-e -1`: (k+1)² of ProtoN, used by `run_paper.sh`) | -20, i.e. 20·(k+1)² |
+| `-e` | η_N of s^N (`-p 0`, `-p 3`): x ≥ 0 fixed value, x < 0 \|x\|·(k+1)² (`-e -1`: (k+1)² of ProtoN, used by `run_paper.sh`) | -20, i.e. 20·(k+1)² |
 | `-c` | static condensation of the cell unknowns: 0 none, 1 local (patches), 2 algebraic | 1 |
 | `-s` | solver: 0 SimplicialLDLT, 1 conjugate gradient (Jacobi), 2 Pardiso (Intel MKL) | 2 with MKL, else 0 |
 | `-u` | 1: local operators of the uncut cells computed once per shape | 1 |
@@ -39,6 +45,14 @@ other meshes of diskpp, in 2D and 3D (see *Meshes and dimension*).
 | `-q` | 1: compute the condition number, also after a diagonal scaling (dense, coarse meshes only) | 0 |
 | `-z` | 1: write the block sparsity pattern (`sparsity_k*_l*.txt`) | 0 |
 | `-f` | 1: debug outputs (silo, okc arrows, `cells_l*.txt`) | 0 |
+| `-N` | cells per direction of the level 0 of the Cartesian, triangle, hexahedral and tetrahedral meshes (level l: N·2^l) | 10 (2D), 5 (3D) |
+| `-v` | `-p 2`, `-p 3`: variant: `full`, `taylor` (no γ_T), `gam` (γ_T, m = 0), `naive` (no correction), `ext` (extended data, consistency check) | full |
+| `-T` | `-p 2`, `-p 3`: order m of the Taylor correction (-1: m(k) = ⌈(k − 1/2)/2⌉) | -1 |
+| `-E` | `-p 2`, `-p 3`: interface penalty η κ₁/h_T | 1 |
+| `-n` | `-p 2`, `-p 3`: 2^n chords per cut cell (2D) | 0 |
+| `-Q` | `-p 2`, `-p 3`: degree added to all the quadratures (verification) | 0 |
+| `-A` | `-p 2`, `-p 3`: weight of s°: x ≥ 0 fixed, x < 0 (k+1)^\|x\| (`-A -1`: (k+1), as `-p 0`/`-p 1`) | 1 (ProtoN) |
+| `-S` | `-p 2`, `-p 3`: solver: 0 Pardiso LU, 1 Pardiso LU for a symmetric pattern, 2 GMRES preconditioned by the Cholesky factorization of the symmetric part | 0 |
 
 The errors are written to `solution_error_file.txt` (ProtoN format, plotted by
 the generated `solution_error_file.py`). The `H1-norm error` and `L2-norm error`
@@ -203,6 +217,8 @@ rotated (angle 0.4 in 2D, rotations of angles 0.5, 0.3, 0.7 about z, y, x in
 | 4 | ellipse, semi-axes 0.36, 0.2 | ellipsoid, semi-axes 0.36, 0.26, 0.18 |
 | 5 | rounded square ∑ y_d⁴ = 0.3⁴ | rounded cube ∑ y_d⁴ = 0.3⁴ |
 | 6 | annulus 0.18 < ρ < 0.42 (two circles) | torus R = 0.28, r = 0.14 |
+| 7 | flower of the BVC paper: ρ² − R² + 0.04 cos 4θ, R = 0.31 | ρ² − R² + 0.04 Re(w⁴), R = 0.31 |
+| 8 | line through (0.53, 0) of normal ∝ (1, 0.7) | plane through (0.53, 0, 0) of normal ∝ (1, 0.7, 0.4) |
 
 The test cases (56)-(59) are the same functions in 3D (of ρ, and of
 ∏ sin(π x_d), e^x cos y); (57), (58a), (58b) need the circle or the sphere,
@@ -414,3 +430,81 @@ differences are:
   the face (see above), whereas ProtoN integrated over the resulting
   self-intersecting polygons, which changes the errors of the flower on
   level 1 by at most 1e-3 relative for k <= 2 and 2 % for k = 3.
+
+## Boundary value correction (`-p 2`)
+
+`-p 2` is the unfitted HHO method with boundary value correction of
+E. Burman (*An unfitted hybrid high-order method with boundary value
+correction for elliptic interface problems*), ported from ProtoN
+(`cuthho_bvc.cpp`, branch `megamerge`) and extended to 3D
+(`src/common/bvc.hpp`).
+
+* The interface is **flat**: in 2D one chord per cut cell (2^n with `-n`), in
+  3D the chords of the cut faces (conforming between neighbors) and a
+  triangulation of their loop with vertices on Γ, chosen to minimize the
+  largest circumradius (`cutgeo::build_flat_cut_polyhedron`). All the
+  integrals are on straight subcells, faces and interface pieces.
+* The geometric error is corrected at the quadrature nodes x of Γ_h:
+  ρ_h(x) with φ(x + ρ_h n_h) = 0, Taylor operator
+  T_m w = Σ_{j≤m} ρ_h^j/j! ∂^j_{n_h} w on the trial functions (m(k) =
+  ⌈(k − 1/2)/2⌉, `-T`), correction γ_T of the normal flux with
+  n* = ∇φ(p_h)/|∇φ(p_h)|, data taken at p_h = x + ρ_h n_h. The method is not
+  symmetric: local LU static condensation, Pardiso LU.
+* Mixed order (cells P^{k+1}, faces P^k), cell agglomeration (`-a`, `-P`),
+  Dirichlet conditions imposed strongly, also on the cut boundary faces.
+* Variants `-v`: `full`, `taylor`, `gam`, `naive` (no correction), `ext`
+  (consistency check). Test cases `-t`: 0 contrast ρ⁶/κ_i (circle/sphere,
+  = (57) of `-p 0`/`-p 1` `-t 1`), 1 discontinuous ∏ cos / ∏ sin (any
+  interface; `-i 7` flower of the paper), 2 patch test (plane `-i 8`),
+  3 geometric checks (Table 1 of the paper), 4 jumps (59) (= `-t 4` of
+  `-p 0`/`-p 1`, any interface).
+* Mesh vertices lying exactly on the interface (all prototypes): the level set
+  is shifted by 1e-10 h (1e-8 h, 1e-6 h if the curved geometry still fails),
+  which leaves the other meshes unchanged.
+* Outputs: `bvc_convergence.txt` (errors H¹, L², energy and orders),
+  `solution_error_file.txt`, `bvc_geometry.txt`.
+* `-p 3` (`src/common/bvc_extension.hpp`) replaces the agglomeration by the
+  polynomial extension of `-p 0`: each subcell keeps its unknowns, the gradient
+  reconstruction of a well-cut subcell (T,i) includes the faces and the flat
+  interface of the ill-cut subcells S it stabilizes (Taylor-transported jumps
+  in Ĝ₁), s^N (`-e`) ties v_{S^i} to the extension of v_{T^i}, and the flux of
+  an ill-cut side in γ_T is the extension of the reconstruction of its
+  stabilizing subcell. The cut bases of diskpp (`-b`) are used, and the Taylor
+  operator is evaluated from point values along n_h. The cell unknowns of a
+  cell and of the cells it stabilizes are condensed together (LU).
+
+```
+unfitted_HHO -p2 -M0 -x0 -P0 -i0 -t0 -m4 -N8 -K0 -k3 -l4     # Table 2 (circle)
+unfitted_HHO -p2 -M0 -x0 -P0 -i7 -t1 -m0 -N16 -K0 -k3 -l3    # Table 3 (flower)
+unfitted_HHO -p2 -M3 -x0 -i0 -t0 -m4 -N4 -K0 -k2 -l3         # 3D sphere, hexahedra
+python3 scripts/run_bvc.py <unfitted_HHO> results --set all --mem 40
+python3 scripts/plot_bvc_results.py results --proton cuthho_bvc_results.txt
+```
+
+With the pairing of ProtoN (`-P 0`) the 2D errors of the circle and the
+flower are those of ProtoN's `cuthho_bvc_results.txt` to all printed digits
+(same numbers of unknowns). In 3D (hexahedra, tetrahedra; sphere with
+κ₂/κ₁ = 10⁴ and 3D flower with a discontinuous solution) the full method
+converges at the optimal orders k+1 (H¹, energy) and k+2 (L²) for
+k = 0, …, 3, whereas without correction the orders saturate as in 2D.
+`-p 2` runs on all the meshes (`-M 0 … 5`) and with the local refinement
+`-x`. With the polynomial extension (`-p 3`, `run_bvc.py --prototype 3`) the
+orders are the same, the errors equal or smaller (up to 40 % in 3D) and the
+convergence curves regular for both pairings (`-P`).
+With the default settings of ProtoN (s° weighted by κ_i/h_T, LU) the errors
+are 2-5 times larger than with `-p 0`/`-p 1` at equal mesh; this gap comes
+from the weight of s°, not from the geometry: with the weight (k+1) κ_i/h_T
+of `-p 0`/`-p 1` (`-A -1`) the BVC with one chord gives the same errors as
+the exact curved interface (polynomial extension: within 3 %). With GMRES
+preconditioned by the Cholesky factorization of the symmetric part (`-S 2`,
+stopped on the true relative residual 1e-12, LU when the symmetric part is
+not positive definite, e.g. k = 3 on the flowers), the geometry is 3-11
+times and the assembly 1.5-2 times cheaper than with `-p 0`, but the solve
+1.3-2.1 times more expensive in 3D: total time -7 % (sphere, tetrahedra,
+k = 3) to +51 % (3D flower, hexahedra, k = 2), and 2.7 times in 2D on fine
+meshes (47 GMRES iterations; LU is cheaper in 2D); the quadratures on a refined
+interface (`-g 0 -r 8`) are slower in 2D and on tetrahedra. The method
+assumes κ₁ ≤ κ₂ (Ω₁, where the interface conditions are imposed, is the less
+diffusive side). Recommended BVC settings:
+`-A -1 -S 2`; paper campaign and figures: `scripts/run_bvc_paper.py`
+(`--run`, `--plot`, `--paper DIR`).

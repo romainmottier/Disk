@@ -373,3 +373,26 @@ struct star_level_set: public level_set<T, DIM>
         return g;
     }
 };
+
+/* Plane (line in 2D) n.x - d, n a unit vector */
+template<typename T, size_t DIM = 2>
+struct plane_level_set: public level_set<T, DIM>
+{
+    Eigen::Matrix<T,DIM,1>  n;
+    T                       d;
+
+    plane_level_set(const Eigen::Matrix<T,DIM,1>& normal, T offset)
+        : n(normal / normal.norm()), d(offset / normal.norm())
+    {}
+
+    T operator()(const disk::point<T,DIM>& pt) const {
+        T s = -d;
+        for (size_t i = 0; i < DIM; i++)
+            s += n(i) * pt[i];
+        return s;
+    }
+
+    Eigen::Matrix<T,DIM,1> gradient(const disk::point<T,DIM>&) const {
+        return n;
+    }
+};

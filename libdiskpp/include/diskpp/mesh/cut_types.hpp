@@ -122,6 +122,12 @@ struct cut_polyhedron {
     std::array<point<T,3>, 2> centers;   // centers of the cones of the two parts
     std::vector<point<T,3>> interface;   // sample points of the interface
 
+    // flat interface (cut_polyhedron_options::flat, for the boundary value
+    // correction): its triangles, vertices on the level set, oriented from the
+    // negative to the positive side (see cutgeo::build_flat_cut_polyhedron)
+    bool                    flat = false;
+    std::vector<std::array<point<T,3>, 3>> flat_interface;
+
     std::vector<cut_polyhedron<T>> children;
 };
 

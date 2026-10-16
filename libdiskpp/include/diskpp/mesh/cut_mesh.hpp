@@ -166,6 +166,11 @@ struct cut_geometry_options {
     size_t          degree = 0;             // degree of the polynomial interface
     size_t          refine_levels = 8;      // 2D: polyline of 2^levels segments (and fallback)
     size_t          subdivision_levels = 3; // 3D: subdivision of the cells where the cones fail
+    // flat interface (boundary value correction): 2D: polyline of
+    // 2^refine_levels chords (one chord if 0); 3D: chords in the faces and a
+    // triangulation of their loop in the cells (vertices on the interface),
+    // see cutgeo::build_flat_cut_polyhedron
+    bool            flat = false;
 };
 
 /* Bounded cache of the quadratures of the cut cells and faces (the most
@@ -803,6 +808,7 @@ polyhedron_options(const Mesh& msh)
     cutgeo::cut_polyhedron_options opt;
     opt.refine_levels = msh.geometry.refine_levels;
     opt.subdivision_levels = msh.geometry.subdivision_levels;
+    opt.flat = msh.geometry.flat;
     return opt;
 }
 
@@ -1273,7 +1279,20 @@ struct cut_mesh_statistics {
     size_t fallbacks = 0;   // cut cells (2D) or faces (3D) keeping the polyline
     size_t split = 0;       // 3D: cut cells split into polyhedra
     size_t subdivided = 0;  // 3D: cut cells with parts integrated by subdivision
+    double shift = 0;       // shift of the level set when mesh vertices lie on the interface
 };
+
+namespace priv {
+/* phi + delta (see make_cut_mesh) */
+template<typename T, size_t DIM>
+struct shifted_level_set : public level_set<T, DIM> {
+    std::shared_ptr<const level_set<T, DIM>> base;
+    T delta;
+    shifted_level_set(std::shared_ptr<const level_set<T, DIM>> b, T d) : base(b), delta(d) {}
+    T operator()(const point<T, DIM>& pt) const { return (*base)(pt) + delta; }
+    Eigen::Matrix<T, DIM, 1> gradient(const point<T, DIM>& pt) const { return base->gradient(pt); }
+};
+} // namespace priv
 
 template<CutMesh MeshType>
 void
@@ -1351,7 +1370,9 @@ detect_cut_faces(MeshType& msh, cut_mesh_statistics& stats) {
             };
             if (!cutgeo::init_cut_polygon(fd.poly, lv, lloc, lid, edge_point))
                 throw std::logic_error("A face is cut more than once: the mesh does not resolve the interface");
-            if (msh.geometry.kind == interface_kind::polyline || !cutgeo::make_implicit_interface(fd.poly, phi)) {
+            if (msh.geometry.flat)
+                cutgeo::refine_polyline(fd.poly, phi, 0);    /* chord */
+            else if (msh.geometry.kind == interface_kind::polyline || !cutgeo::make_implicit_interface(fd.poly, phi)) {
                 if (msh.geometry.kind != interface_kind::polyline)
                     stats.fallbacks++;
                 cutgeo::refine_polyline(fd.poly, phi, std::max<size_t>(msh.geometry.refine_levels, 1));
@@ -1586,16 +1607,54 @@ cut_mesh_statistics
 make_cut_mesh(Mesh& msh, std::shared_ptr<const typename Mesh::level_set_type> ls,
               const cut_geometry_options& geometry, typename Mesh::coordinate_type threshold)
 {
+    using T = typename Mesh::coordinate_type;
     cut_mesh_statistics stats;
     msh.level_set_function = ls;
-    msh.geometry = geometry;
-    if (Mesh::dimension == 3 && geometry.kind == interface_kind::polynomial)
-        msh.geometry.kind = interface_kind::implicit;
-    msh.quadrature_cache.clear();
 
-    detect_node_position(msh);
-    detect_cut_faces(msh, stats);
-    detect_cut_cells(msh, stats);
+    /* Mesh vertices on the interface (e.g. a sphere of radius 1/3 on a grid
+     * of step 1/6) make parts of measure zero, which the methods cannot
+     * handle: the level set is then shifted by delta = 1e-10 times the
+     * smallest cell diameter (times the gradient), or by 1e-8, 1e-6 times
+     * it if the geometry of the cut still fails (slivers), far below the
+     * discretization errors. The other meshes are not affected. */
+    T hmin = std::numeric_limits<T>::max(), gmax = 0;
+    for (auto& cl : msh)
+        hmin = std::min(hmin, diameter(msh, cl));
+    bool degenerate = false;
+    for (auto itor = msh.points_begin(); itor != msh.points_end(); itor++) {
+        T g = ls->gradient(*itor).norm();
+        gmax = std::max(gmax, g);
+        if (std::abs((*ls)(*itor)) <= 1e-12 * hmin * g)
+            degenerate = true;
+    }
+    std::vector<T> shifts = degenerate ? std::vector<T>{1e-10, 1e-8, 1e-6} : std::vector<T>{0};
+
+    for (size_t attempt = 0; attempt < shifts.size(); attempt++) {
+        stats = cut_mesh_statistics();
+        msh.level_set_function = ls;
+        if (shifts[attempt] > 0) {
+            stats.shift = shifts[attempt] * hmin * gmax;
+            msh.level_set_function =
+                std::make_shared<priv::shifted_level_set<T, Mesh::dimension>>(ls, T(stats.shift));
+        }
+        msh.geometry = geometry;
+        if (Mesh::dimension == 3 && geometry.kind == interface_kind::polynomial)
+            msh.geometry.kind = interface_kind::implicit;
+        if (geometry.flat)
+            msh.geometry.kind = interface_kind::polyline;
+        msh.quadrature_cache.clear();
+        try {
+            detect_node_position(msh);
+            detect_cut_faces(msh, stats);
+            detect_cut_cells(msh, stats);
+        }
+        catch (const std::logic_error&) {
+            if (attempt + 1 == shifts.size())
+                throw;
+            continue;
+        }
+        break;
+    }
     detect_cut_type(msh, threshold);
     make_neighbors_info(msh);
     return stats;
@@ -1610,7 +1669,11 @@ make_cut_mesh(Mesh& msh, std::shared_ptr<const typename Mesh::level_set_type> ls
  * without crossing its edges, a 3D cell whose parts can only be integrated
  * by subdivision. The edges are probed at "samples" points. (A curved
  * interface that cannot be built while the element is cut once, e.g. at a
- * corner of the interface, keeps the polyline: it is not a violation.) */
+ * corner of the interface, keeps the polyline: it is not a violation.) For
+ * the flat interface (geometry.flat), also a face whose chord lies along its
+ * boundary and a cell whose cut points all lie on one of its faces (an
+ * interface crossing a face around a hanging node only): the flat interface
+ * then leaves a part of zero measure. */
 template<CutMesh Mesh>
 std::vector<bool>
 cut_once_violations(const Mesh& msh, const typename Mesh::level_set_type& ls,
@@ -1693,6 +1756,24 @@ cut_once_violations(const Mesh& msh, const typename Mesh::level_set_type& ls,
                 lloc.push_back(loc(sgn[ids[i]]));
             }
             auto edge_point = [&](size_t i) { return phi.to_local(cutgeo::edge_zero(pts[i], pts[(i+1) % n], ls)); };
+            if (geometry.flat) {
+                /* flat interface: chord along a straight part of the boundary
+                 * of the face (collinear edges at a hanging node) */
+                std::vector<point<T,3>> zs;
+                for (size_t i = 0; i < n; i++)
+                    if (sgn[ids[i]] != sgn[ids[(i+1) % n]])
+                        zs.push_back(cutgeo::edge_zero(pts[i], pts[(i+1) % n], ls));
+                T hf = diameter(msh, fc);
+                for (size_t i = 0; i < n && !bad_face[fid]; i++) {
+                    auto t = (pts[(i+1) % n] - pts[i]).to_vector();
+                    bool along = true;
+                    for (auto& z : zs)
+                        along = along && (t.cross((z - pts[i]).to_vector()).norm() <= 1e-10 * hf * t.norm());
+                    bad_face[fid] = along;
+                }
+                if (bad_face[fid])
+                    continue;
+            }
             try {
                 if (!cutgeo::init_cut_polygon(poly, lv, lloc, std::vector<size_t>(), edge_point))
                     bad_face[fid] = true;
@@ -1784,6 +1865,48 @@ cut_once_violations(const Mesh& msh, const typename Mesh::level_set_type& ls,
                             bad = true;
             }
         }
+        if (!bad && geometry.flat) {
+            /* flat interface: the points where the interface crosses the
+             * edges of the cell must not all lie on one face of the cell */
+            T hT = diameter(msh, cl);
+            std::vector<point_type> zs;
+            for (auto& fc : faces(msh, cl)) {
+                auto fp = points(msh, fc);
+                auto fi = fc.point_ids();
+                for (size_t i = 0; i < fp.size(); i++) {
+                    size_t j = (i+1) % fp.size();
+                    if (DIM == 2 && j == 0)
+                        break;
+                    if (sgn[fi[i]] == sgn[fi[j]])
+                        continue;
+                    if constexpr (DIM == 2)
+                        zs.push_back(cutgeo::find_zero_crossing(fp[i], fp[j], cutgeo::planar_level_set<T,2>(ls), hT / 1e20));
+                    else
+                        zs.push_back(cutgeo::edge_zero(fp[i], fp[j], ls));
+                }
+            }
+            for (auto& fc : faces(msh, cl)) {
+                auto fp = points(msh, fc);
+                bool on_face = true;
+                for (auto& z : zs) {
+                    T d;
+                    if constexpr (DIM == 2) {
+                        auto t = (fp[1] - fp[0]).to_vector();
+                        auto w = (z - fp[0]).to_vector();
+                        d = std::abs(t(0) * w(1) - t(1) * w(0)) / t.norm();
+                    }
+                    else {
+                        auto nf = cutgeo::newell_normal(fp);
+                        d = std::abs(nf.dot((z - fp[0]).to_vector())) / nf.norm();
+                    }
+                    on_face = on_face && (d <= 1e-10 * hT);
+                }
+                if (on_face) {
+                    bad = true;
+                    break;
+                }
+            }
+        }
         ret[cid] = bad;
     }
     return ret;
@@ -1797,7 +1920,7 @@ cut_once_violations(const Mesh& msh, const typename Mesh::level_set_type& ls,
 template<CutMesh MeshType>
 typename MeshType::cell_type
 find_good_neighbor(const MeshType& msh, const typename MeshType::cell_type cl, const location where,
-                   bool largest_subcell = false) {
+                   bool largest_subcell = false, bool chain = false) {
 
     typename MeshType::cell_type best_neigh = cl;
 
@@ -1885,6 +2008,60 @@ find_good_neighbor(const MeshType& msh, const typename MeshType::cell_type cl, c
                 area = other_measure(cl_n);
                 best_neigh = cl_n;
             }
+        }
+    }
+
+    if(best_neigh == cl && chain) {
+        // cell agglomeration only (coarse 3D meshes, corners of the domain):
+        // all the neighbors lying on the side "where" are ill-cut on this
+        // side; the face neighbor with the largest part in "where" is taken,
+        // its own group will be merged with the group of cl
+        typename MeshType::coordinate_type best = 0;
+        for (auto n : f_neigh) {
+            auto cl_n = msh[n];
+            if (!is_cut(msh, cl_n))
+                continue;
+            auto m = measure(msh, cl_n, where);
+            if (m > best) {
+                best = m;
+                best_neigh = cl_n;
+            }
+        }
+    }
+
+    if(best_neigh == cl && !chain) {
+        // polynomial extension (coarse 3D meshes, corners of the domain): no
+        // neighbor is good on the side "where"; the closest good cell of the
+        // first ring of neighbors (faces and vertices, up to 4 rings) that
+        // contains one is taken
+        auto good = [&](const typename MeshType::cell_type& cl_m) {
+            if (locate(msh, cl_m) != where && locate(msh, cl_m) != location::ON_INTERFACE)
+                return false;
+            auto t = cut_info(msh, cl_m).cut;
+            return !((where == location::IN_NEGATIVE_SIDE && t == cut_type::T_KO_NEG)
+                     || (where == location::IN_POSITIVE_SIDE && t == cut_type::T_KO_POS));
+        };
+        auto bar = barycenter(msh, cl);
+        std::set<size_t> seen = {offset(msh, cl)}, ring = {offset(msh, cl)};
+        for (size_t r = 0; r < 4 && best_neigh == cl; r++) {
+            std::set<size_t> next;
+            for (auto c : ring)
+                for (const auto* list : {&cut_info(msh, msh[c]).f_neighbors, &cut_info(msh, msh[c]).d_neighbors})
+                    for (auto m : *list)
+                        if (seen.insert(m).second)
+                            next.insert(m);
+            typename MeshType::coordinate_type best = 0;
+            for (auto m : next) {
+                auto cl_m = msh[m];
+                if (!good(cl_m))
+                    continue;
+                auto d = (barycenter(msh, cl_m) - bar).to_vector().norm();
+                if (best_neigh == cl || d < best) {
+                    best = d;
+                    best_neigh = cl_m;
+                }
+            }
+            ring = next;
         }
     }
 
@@ -2056,7 +2233,7 @@ output_agglo_lists_step4(Mesh& msh, std::vector<int> table_neg, std::vector<int>
 template<CutMesh Mesh>
 void
 make_pairing_tables(Mesh& msh, std::vector<int>& table_neg, std::vector<int>& table_pos, bool output_pairing = false,
-                    bool largest_subcell = false) {
+                    bool largest_subcell = false, bool chain = false) {
 
     // Initiate lists to store the pairing infos
     size_t nb_cells = msh.cells_size();
@@ -2094,7 +2271,7 @@ make_pairing_tables(Mesh& msh, std::vector<int>& table_neg, std::vector<int>& ta
             if (targeted[cl_id])
                 continue;
 
-            typename Mesh::cell_type best_neigh = find_good_neighbor(msh, cl, where, largest_subcell);
+            typename Mesh::cell_type best_neigh = find_good_neighbor(msh, cl, where, largest_subcell, chain);
 
             // prepare agglomeration of cells cl and best_neigh
             size_t offset1 = cl_id;
@@ -2245,7 +2422,7 @@ make_cell_agglomeration(Mesh& msh, bool output_agglomeration = false, bool large
     size_t nb_cells = msh.cells_size();
 
     std::vector<int> table_neg, table_pos;
-    make_pairing_tables(msh, table_neg, table_pos, output_agglomeration, largest_subcell);
+    make_pairing_tables(msh, table_neg, table_pos, output_agglomeration, largest_subcell, true);
 
     std::vector<std::vector<size_t>> cell_faces(nb_cells);
     for (auto& cl : msh) {

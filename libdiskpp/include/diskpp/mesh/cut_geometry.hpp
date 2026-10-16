@@ -1096,6 +1096,17 @@ refine_polyline(cut_polygon<T>& poly, const LS2& phi, size_t min, size_t max)
     auto& itf = poly.polyline;
     auto p0 = itf.at(min);
     auto p1 = itf.at(max);
+    /* degenerate chord (the interface goes through a vertex of the polygon,
+     * or the polygon is at the scale of the round-off): the curve is
+     * straight at this scale */
+    auto straight = [&]() {
+        for (size_t i = min + 1; i < max; i++)
+            itf.at(i) = p0 + (p1 - p0) * (T(i - min) / T(max - min));
+    };
+    if ((p1 - p0).to_vector().norm() <= 1e-10 * poly.h) {
+        straight();
+        return;
+    }
     auto pm = (p0+p1)/2.0;
     auto pt = p1 - p0;
     auto pn = point<T,2>(-pt.y(), pt.x());
@@ -1112,6 +1123,10 @@ refine_polyline(cut_polygon<T>& poly, const LS2& phi, size_t min, size_t max)
         ip = find_zero_crossing(pm, ps1, phi, threshold);
     else if ( !((lm >= 0 && ls2 >= 0) || (lm < 0 && ls2 < 0)) )
         ip = find_zero_crossing(pm, ps2, phi, threshold);
+    else if (lm == ls1 && lm == ls2) {
+        straight();
+        return;
+    }
     else
         throw std::logic_error("interface not found in search range: the mesh does not resolve the interface");
 
@@ -1711,7 +1726,7 @@ public:
 template<typename T, typename LS>
 bool
 make_cut_face(cut_polyhedron_face<T>& f, const std::vector<location>& loc, const LS& ls,
-              std::map<edge_key<T>, point<T,3>>& edge_points, size_t refine_levels)
+              std::map<edge_key<T>, point<T,3>>& edge_points, size_t refine_levels, bool flat = false)
 {
     polygon_frame(f.vertices, f.origin, f.U);
     planar_level_set<T,3> phi(ls, f.origin, f.U);
@@ -1730,7 +1745,9 @@ make_cut_face(cut_polyhedron_face<T>& f, const std::vector<location>& loc, const
     };
     if (!init_cut_polygon(f.poly, lv, loc, std::vector<size_t>(), intersection))
         return false;
-    if (!make_implicit_interface(f.poly, phi))
+    if (flat)
+        refine_polyline(f.poly, phi, 0);    /* chord */
+    else if (!make_implicit_interface(f.poly, phi))
         refine_polyline(f.poly, phi, std::max<size_t>(refine_levels, 1));
     return true;
 }
@@ -2058,7 +2075,365 @@ struct cut_polyhedron_options {
     size_t max_depth = 3;           // splittings of the polyhedra whose parts are not star-shaped
     size_t refine_levels = 8;       // polyline of the faces where the implicit interface fails
     size_t subdivision_levels = 3;  // fallback
+    bool   flat = false;            // flat interface (see build_flat_cut_polyhedron)
 };
+
+/* Cut of a convex polyhedron by a flat interface, made of the chords of its
+ * cut faces (joining the points where the interface crosses their edges,
+ * hence conforming between neighbors) and of a triangulation of the loop of
+ * these chords: either the fan from a point c of the interface (along the
+ * normal of the loop from the average or the centroid of its points), or a
+ * triangulation of the loop itself, whichever has the smallest largest
+ * circumradius (the normal of a triangle inscribed in the interface deviates
+ * from the normal of the interface by O(curvature x circumradius): a fan from
+ * a point close to a chord gives flat obtuse triangles). All the vertices lie
+ * on the interface and the two parts are polyhedra with flat faces, integrated
+ * by cones from points of their kernels (positive weights). This is the
+ * polyhedral interface of the unfitted HHO method with boundary value
+ * correction. A polyhedron that is not cut once is flagged
+ * cut_more_than_once. */
+template<typename T, typename LS>
+void
+build_flat_cut_polyhedron(cut_polyhedron<T>& P, const LS& ls)
+{
+    using point3 = point<T,3>;
+    P.children.clear();
+    P.loop.clear();
+    P.interface.clear();
+    P.flat_interface.clear();
+    P.flat = true;
+    P.linear = false;
+    P.cut_more_than_once = false;
+
+    std::vector<point3> all;
+    for (auto& f : P.faces)
+        all.insert(all.end(), f.vertices.begin(), f.vertices.end());
+    P.h = 0;
+    for (size_t i = 0; i < all.size(); i++)
+        for (size_t j = i+1; j < all.size(); j++)
+            P.h = std::max(P.h, (all[i] - all[j]).to_vector().norm());
+
+    std::vector<std::vector<location>> locs(P.faces.size());
+    bool any_cut = false;
+    for (size_t i = 0; i < P.faces.size(); i++) {
+        auto& f = P.faces[i];
+        bool has_neg = false, has_pos = false;
+        for (auto& v : f.vertices) {
+            bool neg = ls(v) < 0;
+            locs[i].push_back(neg ? location::IN_NEGATIVE_SIDE : location::IN_POSITIVE_SIDE);
+            has_neg = has_neg || neg;
+            has_pos = has_pos || !neg;
+        }
+        f.loc = (has_neg && has_pos) ? location::ON_INTERFACE
+              : (has_neg ? location::IN_NEGATIVE_SIDE : location::IN_POSITIVE_SIDE);
+        any_cut = any_cut || (f.loc == location::ON_INTERFACE);
+    }
+    if (!any_cut) {
+        P.loc = P.faces.empty() ? location::IN_POSITIVE_SIDE : P.faces[0].loc;
+        return;
+    }
+    P.loc = location::ON_INTERFACE;
+
+    std::map<edge_key<T>, point3> edge_points;
+    struct cut_face { size_t idx; edge_key<T> e0, e1; };
+    std::vector<cut_face> cfs;
+    for (size_t i = 0; i < P.faces.size(); i++) {
+        auto& f = P.faces[i];
+        if (f.loc != location::ON_INTERFACE)
+            continue;
+        if (!make_cut_face(f, locs[i], ls, edge_points, 0, true)) {
+            P.cut_more_than_once = true;
+            return;
+        }
+        size_t n = f.vertices.size();
+        auto key = [&](size_t e) { return make_edge_key(f.vertices[e], f.vertices[(e+1) % n]); };
+        cfs.push_back({i, key(f.poly.edge0), key(f.poly.edge1)});
+    }
+
+    /* loop of the chords: each cut edge is shared by two cut faces */
+    std::vector<bool> used(cfs.size(), false);
+    P.loop.push_back(std::make_pair(cfs[0].idx, false));
+    used[0] = true;
+    auto exit_edge = cfs[0].e1;
+    auto start_edge = cfs[0].e0;
+    while (exit_edge != start_edge) {
+        bool found = false;
+        for (size_t j = 0; j < cfs.size() && !found; j++) {
+            if (used[j])
+                continue;
+            if (cfs[j].e0 == exit_edge) {
+                P.loop.push_back(std::make_pair(cfs[j].idx, false));
+                exit_edge = cfs[j].e1;
+                used[j] = found = true;
+            }
+            else if (cfs[j].e1 == exit_edge) {
+                P.loop.push_back(std::make_pair(cfs[j].idx, true));
+                exit_edge = cfs[j].e0;
+                used[j] = found = true;
+            }
+        }
+        if (!found) {
+            P.cut_more_than_once = true;
+            return;
+        }
+    }
+    if (P.loop.size() != cfs.size() || cfs.size() < 3) {
+        P.cut_more_than_once = true;
+        return;
+    }
+
+    /* ends of the chords along the loop, oriented counterclockwise around the
+     * normal pointing towards the positive side */
+    std::vector<point3> lp;
+    for (auto& e : P.loop) {
+        const auto& f = P.faces[e.first];
+        planar_level_set<T,3> phi(ls, f.origin, f.U);
+        lp.push_back(phi.to_global(e.second ? f.poly.p1 : f.poly.p0));
+    }
+    vec3<T> nl = newell_normal(lp);
+    point3 c;
+    for (auto& p : lp)
+        c = c + p;
+    c = c / T(lp.size());
+    vec3<T> g = vec3<T>::Zero();
+    for (auto& p : lp)
+        g += ls.gradient(p);
+    if (nl.dot(g) < 0) {
+        std::reverse(lp.begin(), lp.end());
+        nl = -nl;
+    }
+
+    nl /= nl.norm();
+    P.nu = nl;
+
+    /* consecutive points of the loop that coincide (interface through a
+     * vertex of P) are merged */
+    {
+        std::vector<point3> lq;
+        for (auto& p : lp)
+            if (lq.empty() || (p - lq.back()).to_vector().norm() > 1e-13 * P.h)
+                lq.push_back(p);
+        while (lq.size() > 1 && (lq.front() - lq.back()).to_vector().norm() <= 1e-13 * P.h)
+            lq.pop_back();
+        lp = lq;
+    }
+    const size_t nlp = lp.size();
+    /* no infinities: the code may be compiled with -ffast-math */
+    const T invalid = std::numeric_limits<T>::max();
+
+    auto distance_to_faces = [&](const point3& x) {
+        T d = std::numeric_limits<T>::max();
+        for (auto& f : P.faces)
+            d = std::min(d, -f.normal.dot((x - f.vertices[0]).to_vector()));
+        return d;
+    };
+    /* circumradius of a triangle oriented along nl ("invalid" otherwise):
+     * the normal of a triangle inscribed in the interface deviates from the
+     * normal of the interface by O(curvature x circumradius) */
+    auto circumradius = [&](const point3& a, const point3& b, const point3& e) -> T {
+        vec3<T> u = (b - a).to_vector(), v = (e - a).to_vector();
+        vec3<T> n = u.cross(v);
+        if (!(n.dot(nl) > 1e-14 * P.h * P.h))
+            return invalid;
+        return u.norm() * v.norm() * (e - b).to_vector().norm() / (2 * n.norm());
+    };
+
+    /* fan from a point of the interface: the interface along nl from the
+     * average of the points of the loop or from the centroid of the loop */
+    auto on_interface = [&](const point3& x0) -> std::optional<point3> {
+        auto fdf = [&](T t) {
+            point3 x = x0 + point3(vec3<T>(nl * t));
+            return std::make_pair(ls(x), ls.gradient(x).dot(nl));
+        };
+        auto t = find_root_near(fdf, -P.h, P.h, T(0), T(1e-3) * P.h, T(1e-15) * P.h);
+        if (!t)
+            return std::nullopt;
+        point3 x = x0 + point3(vec3<T>(nl * (*t)));
+        if (distance_to_faces(x) <= 1e-12 * P.h)
+            return std::nullopt;
+        return x;
+    };
+    std::vector<point3> fan_centers;
+    {
+        point3 avg;
+        for (auto& p : lp)
+            avg = avg + p;
+        avg = avg / T(nlp);
+        point3 cen;
+        T area = 0;
+        for (size_t i = 0; i < nlp; i++) {
+            const auto& a = lp[i];
+            const auto& b = lp[(i+1) % nlp];
+            T ai = (a - avg).to_vector().cross((b - avg).to_vector()).dot(nl);
+            cen = cen + (avg + a + b) * (ai / 3);
+            area += ai;
+        }
+        for (auto x0 : {avg, area > 0 ? cen / area : avg})
+            if (auto x = on_interface(x0))
+                fan_centers.push_back(*x);
+        if (fan_centers.empty())
+            fan_centers.push_back(avg);   // degenerate loop: kept in the plane of the loop
+    }
+    point3 c_best = fan_centers[0];
+    T fan_score = invalid;
+    bool fan_ok = false;
+    for (auto& cc : fan_centers) {
+        T sc = 0;
+        bool ok = true;
+        for (size_t i = 0; i < nlp; i++) {
+            T r = circumradius(cc, lp[i], lp[(i+1) % nlp]);
+            ok = ok && (r < invalid);
+            sc = std::max(sc, r);
+        }
+        if (ok && (!fan_ok || sc < fan_score)) {
+            fan_score = sc;
+            c_best = cc;
+            fan_ok = true;
+        }
+    }
+
+    /* triangulation of the loop with the smallest largest circumradius
+     * (dynamic programming on the polygon) */
+    std::vector<std::array<point3, 3>> loop_tris;
+    T loop_score = invalid;
+    bool loop_ok = false;
+    if (nlp >= 3) {
+        /* cost of the triangulations of the polygon lp[i..j], ok: one of
+         * them has all its triangles oriented along nl */
+        std::vector<std::vector<T>> cost(nlp, std::vector<T>(nlp, 0));
+        std::vector<std::vector<bool>> ok(nlp, std::vector<bool>(nlp, true));
+        std::vector<std::vector<size_t>> arg(nlp, std::vector<size_t>(nlp, 0));
+        for (size_t len = 2; len < nlp; len++)
+            for (size_t i = 0; i + len < nlp; i++) {
+                size_t j = i + len;
+                ok[i][j] = false;
+                for (size_t k = i+1; k < j; k++) {
+                    T r = circumradius(lp[i], lp[k], lp[j]);
+                    if (!ok[i][k] || !ok[k][j] || !(r < invalid))
+                        continue;
+                    T v = std::max({cost[i][k], cost[k][j], r});
+                    if (!ok[i][j] || v < cost[i][j]) {
+                        cost[i][j] = v;
+                        arg[i][j] = k;
+                        ok[i][j] = true;
+                    }
+                }
+            }
+        loop_ok = ok[0][nlp-1];
+        loop_score = cost[0][nlp-1];
+        if (loop_ok) {
+            std::function<void(size_t, size_t)> collect = [&](size_t i, size_t j) {
+                if (j < i + 2)
+                    return;
+                size_t k = arg[i][j];
+                loop_tris.push_back({lp[i], lp[k], lp[j]});
+                collect(i, k);
+                collect(k, j);
+            };
+            collect(0, nlp-1);
+        }
+    }
+
+    /* the boundary of the part "neg" (outward normals) for an interface
+     * made of the triangles tris */
+    auto part_boundary = [&](const std::vector<std::array<point3, 3>>& tris, bool neg) {
+        std::vector<std::pair<std::vector<point3>, vec3<T>>> bnd;
+        location where = neg ? location::IN_NEGATIVE_SIDE : location::IN_POSITIVE_SIDE;
+        for (auto& f : P.faces) {
+            if (f.loc == where)
+                bnd.push_back(std::make_pair(f.vertices, f.normal));
+            else if (f.loc == location::ON_INTERFACE) {
+                planar_level_set<T,3> phi(ls, f.origin, f.U);
+                std::vector<point3> sp;
+                for (auto& p : side_polygon(f.poly, where, true))
+                    sp.push_back(phi.to_global(p));
+                bnd.push_back(std::make_pair(sp, f.normal));
+            }
+        }
+        for (auto& tri : tris) {
+            vec3<T> n = (tri[1] - tri[0]).to_vector().cross((tri[2] - tri[0]).to_vector());
+            if (n.norm() == 0)
+                continue;
+            n /= n.norm();
+            bnd.push_back(std::make_pair(std::vector<point3>{tri[0], tri[1], tri[2]}, neg ? n : vec3<T>(-n)));
+        }
+        return bnd;
+    };
+    /* smallest distance of x to the planes of the boundary, positive if the
+     * part is star-shaped with respect to x (positive cones) */
+    auto kernel_margin = [&](const std::vector<std::pair<std::vector<point3>, vec3<T>>>& bnd, const point3& x) {
+        T m = invalid;
+        for (auto& b : bnd) {
+            if (b.first.size() < 3)
+                continue;
+            m = std::min(m, b.second.dot((b.first[0] - x).to_vector()));
+        }
+        return m;
+    };
+
+    bool use_loop = false;
+    if (loop_ok && (!fan_ok || loop_score < fan_score)) {
+        /* centers of the cones: points of the kernels of the two parts */
+        point3 avg;
+        for (auto& p : lp)
+            avg = avg + p;
+        avg = avg / T(nlp);
+        for (size_t side = 0; side < 2; side++) {
+            auto bnd = part_boundary(loop_tris, side == 0);
+            std::vector<point3> cand;
+            point3 g;
+            size_t ng = 0;
+            for (auto& b : bnd)
+                for (auto& p : b.first) {
+                    g = g + p;
+                    ng++;
+                }
+            cand.push_back(g / T(ng));
+            T sg = (side == 0) ? -1 : 1;
+            for (T t : {1e-3, 3e-3, 1e-2, 3e-2, 0.1, 0.2, 0.3})
+                cand.push_back(avg + point3(vec3<T>(nl * (sg * t * P.h))));
+            T best = 0;
+            for (auto& x : cand) {
+                T m = kernel_margin(bnd, x);
+                if (m > best) {
+                    best = m;
+                    P.centers[side] = x;
+                }
+            }
+            use_loop = (best > 1e-10 * P.h);
+            if (!use_loop)
+                break;
+        }
+    }
+
+    if (use_loop) {
+        P.flat_interface = loop_tris;
+        P.interface = lp;
+        return;
+    }
+
+    c = c_best;
+    for (size_t i = 0; i < nlp; i++)
+        P.flat_interface.push_back({c, lp[i], lp[(i+1) % nlp]});
+    P.interface = lp;
+    P.interface.push_back(c);
+
+    /* centers of the cones of the two parts: the parts are star-shaped with
+     * respect to the points close to the center c of the fan, on each side,
+     * if the triangles are all oriented along nl */
+    T d = distance_to_faces(c);
+    if (fan_ok && d > 1e-12 * P.h) {
+        T eps = 0.5 * std::min(T(1e-2) * P.h, d);
+        P.centers[0] = c - point3(vec3<T>(nl * eps));
+        P.centers[1] = c + point3(vec3<T>(nl * eps));
+    }
+    else {
+        point3 avg;
+        for (auto& v : all)
+            avg = avg + v;
+        P.centers[0] = P.centers[1] = avg / T(all.size());
+    }
+}
 
 /* Cut of a convex polyhedron given by its faces (vertices counterclockwise
  * seen from outside, outward normals): location, cut faces, interface patch;
@@ -2069,6 +2444,10 @@ template<typename T, typename LS>
 void
 build_cut_polyhedron(cut_polyhedron<T>& P, const LS& ls, const cut_polyhedron_options& opt, size_t depth = 0)
 {
+    if (opt.flat) {
+        build_flat_cut_polyhedron(P, ls);
+        return;
+    }
     P.children.clear();
     P.loop.clear();
     P.interface.clear();
@@ -2263,6 +2642,18 @@ polyhedron_interface_quadrature(const cut_polyhedron<T>& P, const LS& ls, size_t
     }
     if (P.loc != location::ON_INTERFACE)
         return;
+    if (P.flat) {
+        for (auto& tri : P.flat_interface) {
+            vec3<T> n = (tri[1] - tri[0]).to_vector().cross((tri[2] - tri[0]).to_vector());
+            if (n.norm() == 0)
+                continue;
+            n /= n.norm();
+            size_t n0 = out.itf.size();
+            add_triangle_quadrature(out.itf, degree, tri[0], tri[1], tri[2]);
+            out.normals.insert(out.normals.end(), out.itf.size() - n0, n);
+        }
+        return;
+    }
     cut_quadratures<T,3> q;
     if (P.linear || !patch_quadrature(P, ls, degree, q)) {
         cut_quadratures<T,3> s;
@@ -2316,6 +2707,41 @@ polyhedron_volume_quadrature(const cut_polyhedron<T>& P, const LS& ls, size_t de
         return;
     }
 
+    if (P.flat) {
+        /* polyhedral part: cones from the average of its vertices over its
+         * flat boundary (faces, parts of the cut faces, interface triangles) */
+        std::vector<std::pair<std::vector<point<T,3>>, vec3<T>>> bnd;
+        for (auto& f : P.faces) {
+            if (f.loc == where)
+                bnd.push_back(std::make_pair(f.vertices, f.normal));
+            else if (f.loc == location::ON_INTERFACE) {
+                planar_level_set<T,3> phi(ls, f.origin, f.U);
+                std::vector<point<T,3>> sp;
+                for (auto& p : side_polygon(f.poly, where, true))
+                    sp.push_back(phi.to_global(p));
+                bnd.push_back(std::make_pair(sp, f.normal));
+            }
+        }
+        for (auto& tri : P.flat_interface) {
+            vec3<T> n = (tri[1] - tri[0]).to_vector().cross((tri[2] - tri[0]).to_vector());
+            if (n.norm() == 0)
+                continue;
+            n /= n.norm();
+            if (neg)
+                bnd.push_back(std::make_pair(std::vector<point<T,3>>{tri[0], tri[1], tri[2]}, n));
+            else
+                bnd.push_back(std::make_pair(std::vector<point<T,3>>{tri[0], tri[2], tri[1]}, vec3<T>(-n)));
+        }
+        c = P.centers[neg ? 0 : 1];
+        for (auto& b : bnd) {
+            std::vector<quadrature_point<T,3>> fq;
+            add_polygon_quadrature(fq, degree, b.first);
+            for (auto& qp : fq)
+                add_cone(qp.point(), qp.weight(), b.second);
+        }
+        return;
+    }
+
     cut_quadratures<T,3> itf;
     bool lifted = !P.linear && patch_quadrature(P, ls, std::max<size_t>(degree, 2), itf);
     if (!lifted) {
@@ -2356,6 +2782,10 @@ polyhedron_interface_samples(const cut_polyhedron<T>& P, const LS& ls, std::vect
     }
     if (P.loc != location::ON_INTERFACE)
         return;
+    if (P.flat) {
+        out.insert(out.end(), P.interface.begin(), P.interface.end());
+        return;
+    }
     if (P.linear) {
         cut_quadratures<T,3> s;
         subdivision_quadratures(P, ls, 0, 1, s);
