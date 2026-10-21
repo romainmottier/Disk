@@ -9,7 +9,7 @@ Color and marker code of the time schemes, the same in every figure:
     LI    blue, diamonds        SDIRK grey, inverted triangles (implicit reference)
 
 Data: <results> as written by run_article.sh (one directory per run: c.dat, log.txt, time.txt, sensors, snapshots):
-    alg/, form/ 6.2    rho/, stab/ 6.3    conv/, tconv/, meshes/ 6.5    ls/ 6.6    cfl/, head/, head1/ 6.7 (earlier head model)
+    alg/, form/ 6.6    rho/, stab/ 6.2    conv/, tconv/, meshes/ 6.4    ls/ 6.5    cfl/, head/, head1/ 6.7 (earlier head model)
 and the reduced models (5): reduced_models/plan_extra.npz, reduced_lts_erk.npz, reduced_li_stage.npz.
 Usage: python3 make_article.py <results> <output directory>"""
 import glob, math, os, re, sys
@@ -243,7 +243,7 @@ def edges(polys):
     return [[p[i], p[(i + 1) % len(p)]] for p in polys for i in range(len(p))]
 
 
-# ------------------------------------------------------------------------------------ 6.2 the two formulations
+# ------------------------------------------------------------------------------------ 6.6 the two formulations
 def formulations():
     fig, axs = plt.subplots(1, 2, figsize=(6.3, 2.35), gridspec_kw=dict(width_ratios=[1.15, 1]))
     ax = axs[0]
@@ -255,8 +255,20 @@ def formulations():
                 continue
             names, rows = D
             n_steps = round(1.0 / rows[-1, names.index("dt")])
-            w, _ = wall(f"alg/{o}_l{l}")           # wall time of the run (setup included) per step
-            nu.append(8 * 2 ** l); ms.append(1e3 * w / n_steps)
+            # integration time per step: difference of the runs with n and n + 80000 / 2^l steps (the setup cancels;
+            # the second-order setup estimates omega_max and the splitting radius), best of the repetitions (_r2);
+            # without the long runs, wall time per step
+            extra = 80000 // 2 ** l
+            per = []
+            for rep in ("", "_r2"):
+                w, _ = wall(f"alg/{o}_l{l}{rep}")
+                wl, _ = wall(f"alg/{o}_l{l}_long{rep}")
+                if w is not None and wl is not None:
+                    per.append((wl - w) / extra)
+            if not per:
+                w, _ = wall(f"alg/{o}_l{l}")
+                per = [w / n_steps]
+            nu.append(8 * 2 ** l); ms.append(1e3 * min(per))
         if nu:
             ax.plot(np.array(nu) ** 2, ms, "-" + mk, color=c, lw=1.0, ms=3.2, label=lab)
     style_log(ax, "cells", "wall time per ERK4 step (ms)")
@@ -265,10 +277,10 @@ def formulations():
     # wall time (the second-order runs have no CPU column), one thread (hatched) and six threads
     labels, xs = [], []
     k = 0
-    # second order: MLTS with the exact condensation (mlts) and with the projected one (mltsp, faces.projected)
-    for o, name, schemes in (("o1", "first order", ("erk", "mlts")), ("o2", "second order", ("erk", "mlts", "mltsp"))):
+    # second order: MLTS with the projected condensation only (runs mltsp, faces.projected), labelled MLTS
+    for o, name, schemes in (("o1", "first order", ("erk", "mlts")), ("o2", "second order", ("erk", "mltsp"))):
         for s in schemes:
-            color = "#e2a09b" if s == "mltsp" else SCH[s][1]
+            color = SCH["mlts" if s == "mltsp" else s][1]
             for j, (suf, th) in enumerate((("_q1", 1), ("_q", 6))):
                 w, _ = wall(f"form/{o}_{s}{suf}")
                 v = w if w is not None else np.nan
@@ -277,7 +289,7 @@ def formulations():
                        hatch="////" if th == 1 else None)
                 if np.isfinite(v):
                     ax.text(xi, v * 1.12, f"{v:.0f}" if v >= 10 else f"{v:.1f}", ha="center", va="bottom", fontsize=5.5)
-            labels.append(f"{name}\nMLTS (proj.)" if s == "mltsp" else f"{name}\n{SCH[s][0]}"); xs.append(k)
+            labels.append(f"{name}\n{SCH['mlts' if s == 'mltsp' else s][0]}"); xs.append(k)
             k += 1
     vals = [b.get_height() for b in ax.patches]
     ax.set_yscale("log"); ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=5.8)
@@ -340,7 +352,7 @@ def reduced():
     save(fig, "red_dtc.pdf")
 
 
-# ------------------------------------------------------------------------------------------------ 6.3 stability
+# ------------------------------------------------------------------------------------------------ 6.2 stability
 def stability():
     L = [0, 1, 2, 3, 4, 5]
     fig, axs = plt.subplots(1, 2, figsize=(6.3, 2.35))
@@ -395,12 +407,12 @@ def stability():
     save(fig, "stab.pdf")
 
 
-# -------------------------------------------------------------------------------------- 6.5 smooth convergence
+# -------------------------------------------------------------------------------------- 6.4 smooth convergence
 def meshes_cart():
     names = [("u", l) for l in (0, 1, 2)] + [("g", l) for l in (0, 1, 2)]
     files = [os.path.join(R, "meshes", f"cart_{k}{l}", "c_cells.dat") for k, l in names]
     if not all(os.path.exists(f) for f in files):
-        print("meshes of 6.5: missing c_cells.dat"); return
+        print("meshes of 6.4: missing c_cells.dat"); return
     fig, axes = plt.subplots(2, 3, figsize=(6.3, 4.3))
     for ax, f, (k, l) in zip(axes.ravel(), files, names):
         cells = read_cells(f)
@@ -456,7 +468,7 @@ def time_orders():
         save(fig, "tconv.pdf")
 
 
-# ----------------------------------------------------------------------------------------------- 6.6 L-shape
+# ----------------------------------------------------------------------------------------------- 6.5 L-shape
 def lshape_meshes():
     f = os.path.join(LS_MESHES, "lshape_mu1-5_n8.txt")
     if not os.path.exists(f):

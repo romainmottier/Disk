@@ -45,7 +45,7 @@ Experiences :
 Duree : E0-E3 environ 1 h 30 (E2 gradue L = 5 : 8 min par etude),
 E4 35 min, E5 (travail) 10 min, E5t 10 min (AMD Ryzen AI 9 HX PRO 370).
 
-Ce qui fixe le pas stable d'une cellule (main.tex, 6.4) :
+Ce qui fixe le pas stable d'une cellule (main.tex, 6.3) :
   ./run_cfl_cells.sh <sortie> <executable>   (maillages de
   mesh_generation/lts_efficiency/generate_cfl_cells.py : 16 x 16 carres,
   une cellule modifiee -- rectangle mince, petite face, coin coupe --,

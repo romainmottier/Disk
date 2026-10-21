@@ -1,4 +1,4 @@
--- 6.5 smooth solution, k = 3: Cartesian meshes 8 x 8 .. 128 x 128 of the unit square (mesh.level 0..4), uniform or
+-- 6.4 smooth solution, k = 3: Cartesian meshes 8 x 8 .. 128 x 128 of the unit square (mesh.level 0..4), uniform or
 -- with the central box [3/8, 5/8]^2 refined mesh.refine_levels times (graded transition, one level per ring)
 formulation = "first_order"
 space   = { k = 3, order = "equal", stabilization = "least_squares", scaling = "1" }

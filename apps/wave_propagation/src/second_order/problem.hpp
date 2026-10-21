@@ -23,6 +23,8 @@ namespace hho_second_order {
         domain_data dd;
         scal_vec_analytic_functions functions;
         RealType m_t = 0.0;
+        bool constant_F = false, m_F_ready = false;     // problem.source and dirichlet = "zero": F assembled once
+        vector_type m_F;
         std::function<disk::static_vector<RealType, 2>(const point_type&)>    u_fun, v_fun, a_fun, f_fun, s_flux_fun;
         std::function<disk::static_matrix<RealType, 2, 2>(const point_type&)> flux_fun;
         std::function<RealType(const point_type&)>                            s_u_fun, s_v_fun, s_a_fun, s_f_fun;
@@ -51,6 +53,12 @@ namespace hho_second_order {
             s_a_fun    = functions.Evaluate_s_a(m_t);
             s_f_fun    = functions.Evaluate_s_f(m_t);
             s_flux_fun = functions.Evaluate_s_q(m_t);
+            // problem.source = "zero" (as the first order): no source; with homogeneous Dirichlet data, F is assembled once
+            if (prm.problem.source == "zero") {
+                f_fun   = [](const point_type&) -> disk::static_vector<RealType, 2> { return disk::static_vector<RealType, 2>::Zero(); };
+                s_f_fun = [](const point_type&) -> RealType { return 0.0; };
+            }
+            constant_F = prm.problem.source == "zero" && prm.problem.dirichlet == "zero";
 
             // second-order formulation: Dirichlet data on the displacement and on the potential, those of the
             // solution or homogeneous (problem.dirichlet = "zero", the initial data remaining those of the solution)
@@ -89,6 +97,10 @@ namespace hho_second_order {
             m_sys->tol = prm.faces.tolerance;
             m_sys->max_iter = prm.faces.max_iterations;
             m_sys->set_fast(prm.solver.fast);
+            if (prm.solver.matrix_free) {
+                m_sys->set_matrix_free(RealType(prm.solver.matrix_free_tolerance), int(prm.solver.matrix_free_batch));
+                std::cout << "      matrix-free products: " << m_sys->matrix_free_summary() << std::endl;
+            }
 
             // LTS fine region (as in HHOFirstOrder): cells smaller than h_c and one vertex layer
             p = fine_substeps(prm, dd);
@@ -194,6 +206,14 @@ namespace hho_second_order {
         // F(t) in the assembler numbering
         vector_type eval_F_unknowns(RealType t) {
             m_t = t;
+            if (constant_F) {
+                if (!m_F_ready) {
+                    assembler().assemble_rhs(msh, f_fun, s_f_fun);
+                    m_F = assembler().RHS;
+                    m_F_ready = true;
+                }
+                return m_F;
+            }
             assembler().assemble_rhs(msh, f_fun, s_f_fun);
             return assembler().RHS;
         }

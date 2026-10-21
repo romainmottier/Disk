@@ -381,7 +381,8 @@ struct wave_parameters {
                << (solver.iterative ? ", BiCGSTAB-ILU, tolerance " + std::to_string(solver.tolerance) : std::string(""))
                << std::endl;
         if (solver.fast && formulation == "second_order")
-            os << "   solver      : fast mode (parallel assembly, cached F(t), parallel products, faces: "
+            os << "   solver      : fast mode (parallel assembly, cached F(t), "
+               << (solver.matrix_free ? "matrix-free products" : "parallel products") << ", faces: "
                << (faces.solver == "splitting" ? "conjugate gradients preconditioned by the splitting" : "Pardiso")
                << ", stages: condensed, Pardiso)" << std::endl;
         else if (solver.matrix_free && time.scheme == "sdirk")
@@ -630,6 +631,8 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     p.solver.parallel_threshold = get_count(solver, "solver", "parallel_threshold", p.solver.parallel_threshold);
     if (p.solver.fast && p.formulation == "first_order")
         p.solver.matrix_free = true;
+    if (p.solver.matrix_free && p.formulation == "second_order")     // matrix-free products of the fast mode
+        p.solver.fast = true;
 
     sol::table time = get_table(lua, "time");
     check_keys(time, "time", {"scheme", "stages", "final_time", "n_steps", "dt_h", "substeps", "fine_size", "fine_layers", "newmark_beta",
@@ -914,8 +917,6 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
                                                          p.time.scheme != "sdirk" || !p.scaled_stabilization()))
         throw std::runtime_error("space.elastic_formulation = \"three_fields\": first order, problem.medium = \"elastic\", "
                                  "time.scheme = \"sdirk\" and space.scaling = \"1/h\" (assembler of Burman-Duran-Ern-Steins 2021)");
-    if (p.problem.source == "zero" && p.formulation != "first_order")
-        throw std::runtime_error("problem.source = \"zero\": first order only");
     if (p.problem.interface == "tags" && p.mesh.type != "polygons")
         throw std::runtime_error("problem.interface = \"tags\" needs mesh.type = \"polygons\" (meshes with cell tags)");
     if (p.problem.interface == "tags" && p.problem.zones.empty())
@@ -932,9 +933,11 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
         throw std::runtime_error("solver.iterative: first order with time.scheme = \"sdirk\" only");
     if (p.solver.matrix_free && !(p.formulation == "first_order" && (p.time.scheme == "erk" || p.time.scheme == "lts"
                                                                      || p.time.scheme == "li" || p.time.scheme == "sdirk"
-                                                                     || p.time.scheme == "mlts")))
+                                                                     || p.time.scheme == "mlts"))
+                             && !(p.formulation == "second_order" && (p.time.scheme == "erk" || p.time.scheme == "lts"
+                                                                      || p.time.scheme == "mlts")))
         throw std::runtime_error("solver.matrix_free: first order with time.scheme = \"erk\", \"lts\", \"li\", \"mlts\" or "
-                                 "\"sdirk\" only");
+                                 "\"sdirk\", second order with \"erk\", \"lts\" or \"mlts\" only");
     if (p.solver.matrix_free_batch < 1)
         throw std::runtime_error("solver.matrix_free_batch must be positive");
     if (p.solver.tolerance <= 0.0 || p.solver.tolerance_growth <= 0.0)

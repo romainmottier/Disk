@@ -286,7 +286,19 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
                                sans matrice globale ; sdirk : produits
                                paralleles, Pardiso sans raffinement
                                iteratif ; assemblage parallele, donnees de
-                               F(t) gardees ; defaut false
+                               F(t) gardees ; ordre 2 (erk, lts, mlts, sans
+                               interface elasto-acoustique) : mode rapide
+                               avec produits sans matrice (blocs partages
+                               des cellules, gradients conjugues fusionnes
+                               dans une region OpenMP,
+                               second_order/mf_operator.hpp), ERK fusionne
+                               (etages et mise a jour en une passe par etage)
+                               et, avec faces.projected et time.scheme =
+                               "mlts", niveaux sur tableaux locaux (inconnues
+                               des niveaux grossiers en forme close),
+                               operateurs locaux sans matrice et premiers
+                               sous-pas reutilisant le niveau parent ;
+                               resultats egaux aux arrondis pres ; defaut false
   solver.matrix_free_tolerance blocs locaux partages a cette tolerance
                                relative pres (defaut 1e-10 ; 0 : egalite
                                bit a bit, < 0 : un bloc par cellule)
@@ -463,7 +475,9 @@ sert d'exemple pour chacune de ces cles).
   problem.acoustic,        materiaux {rho, vp} et {rho, vp, vs}
   problem.elastic
   problem.dirichlet        "exact" (defaut) ou "zero"
-  problem.source           "solution" (defaut) ou "zero"
+  problem.source           "solution" (defaut) ou "zero" (les deux
+                           formulations ; avec problem.dirichlet = "zero",
+                           F assemble une seule fois)
   problem.solution         aussi "coupled_sinusoidal" (problem.omega,
                            problem.theta), "coupled_poly_in_space",
                            "coupled_poly_in_time" et "ricker" : ondelette

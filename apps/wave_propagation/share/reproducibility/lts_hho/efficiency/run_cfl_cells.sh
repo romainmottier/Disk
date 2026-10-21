@@ -1,5 +1,5 @@
 #!/bin/bash
-# main.tex 6.4 (what sets the stable step of a cell): meshes of generate_cfl_cells.py (16 x 16 squares, one
+# main.tex 6.3 (what sets the stable step of a cell): meshes of generate_cfl_cells.py (16 x 16 squares, one
 # modified cell, or anisotropic cells), largest stable step of ERK4 for k = 3 (and k = 1 for thin, face, none), then
 # cfl.json (analyze_cfl.py) for ../make_cfl_cells.py. Resumable; no timing involved.
 #   usage: run_cfl_cells.sh <out> [wave_propagation executable]

@@ -19,8 +19,59 @@
 
 namespace hho_second_order {
 
+    // ERK(s) with the matrix-free products (solver.matrix_free, y = (u, v)): the stage values and the update fused in one
+    // OpenMP pass per stage (stage velocities kept: they are the rates of u), no allocation, F assembled once when it does
+    // not depend on time. Same scheme as runge_kutta::erk, results equal up to round-off.
+    inline vector_type integrate_erk_mf(problem& pb, vector_type y, size_t nt, RealType tf, size_t s) {
+        Matrix<RealType, Dynamic, Dynamic> a; vector_type b, c;
+        erk_butcher_tableau::erk_tables(int(s), a, b, c);
+        second_order_system& sys = pb.system();
+        const long n = long(sys.n_c);
+        const RealType dt = tf / RealType(nt);
+        std::vector<vector_type> rv(s, vector_type(n)), sv(s, vector_type(n));   // rates of v, stage velocities
+        vector_type yn(2 * n), Y(2 * n), a_ws, Fw;
+        if (pb.constant_F) Fw = pb.eval_F(0.0);
+        for (size_t it = 0; it < nt; it++) {
+            const RealType tn = dt * RealType(it);
+            #pragma omp parallel for schedule(static)
+            for (long d = 0; d < 2 * n; d++) yn(d) = y(d);
+            for (size_t i = 0; i < s; i++) {
+                const vector_type& Yi = i == 0 ? yn : Y;
+                if (!pb.constant_F) Fw = pb.eval_F(tn + c(i) * dt);
+                sys.mf_rates(Fw, Yi.data(), a_ws, rv[i].data());
+                const bool next = i + 1 < s;
+                #pragma omp parallel for schedule(static)
+                for (long d = 0; d < n; d++) {
+                    sv[i](d) = Yi(n + d);
+                    if (!next) continue;
+                    RealType du = 0, dv = 0;
+                    for (size_t j = 0; j <= i; j++) {
+                        const RealType aij = a(i + 1, j);
+                        if (aij == 0) continue;
+                        du += aij * sv[j](d);
+                        dv += aij * rv[j](d);
+                    }
+                    Y(d) = yn(d) + dt * du;
+                    Y(n + d) = yn(n + d) + dt * dv;
+                }
+            }
+            #pragma omp parallel for schedule(static)
+            for (long d = 0; d < n; d++) {
+                RealType du = 0, dv = 0;
+                for (size_t i = 0; i < s; i++) {
+                    du += b(i) * sv[i](d);
+                    dv += b(i) * rv[i](d);
+                }
+                y(d) = yn(d) + dt * du;
+                y(n + d) = yn(n + d) + dt * dv;
+            }
+        }
+        return y;
+    }
+
     // ERK(s)
     inline vector_type integrate_erk(problem& pb, vector_type y, size_t nt, RealType tf, size_t s) {
+        if (pb.system().matrix_free()) return integrate_erk_mf(pb, y, nt, tf, s);
         Matrix<RealType, Dynamic, Dynamic> a; vector_type b, c;
         erk_butcher_tableau::erk_tables(int(s), a, b, c);
         second_order_system& sys = pb.system();
@@ -438,6 +489,158 @@ namespace hho_second_order {
             return l == 0 ? sys.eval(F0, v, ws[i]) : sys.apply_local_block(*A[l].blk, v);
         };
         const double dt = tf / double(nt);
+        if (sys.matrix_free()) {
+            // Local arrays (solver.matrix_free): level l >= 1 only holds the unknowns S_l of the rows of A_l (the columns
+            // read by A_l are among them, S_{l+1} in S_l). Over its window, the unknowns of S_l \ S_{l+1} follow the Taylor
+            // polynomial of level l (the RK4 substeps of the finest level integrate it exactly): they are updated in
+            // closed form at the end of the window, those of S_{l+1} by level l+1. Level 0 holds the whole state (B on
+            // the whole mesh) and updates the unknowns outside S_1 in closed form. A_l is applied matrix-free on the cells
+            // of its rows and its faces (make_local_mf), the faces by conjugate gradients warm-started from the previous
+            // call at the same site (derivatives of each level, RK4 stages). Same scheme, equal up to round-off.
+            const Eigen::Index N = Eigen::Index(sys.state_size()), nc = Eigen::Index(sys.n_c);
+            struct level { std::vector<int> S, px, pu, pv, prc, prd, sub, own, pin; };   // positions in the local array
+            std::vector<level> lev(L);
+            std::vector<int> pos(size_t(N), -1);
+            for (size_t l = L - 1; l >= 1; l--) {
+                const second_order_system::local_block& lb = *A[l].blk;
+                level& lv = lev[l];
+                auto st_x = [&](int j) { return j < int(nc) ? j : int(2 * nc) + (j - int(nc)); };
+                for (int j : lb.xi) lv.S.push_back(st_x(j));
+                for (int i : lb.vc) { lv.S.push_back(i); lv.S.push_back(int(nc) + i); }
+                for (int i : lb.rc) lv.S.push_back(int(nc) + i);
+                for (int i : lb.rd) lv.S.push_back(int(2 * nc) + i);
+                if (l + 1 < L) lv.S.insert(lv.S.end(), lev[l + 1].S.begin(), lev[l + 1].S.end());
+                std::sort(lv.S.begin(), lv.S.end());
+                lv.S.erase(std::unique(lv.S.begin(), lv.S.end()), lv.S.end());
+                for (size_t k = 0; k < lv.S.size(); k++) pos[lv.S[k]] = int(k);
+                for (int j : lb.xi) lv.px.push_back(pos[st_x(j)]);
+                for (int i : lb.vc) { lv.pu.push_back(pos[i]); lv.pv.push_back(pos[int(nc) + i]); }
+                for (int i : lb.rc) lv.prc.push_back(pos[int(nc) + i]);
+                for (int i : lb.rd) lv.prd.push_back(pos[int(2 * nc) + i]);
+                std::vector<char> in_set(size_t(nc), 0);
+                for (int i : lb.vc) in_set[size_t(i)] = 1;
+                for (int i : lb.rc) lv.pin.push_back(in_set[size_t(i)] ? pos[i] : -1);
+                std::vector<char> in_sub(lv.S.size(), 0);
+                if (l + 1 < L)
+                    for (int s : lev[l + 1].S) { lv.sub.push_back(pos[s]); in_sub[size_t(pos[s])] = 1; }
+                for (size_t k = 0; k < lv.S.size(); k++) if (!in_sub[k]) lv.own.push_back(int(k));
+                for (int s : lv.S) pos[s] = -1;
+            }
+            // A_l on a local array of S_l, matrix-free: u of the cells of its rows (zero outside the level), faces by
+            // conjugate gradients from the warm start ws, velocities of the rows; u' = v on the cells of the level
+            std::vector<std::unique_ptr<mf_second_order_operator<RealType>>> mfl(L);
+            for (size_t l = 1; l < L; l++)
+                mfl[l] = sys.make_local_mf(*A[l].blk, RealType(prm.solver.matrix_free_tolerance), int(prm.solver.matrix_free_batch));
+            size_t local_solves = 0, local_iterations = 0, local_failures = 0;
+            auto apply_local = [&](size_t l, const vector_type& z, vector_type& ws) {
+                const second_order_system::local_block& lb = *A[l].blk;
+                const level& lv = lev[l];
+                mf_second_order_operator<RealType>& op = *mfl[l];
+                const Eigen::Index nr = Eigen::Index(lb.rc.size()), nf = Eigen::Index(lb.ci.size());
+                vector_type u(nr), zero = vector_type::Zero(std::max(nr, nf)), r(nf), vd(nr);
+                for (Eigen::Index k = 0; k < nr; k++) u(k) = lv.pin[size_t(k)] >= 0 ? z(lv.pin[size_t(k)]) : 0.0;
+                if (ws.size() != nf) ws = vector_type::Zero(nf);
+                if (nf > 0) {
+                    op.face_rhs(zero.data(), u.data(), r.data());
+                    if (r.squaredNorm() == 0.0) ws.setZero();
+                    else {
+                        const size_t m = op.pcg(r.data(), ws.data(), sys.tol, sys.max_iter);
+                        local_solves++;
+                        local_iterations += m ? m : sys.max_iter;
+                        if (!m) local_failures++;
+                    }
+                }
+                op.cell_rates(zero.data(), u.data(), ws.data(), vd.data());
+                vector_type out = vector_type::Zero(z.size());
+                for (size_t i = 0; i < lb.vc.size(); i++) out(lv.pu[i]) = z(lv.pv[i]);
+                for (Eigen::Index k = 0; k < nr; k++) out(lv.prc[size_t(k)]) = vd(k);
+                return out;
+            };
+            // warm starts: [level][site], sites 0-3 A_l on the derivatives of level l, 4-7 A_{l+1} on them (level l-1 for
+            // l = 1: level 0), 8-11 RK4 stages of the finest level
+            std::vector<std::array<vector_type, 12>> wsl(L);
+            // values of the local array of level l on S_{l+1}, and back
+            auto restrict_to = [&](size_t l, const vector_type& v) {
+                vector_type r(Eigen::Index(lev[l].sub.size()));
+                for (size_t k = 0; k < lev[l].sub.size(); k++) r(Eigen::Index(k)) = v(lev[l].sub[k]);
+                return r;
+            };
+            auto lift = [&](size_t l, const vector_type& r, Eigen::Index n) {
+                vector_type v = vector_type::Zero(n);
+                for (size_t k = 0; k < lev[l].sub.size(); k++) v(lev[l].sub[k]) = r(Eigen::Index(k));
+                return v;
+            };
+            // integral of the Taylor polynomial w over [0, h] at the position p
+            auto integral = [](const std::vector<vector_type>& w, Eigen::Index p, double h) {
+                return h * (w[0](p) + h / 2.0 * (w[1](p) + h / 3.0 * (w[2](p) + h / 4.0 * w[3](p))));
+            };
+            // pre (first sub-window of a window of level l - 1): A_l a_i already computed by level l - 1 on the same
+            // derivatives (its window starts at the same time with the same z, and w_in = w of level l - 1 makes the
+            // derivatives of level l those of level l - 1): reused, as the first RK4 slope of the finest level
+            std::function<void(size_t, double, vector_type&, const std::vector<vector_type>&, const std::vector<vector_type>*)> step_local =
+                [&](size_t l, double h, vector_type& z, const std::vector<vector_type>& w_in, const std::vector<vector_type>* pre) {
+                if (l == L - 1) {
+                    z += runge_kutta::rk4_increment(z, h, [&](const vector_type& zz, int st) {
+                        vector_type k = st == 0 && pre ? (*pre)[0] : apply_local(l, zz, wsl[l][8 + size_t(st)]);
+                        k += runge_kutta::taylor_polynomial(w_in, st == 0 ? 0.0 : st < 3 ? 0.5 * h : h);
+                        return k;
+                    });
+                    return;
+                }
+                std::vector<vector_type> w = w_in, An(4);
+                vector_type a = z;
+                for (size_t i = 0; i < 4; i++) {
+                    vector_type Aa = pre ? (*pre)[i] : apply_local(l, a, wsl[l][i]);
+                    An[i] = apply_local(l + 1, restrict_to(l, a), wsl[l + 1][4 + i]);
+                    w[i] += Aa - lift(l, An[i], z.size());
+                    if (i < 3) a = Aa + w_in[i];
+                }
+                const double hs = h / double(ratios[l]);
+                std::vector<vector_type> wr(4);
+                for (size_t i = 0; i < 4; i++) wr[i] = restrict_to(l, w[i]);
+                vector_type zc = restrict_to(l, z);
+                for (size_t m = 0; m < ratios[l]; m++)
+                    step_local(l + 1, hs, zc, local_time_stepping::taylor_shift(wr, double(m) * hs), m == 0 ? &An : nullptr);
+                for (int p : lev[l].own) z(p) += integral(w, p, h);
+                for (size_t k = 0; k < lev[l].sub.size(); k++) z(lev[l].sub[k]) = zc(Eigen::Index(k));
+            };
+            // level 0: positions of S_1 in the whole state
+            std::vector<char> in1(size_t(N), 0);
+            for (int s : lev[1].S) in1[size_t(s)] = 1;
+            auto restrict0 = [&](const vector_type& v) {
+                vector_type r(Eigen::Index(lev[1].S.size()));
+                for (size_t k = 0; k < lev[1].S.size(); k++) r(Eigen::Index(k)) = v(lev[1].S[k]);
+                return r;
+            };
+            std::vector<vector_type> w(4);
+            for (size_t it = 0; it < nt; it++) {
+                vector_type a = y;
+                std::vector<vector_type> A1(4);
+                for (size_t i = 0; i < 4; i++) {
+                    vector_type Ba = sys.eval(F0, a, ws[i]);
+                    vector_type A1a = vector_type::Zero(N);
+                    A1[i] = apply_local(1, restrict0(a), wsl[1][4 + i]);
+                    const vector_type& o = A1[i];
+                    for (size_t k = 0; k < lev[1].S.size(); k++) A1a(lev[1].S[k]) = o(Eigen::Index(k));
+                    w[i] = Ba - A1a;
+                    if (i < 3) a = Ba;
+                }
+                const double hs = dt / double(ratios[0]);
+                std::vector<vector_type> wr(4);
+                for (size_t i = 0; i < 4; i++) wr[i] = restrict0(w[i]);
+                vector_type z1 = restrict0(y);
+                for (size_t m = 0; m < ratios[0]; m++)
+                    step_local(1, hs, z1, local_time_stepping::taylor_shift(wr, double(m) * hs), m == 0 ? &A1 : nullptr);
+                #pragma omp parallel for schedule(static)
+                for (Eigen::Index p = 0; p < N; p++)
+                    if (!in1[size_t(p)]) y(p) += integral(w, p, dt);
+                for (size_t k = 0; k < lev[1].S.size(); k++) y(lev[1].S[k]) = z1(Eigen::Index(k));
+            }
+            std::cout << "      local faces (matrix-free): " << local_solves << " solves, "
+                      << (local_solves ? double(local_iterations) / double(local_solves) : 0.0)
+                      << " iterations on average, not converged " << local_failures << std::endl;
+            return y;
+        }
         std::function<void(size_t, double, const std::vector<vector_type>&)> step = [&](size_t l, double h, const std::vector<vector_type>& w_in) {
             if (l == L - 1) {
                 y += runge_kutta::rk4_increment(y, h, [&](const vector_type& z, int st) {

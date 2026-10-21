@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Figure cfl_cells.pdf of the LTS_HHO preprint, main.tex 6.4 (what sets the CFL limit of an HHO cell): CFL limit of ERK4 (random
+Figure cfl_cells.pdf of the LTS_HHO preprint, main.tex 6.3 (what sets the CFL limit of an HHO cell): CFL limit of ERK4 (random
 data, k = 3 and 1) on the 16 x 16 square meshes of mesh_generation/lts_efficiency/generate_cfl_cells.py with one
 modified cell (thin rectangle, small face, cut corner) or anisotropic cells, against the smallest face, the smallest
 diameter and the smallest width (altitude) of the cells. Input: the cfl.json of analyze_cfl.py (efficiency/).

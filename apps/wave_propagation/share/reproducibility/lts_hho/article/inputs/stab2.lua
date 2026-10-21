@@ -1,4 +1,4 @@
--- 6.3 stability of the fully discrete schemes, second-order formulation (setting (2E)): unit square, 16 x 16 cells, the
+-- 6.2 stability of the fully discrete schemes, second-order formulation (setting (2E)): unit square, 16 x 16 cells, the
 -- central box [3/8, 5/8]^2 refined mesh.refine_levels times with a graded transition (the meshes of stab.lua), acoustic,
 -- k = 2 mixed order, weight 3 gamma*, random initial cell data, largest stable number of steps searched downwards by 1 %;
 -- LTS and MLTS with the exact condensation or with the projected one (faces.projected)

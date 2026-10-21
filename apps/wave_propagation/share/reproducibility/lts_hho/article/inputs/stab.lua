@@ -1,5 +1,5 @@
--- 6.3 stability of the fully discrete schemes: unit square, 16 x 16 cells, the central box [3/8, 5/8]^2 refined
--- mesh.refine_levels times with a graded transition (the meshes of 6.5), acoustic, first-order formulation, k = 3,
+-- 6.2 stability of the fully discrete schemes: unit square, 16 x 16 cells, the central box [3/8, 5/8]^2 refined
+-- mesh.refine_levels times with a graded transition (the meshes of 6.4), acoustic, first-order formulation, k = 3,
 -- random initial cell data, largest stable number of steps searched downwards by 1 %
 formulation = "first_order"
 space   = { k = 3, order = "equal", stabilization = "least_squares", scaling = "1" }

@@ -7,18 +7,21 @@ et 6 de ~/Github/Preprints/LTS_HHO/main.tex (redigees dans
 numerical_results.tex puis fusionnees dans main.tex le 15 octobre 2026) :
   5  stabilite sur les modeles reduits (ERK4, LTS, MLTS, LI)
   6.1  cadre general (pas de calcul)
-  6.2  formulation du premier ou du second ordre (ERK4 et MLTS)
-  6.3  stabilite des schemas complets (16 x 16, boite centrale raffinee
+  6.2  stabilite des schemas complets (16 x 16, boite centrale raffinee
        L = 0..5 fois)
-  6.4  ce qui fixe le pas stable d'une cellule : la largeur w_T (plus
+  6.3  ce qui fixe le pas stable d'une cellule : la largeur w_T (plus
        petite hauteur), ni la plus petite face ni le diametre (dossier
        ../efficiency : run_cfl_cells.sh ; figure ../make_cfl_cells.py)
-  6.5  convergence, solution reguliere, k = 3 : ERK4 sur maillages
+  6.4  convergence, solution reguliere, k = 3 : ERK4 sur maillages
        cartesiens 8x8..128x128, puis les memes raffines au centre
        (MLTS, LI, ERK4, SDIRK) ; ordre en temps a maillage fixe
-  6.6  domaine en L, k = 3 : MLTS a l'ordre 4 (u = sin(2t) r^(4/3)
+  6.5  domaine en L, k = 3 : MLTS a l'ordre 4 (u = sin(2t) r^(4/3)
        sin(4 theta / 3), gradation mu = 1/5), LI (stabilisation hybride),
        singularite r^(2/3) (LI), couts et memoire
+  6.6  efficacite : quand les schemas locaux sont plus rapides que ERK4
+       (modele de cout, deux niveaux, plusieurs niveaux, LI) et cout des
+       deux formulations a optimisation egale (dossier ../efficiency et
+       campagne alg/*, form/* ; voir les notes du 2026-10-21 ci-dessous)
   6.7  ultrasons focalises transcraniens a travers une plaque de titane
        (modele de tete a sept tissus, IRM) : LI, MLTS, ERK4, maillage
        polytopal (Voronoi)
@@ -30,15 +33,16 @@ Contenu :
                    s'est arrete (un calcul est fait si <out>/<dir>/time.txt
                    existe)
   jobs.txt         un calcul par ligne : dir|fils|entree|lignes Lua
-  inputs/          stab.lua (6.3), cart.lua (6.5), lshape_mu1-5.lua,
-                   lshape_mu1-3.lua, lshape_mu1-6.lua (6.6), tfus_fit.lua,
+  inputs/          stab.lua (6.2), cart.lua (6.4), lshape_mu1-5.lua,
+                   lshape_mu1-3.lua, lshape_mu1-6.lua (6.5), tfus_fit.lua,
                    tfus_vor.lua, tfus.lua (6.7), head.lua (6.7, version
-                   precedente du modele de tete), alg.lua, alg2.lua (6.2)
+                   precedente du modele de tete), alg.lua, alg2.lua
+                   (comparaison des formulations, 6.6)
                    (chemins absolus des maillages des sources)
-  ../make_article.py   figures (PDF) et tableaux (LaTeX) de 5 et 6.2-6.6
+  ../make_article.py   figures (PDF) et tableaux (LaTeX) de 5 et 6.2-6.5
                    a partir des sorties de run_article.sh
   ../make_tfus.py      figures tfus_*.pdf de 6.7
-  ../make_cfl_cells.py figure cfl_cells.pdf de 6.4
+  ../make_cfl_cells.py figure cfl_cells.pdf de 6.3
   ../reduced_models/   plan_extra.py (LI, MLTS), lts_erk_reduced.py et li_stage_reduced.py (LI corrige)
                    (LTS, ERK4) : modeles reduits de la section 5 (moteurs
                    de ~/Github/LTS_RK4/modele_final)
@@ -46,7 +50,7 @@ Contenu :
 Lancement :
   ./run_article.sh /chemin/sortie /chemin/vers/wave_propagation
   (cd ../reduced_models && python3 plan_extra.py && python3 lts_erk_reduced.py && python3 li_stage_reduced.py)
-  ../efficiency/run_cfl_cells.sh /chemin/cfl /chemin/vers/wave_propagation     (6.4, sans chronometrage)
+  ../efficiency/run_cfl_cells.sh /chemin/cfl /chemin/vers/wave_propagation     (6.3, sans chronometrage)
   python3 ../make_article.py /chemin/sortie ~/Github/Preprints/LTS_HHO/figures_article
   python3 ../make_tfus.py /chemin/sortie ~/Github/Preprints/LTS_HHO/figures_article
   python3 ../make_cfl_cells.py /chemin/cfl/cfl.json ~/Github/Preprints/LTS_HHO/figures_article
@@ -59,7 +63,7 @@ Maillages :
     plus petites cellules, h_min jusqu'a 1.2e-10) ;
     generate_lshape_radial_graded_mesh.py : maillages conformes
     (application radiale), essayes, non utilises dans l'article ;
-  - 6.4 : mesh_generation/lts_efficiency/generate_cfl_cells.py (lance par
+  - 6.3 : mesh_generation/lts_efficiency/generate_cfl_cells.py (lance par
     run_cfl_cells.sh : 16 x 16 carres, une cellule modifiee, eps = 1/2 ..
     1/64 ; thin, face, corner, aniso, slab) ;
   - tete (6.7), dans mesh_generation/brain_mri :
@@ -83,8 +87,8 @@ annexee) : seul le modele de tete est concerne (2553 cellules fines
 au lieu de 2548, memes pas stables, signaux egaux a 1e-8 pres) ; ses
 calculs LTS et LI (cfl/l2_lts, cfl/l2_lis, head/l2_lts, head/l2_lis9,
 head1/l2_lts, head1/l2_lis9) ont ete refaits avec cette version.
-6.6 : LI a dt / 2 (ls/li2_*, constante d'erreur de SDIRK(3,4)) ;
-6.2 : patch aussi sur un fil (form/*_q1).
+6.5 : LI a dt / 2 (ls/li2_*, constante d'erreur de SDIRK(3,4)) ;
+formulations (hors article) : patch aussi sur un fil (form/*_q1).
 
 LI de l'article = LI corrige : time.li_coupling = "stage" (valeurs
 grossieres d'etage coherentes avec SDIRK : plus de reduction d'ordre),
@@ -109,7 +113,7 @@ Pieges :
     erreur 7e-3 a dt = 2.5e-3 sur le maillage 16x16 raffine) : les
     references SDIRK utilisent solver.matrix_free = false ;
   - le pas de temps du LI ne doit pas depasser la limite CFL de sa
-    partie explicite (7.3e-3 en 6.5) ;
+    partie explicite (7.3e-3 en 6.4) ;
   - avec -ffast-math (defaut de diskpp), std::isfinite peut etre
     supprime : les etudes cfl testent la finitude sur les bits ;
   - un executable compile avant le 15 octobre ignore les options de
@@ -117,8 +121,8 @@ Pieges :
     calcule un autre probleme : verifier l'en-tete de log.txt.
 
 Durees (6 fils, AMD Ryzen AI 9 HX PRO 370, 12 coeurs) :
-  6.3 environ 15 min ; 6.5 environ 40 min (LI 64x64 raffine : 22 min,
-  5.7 Go) ; 6.6 environ 2 h 30, dont 1 h 36 pour MLTS mu = 1/5, n = 16
+  6.2 environ 15 min ; 6.4 environ 40 min (LI 64x64 raffine : 22 min,
+  5.7 Go) ; 6.5 environ 2 h 30, dont 1 h 36 pour MLTS mu = 1/5, n = 16
   (h_max / h_min = 2.6e5, 19 niveaux : le cout d'un pas grossier est
   proportionnel a h_max / h_min), et 10 min pour LI, nu = 2/3, n = 32
   (11 Go, echoue : h_max / h_min = 1.3e8) ;
@@ -154,17 +158,17 @@ les cellules de Voronoi (couche d'os inclinee de 30 degres : 3.6 %
 contre 0.07 % sur carres coupes ; eau ou os seuls : comme les carres).
 
 Resultats principaux (main.tex) :
-  - 6.2 : patch p = 16 : MLTS 2.2 fois plus rapide que ERK4 sur un fil a
+  - formulations (retirees de l'article le 2026-10-20) : patch p = 16 : MLTS 2.2 fois plus rapide que ERK4 sur un fil a
     l'ordre 1 (gain nul sur 6 fils : petits niveaux sur un fil), 2.9 fois
     plus lent a l'ordre 2 ;
-  - 6.3 : rho(ERK4) = 11.2 (p = 2) .. 1.5e6 (p = 32) ; LTS, MLTS, LI :
+  - 6.2 : rho(ERK4) = 11.2 (p = 2) .. 1.5e6 (p = 32) ; LTS, MLTS, LI :
     rho = 1 - O(1e-4), pas stable du maillage non raffine ;
-  - 6.4 : dt = C w / c, C = 0.26 (cellule mince ou triangle isole),
+  - 6.3 : dt = C w / c, C = 0.26 (cellule mince ou triangle isole),
     0.115 (toutes les cellules de largeur w) ; faces et diametre sans
     effet ; k = 1 : constantes 3.3 a 4 fois plus grandes ;
-  - 6.5 : dt = 1/(20n) pour tous : MLTS et LI (couplage "stage") d'ordre 4
+  - 6.4 : dt = 1/(20n) pour tous : MLTS et LI (couplage "stage") d'ordre 4
     en vitesse et pression, memes erreurs a trois chiffres ;
-  - 6.6 : MLTS (dt = 1/(20n)) et LI (dt = 1/(40n)) d'ordre 4, memes erreurs,
+  - 6.5 : MLTS (dt = 1/(20n)) et LI (dt = 1/(40n)) d'ordre 4, memes erreurs,
     LI 340 fois moins cher sur le maillage le plus fin, 0.47 Gio contre
     0.33 Gio pour MLTS (+45 %) ;
   - 6.7 : au foyer prevu, pression maximale 2.7 (eau), 1.6 (crane, -4.8 dB),
@@ -175,14 +179,59 @@ Resultats principaux (main.tex) :
 
 2026-10-16, formulation du second ordre : condensation projetee
 (faces.projected = true, faces.projected_rings = 0 ; share/PARAMETRES.txt).
-  - form/o2_mltsp_q, form/o2_mltsp_q1 (6.2) : MLTS projete sur le patch
+  - form/o2_mltsp_q, form/o2_mltsp_q1 (formulations, hors article) : MLTS projete sur le patch
     p = 16 ; form/o2_erk_q*, form/o2_mlts_q* relances avec le meme binaire
     (anciennes valeurs 157 / 440 s et 253 / 746 s). 6 fils : ERK4 153 s,
     MLTS exact 446 s, MLTS projete 102 s ; 1 fil : 262 / 747 / 106 s ;
     erreurs du MLTS projete egales a celles du MLTS exact a 3-6 chiffres.
-  - stab2/* (6.3, inputs/stab2.lua, non chronometres) : limite CFL au
+  - stab2/* (6.2, inputs/stab2.lua, non chronometres) : limite CFL au
     second ordre, ERK4 162 / 322 / 649 / 1302 pas (p = 1..8), LTS et MLTS
     exacts et projetes 162 pas pour p = 1..16 (p = 32 en cours).
   - ordre en temps (hors jobs) : LTS et MLTS projetes d'ordre 4
     (3.87 / 3.99 en normes masse / energie), comme les versions exactes.
 
+
+2026-10-20, comparaison des formulations retiree de l'article (ancienne
+6.2, figure form.pdf) : le facteur 10 venait de l'implementation (ordre 1
+sans matrice, ordre 2 en produits creux, source nulle assemblee a chaque
+etage, temps de preparation compte dans le panneau gauche). Nouvelles
+options : solver.matrix_free a l'ordre 2 (second_order/mf_operator.hpp)
+et problem.source = "zero" a l'ordre 2. Campagne de jobs.txt (alg/*,
+form/*, mise a jour) dans ~/Github/Diskpp/lts_work/form_mf (hors article) :
+  - 64 x 64, ERK4, integration seule (n et 2n pas), 6 fils : ordre 1
+    0.79 ms / pas, ordre 2 sans matrice 2.5 ms (rapport 3.2 ; 1 fil :
+    1.7 et 4.1 ms, rapport 2.4) ; maillages plus petits : resolution de
+    time.txt (0.01 s) insuffisante ;
+  - patch p = 16, t_f = 1 (1 fil / 6 fils) : ordre 1 ERK4 26.2 / 9.9 s,
+    MLTS 12.4 / 8.7 s ; ordre 2 ERK4 114.9 / 53.0 s, MLTS exact
+    386 / 209 s, MLTS projete 127 / 113 s (plus rapide que ERK4 avec des
+    produits creux, plus lent une fois ERK4 sans matrice : les blocs
+    locaux du MLTS projete restent creux) ; gradients conjugues : 5.8
+    (ERK4), 4.1 (MLTS) et 9.5 (MLTS projete) iterations en moyenne.
+
+2026-10-21, ordre 2 optimise (solver.matrix_free : ERK fusionne, MLTS
+projete sur tableaux locaux avec operateurs locaux sans matrice, gradients
+conjugues dans une region OpenMP) ; campagne alg/* et form/* de jobs.txt
+(alg : n et n + 80000 / 2^l pas, deux fois, meilleur des deux) dans
+~/Github/Diskpp/lts_work/form_mf2, figure hors article
+~/Github/Diskpp/lts_work/form_mf2_fig/form.pdf :
+  - ERK4, integration seule, 6 fils : ordre 1 / ordre 2 = 0.057 / 0.151,
+    0.137 / 0.214, 0.244 / 0.422, 0.656 / 1.207 ms par pas (8^2 .. 64^2 :
+    rapports 2.6, 1.6, 1.7, 1.8) ;
+  - patch p = 16, t_f = 1 (1 fil / 6 fils) : ordre 1 ERK4 22.6 / 9.0 s,
+    MLTS 10.2 / 8.7 s ; ordre 2 ERK4 64.3 / 29.2 s, MLTS exact
+    275 / 153 s, MLTS projete 61.4 / 42.8 s (niveaux >= 1 presque
+    identiques, 20 % du maillage ; solves locaux : 8.9 iterations).
+
+2026-10-21, sous-section 6.6 "Efficiency" de main.tex, inseree avant le cas
+de la tete (desormais 6.7 ; ordre : 6.1 cadre, 6.2 stabilite, 6.3 pas
+stable d'une cellule, 6.4 solution reguliere, 6.5 domaine en L, 6.6
+efficacite, 6.7 tete) :
+  - two_levels.pdf (deux premiers panneaux, rognes dans main.tex) et
+    multilevel_measured.pdf : copies de figures_efficiency (etude
+    efficiency_study.tex du 2026-10-14, scripts ../efficiency) ; leurs
+    donnees brutes (e4.json, e5*.json, overhead.json) etaient dans /tmp et
+    sont perdues : pour les refaire, relancer ../efficiency/run_efficiency.sh
+    puis make_eff_figures.py ;
+  - form.pdf : campagne form_mf2 du 2026-10-21 ci-dessus (make_article.py,
+    formulations()).

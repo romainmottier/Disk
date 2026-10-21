@@ -1,4 +1,4 @@
--- 6.6 L-shaped domain (-1/2,1/2)^2 \ [0,1/2)x(0,1/2], corner at the origin, u = sin(2 t) r^nu sin(nu theta),
+-- 6.5 L-shaped domain (-1/2,1/2)^2 \ [0,1/2)x(0,1/2], corner at the origin, u = sin(2 t) r^nu sin(nu theta),
 -- graded quadtree meshes mu = 1/3 (grading of the approximation theory for nu = 4/3), n = 4, 8, 16, 32 (mesh.level 1..4), k = 3, t_f = 1/2
 formulation = "first_order"
 space   = { k = 3, order = "equal", stabilization = "least_squares", scaling = "1" }

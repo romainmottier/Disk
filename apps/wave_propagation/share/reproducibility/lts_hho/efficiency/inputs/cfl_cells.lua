@@ -1,4 +1,4 @@
--- main.tex 6.4 (what sets the stable step of a cell): largest stable step of ERK4 (random initial data,
+-- main.tex 6.3 (what sets the stable step of a cell): largest stable step of ERK4 (random initial data,
 -- energy growth below 5 %, steps decreased by 1 %) on the meshes of generate_cfl_cells.py (mesh.files), acoustic,
 -- first-order formulation, k = 3 (space.k = 1 appended for the thin / face / none meshes)
 formulation = "first_order"

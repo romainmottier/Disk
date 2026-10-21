@@ -15,6 +15,7 @@
 #include "../physics/manufactured_solutions.hpp"
 #include "../studies/convergence.hpp"
 #include "../solvers/linear_solver.hpp"
+#include "mf_operator.hpp"
 #include <algorithm>
 #include <memory>
 
@@ -192,6 +193,7 @@ namespace hho_second_order {
             for (size_t i = 0; i < as.get_elastic_cells(); i++) c_blocks.push_back(as.get_e_cell_basis_data());
             for (size_t i = 0; i < as.get_acoustic_cells(); i++) c_blocks.push_back(as.get_a_cell_basis_data());
             m_cell_blocks = {{as.get_elastic_cells(), as.get_e_cell_basis_data()}, {as.get_acoustic_cells(), as.get_a_cell_basis_data()}};
+            m_c_sizes = c_blocks;
             RealType off;
             Minv = block_diagonal_inverse(Mcc, c_blocks, off);
             Cinv = block_diagonal_inverse(Cdd, m_d_blocks, off);
@@ -249,6 +251,29 @@ namespace hho_second_order {
         }
         bool fast() const { return m_fast; }
         const std::vector<size_t>& algebraic_blocks() const { return m_a_blocks; }
+
+        // Matrix-free products of eval_fast and of the conjugate gradients of the faces (solver.matrix_free, fast mode,
+        // no elasto-acoustic interface; mf_operator.hpp): results equal up to round-off (blocks shared to
+        // share_tolerance)
+        void set_matrix_free(RealType share_tolerance, int max_batch) {
+            if (!m_fast)
+                throw std::runtime_error("second_order_system: the matrix-free products require the fast mode");
+            if (n_d > 0)
+                throw std::runtime_error("second_order_system: matrix-free products without elasto-acoustic interface only");
+            m_mf = std::make_unique<mf_second_order_operator<RealType>>(Kw, n_c, Minv, splitting_Q ? Dinv : sparse_type(),
+                                                                         m_c_sizes, m_a_blocks, share_tolerance, max_batch);
+        }
+        bool matrix_free() const { return bool(m_mf); }
+
+        // Matrix-free rates of the velocities (set_matrix_free, n_d = 0): vdot = M^-1 (F_u - K_uu u - K_ua a), the faces a
+        // solved from the cell values u (n_c values) with the warm start a_ws
+        void mf_rates(const vector_type& Fw, const RealType* u, vector_type& a_ws, RealType* vdot) {
+            m_mf_r.resize(Eigen::Index(n_a));
+            m_mf->face_rhs(Fw.data() + n_c, u, m_mf_r.data());
+            solve_faces(m_mf_r, a_ws);
+            m_mf->cell_rates(Fw.data(), u, a_ws.data(), vdot);
+        }
+        std::string matrix_free_summary() const { return m_mf ? m_mf->summary() : std::string(); }
 
         // Algebraic faces: K_aa a = r, a holds the initial guess of the splitting on entry
         void solve_faces(const vector_type& r, vector_type& a) {
@@ -599,6 +624,37 @@ namespace hho_second_order {
             (void)nX;
             return lb;
         }
+
+        // Matrix-free operator of a local block (faces.projected with solver.matrix_free, n_d = 0, splitting): the cells of
+        // its rows rc (their cell unknowns outside the block read as zero) and its faces ci, with the sub-blocks of K_w,
+        // M^-1 and D^-1; same operator as apply_local_block, faces by conjugate gradients instead of the factorization
+        std::unique_ptr<mf_second_order_operator<RealType>> make_local_mf(const local_block& lb, RealType share_tolerance,
+                                                                         int max_batch) const {
+            if (n_d > 0 || !splitting_Q)
+                throw std::runtime_error("faces.projected with solver.matrix_free: no elasto-acoustic interface, splitting only");
+            const local_graph& g = m_g;
+            const Eigen::Index nr = Eigen::Index(lb.rc.size()), nf = Eigen::Index(lb.ci.size());
+            std::vector<Triplet<RealType>> t, tc, ta;
+            for (Eigen::Index k = 0; k < nr; k++) {
+                t.emplace_back(k, lb.rc[k], 1.0);
+                tc.emplace_back(k, lb.rc[k], 1.0);
+            }
+            for (Eigen::Index k = 0; k < nf; k++) {
+                t.emplace_back(nr + k, Eigen::Index(n_c + n_d) + lb.ci[k], 1.0);
+                ta.emplace_back(k, lb.ci[k], 1.0);
+            }
+            sparse_type P(nr + nf, Eigen::Index(N)), Pc(nr, Eigen::Index(n_c)), Pa(nf, Eigen::Index(n_a));
+            P.setFromTriplets(t.begin(), t.end());
+            Pc.setFromTriplets(tc.begin(), tc.end());
+            Pa.setFromTriplets(ta.begin(), ta.end());
+            sparse_type Ks = P * Kw * P.transpose(), Ms = Pc * Minv * Pc.transpose(), Ds = Pa * Dinv * Pa.transpose();
+            std::vector<size_t> cs, fs;
+            for (Eigen::Index k = 0; k < nr; k++)
+                if (k == 0 || g.c_of[lb.rc[k]] != g.c_of[lb.rc[k - 1]]) cs.push_back(1); else cs.back()++;
+            for (Eigen::Index k = 0; k < nf; k++)
+                if (k == 0 || g.a_of[lb.ci[k]] != g.a_of[lb.ci[k - 1]]) fs.push_back(1); else fs.back()++;
+            return std::make_unique<mf_second_order_operator<RealType>>(Ks, size_t(nr), Ms, Ds, cs, fs, share_tolerance, max_batch);
+        }
         vector_type apply_local_block(local_block& lb, const vector_type& y) const {
             vector_type x(Eigen::Index(lb.xi.size()));
             for (size_t k = 0; k < lb.xi.size(); k++) {
@@ -629,6 +685,12 @@ namespace hho_second_order {
 
         // f(t, y) of the fast mode: x = (u_T, d), r = F_a - K_ax x, faces, residuals of the rows (T, d) only
         vector_type eval_fast(const vector_type& Fw, const vector_type& y, vector_type& a_ws) {
+            if (m_mf) {     // n_d = 0: x = u_T
+                vector_type ydot(state_size());
+                ydot.head(n_c) = y.segment(n_c, n_c);
+                mf_rates(Fw, y.data(), a_ws, ydot.data() + n_c);
+                return ydot;
+            }
             const size_t nx = n_c + n_d;
             vector_type x(nx);
             x.head(n_c) = y.head(n_c);
@@ -659,6 +721,13 @@ namespace hho_second_order {
             n_solves++;
             if (r.squaredNorm() == 0.0) {
                 a.setZero();
+                return;
+            }
+            if (m_mf) {     // matrix-free conjugate gradients (fused OpenMP passes, same iterates up to round-off)
+                const size_t m = m_mf->pcg(r.data(), a.data(), tol, max_iter);
+                n_iterations += m ? m : max_iter;
+                max_iterations = m ? std::max(max_iterations, m) : max_iter;
+                if (!m) n_failures++;
                 return;
             }
             vector_type res = r - m_Kaa_rm * a;
@@ -790,6 +859,9 @@ namespace hho_second_order {
         // fast mode (set_fast); declared last
         bool m_fast = false;
         std::vector<std::pair<size_t, size_t>> m_cell_blocks;     // (cells, cell basis size): elastic, acoustic
+        std::vector<size_t> m_c_sizes;                            // cell basis size of each cell
+        std::unique_ptr<mf_second_order_operator<RealType>> m_mf; // matrix-free products (set_matrix_free)
+        vector_type m_mf_r;                                       // right-hand side of the faces (mf_rates)
         sparse_rm_type m_Kax, m_Kxx, m_Kxa, m_Minv_rm, m_Cinv_rm, m_Kaa_rm, m_Dinv_rm, m_Raa_rm;
 #ifdef HAVE_INTEL_MKL
         std::unique_ptr<PardisoLDLT<sparse_type>> m_Kaa_pardiso;
