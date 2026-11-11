@@ -15,7 +15,7 @@ plt.rcParams.update({"font.family": "serif", "font.size": 7.5, "axes.labelsize":
                      "mathtext.fontset": "cm", "savefig.dpi": 300})
 GRID = dict(color="#c8c8c4", lw=0.4, ls=":")
 PC = {2: "#2b6cb0", 4: "#2f855a", 8: "#c05621", 16: "#9b2c2c", 32: "#553c9a"}
-SC = {"erk": ("ERK4", "#1a1a1a", "o"), "lts": ("LTS", "#dd6b20", "s"), "mlts": ("MLTS (Alg. 4)", "#b7202e", "^"),
+SC = {"erk": ("ERK4", "#1a1a1a", "o"), "lts": ("MLTS, 2 levels", "#dd6b20", "s"), "mlts": ("MLTS (Alg. 4)", "#b7202e", "^"),
       "mltsr": ("MLTS, chain reused", "#e07a85", "v"), "li": ("LI", "#2b6cb0", "D")}
 
 
@@ -82,7 +82,7 @@ def two_levels():
                 ax.plot(s, p / (1 + (p + 1) * s * s6), ":", color=PC[p], lw=0.8)
         ax.axhline(1, color="#6a6a66", lw=0.6, ls="--")
         style(ax, r"$\sigma=|S|/N$", "gain over ERK4 (per step)")
-        ax.set_title(f"LTS, {th} thread" + ("s" if th > 1 else ""), fontsize=7, pad=3)
+        ax.set_title(f"two-level MLTS, {th} thread" + ("s" if th > 1 else ""), fontsize=7, pad=3)
         ax.set_ylim(0.3, 25)
     axs[0].legend(loc="lower left", frameon=False)
     ax = axs[2]
@@ -96,6 +96,26 @@ def two_levels():
     ax.legend(loc="upper left", frameon=False)
     fig.tight_layout(pad=0.2, w_pad=0.6)
     save(fig, "two_levels.pdf")
+
+
+def two_levels_memory():
+    """Peak memory relative to ERK4 on the two-size meshes (1 thread), next to the gains of two_levels.pdf (same size as
+    one of its panels): MLTS (2 levels or ratios 2) keeps the memory of ERK4, LI adds its factorization."""
+    E = json.load(open("e4.json"))
+    fig, ax = plt.subplots(figsize=(2.1, 2.35))
+    for key, mk, fill in (("lts", "o", True), ("mlts", "^", True), ("li", "D", False)):
+        for p in (2, 4, 8, 16):
+            R = [r for r in E if r["threads"] == 1 and r["p"] == p and f"mem_{key}" in r and "mem_erk" in r]
+            ax.plot([r["sigma"] for r in R], [r[f"mem_{key}"] / r["mem_erk"] for r in R], mk, color=PC[p], ms=3,
+                    mfc=PC[p] if fill else "white", mew=0.7)
+    ax.axhline(1, color="#6a6a66", lw=0.6, ls="--")
+    style(ax, r"$\sigma=|S|/N$", "peak memory / ERK4 (1 thread)", logy=False)
+    ax.set_title("memory, 1 thread", fontsize=7, pad=3)
+    ax.legend(handles=[plt.Line2D([], [], ls="", marker=mk, color="#1a1a1a", ms=3, mfc="#1a1a1a" if f else "white", label=l)
+                       for mk, f, l in (("o", True, "MLTS, 2 levels"), ("^", True, "MLTS, ratios 2"), ("D", False, "LI"))],
+              loc="upper left", frameon=False)
+    fig.tight_layout(pad=0.2)
+    save(fig, "two_levels_memory.pdf")
 
 
 def li_vs_lts():
@@ -144,23 +164,34 @@ def multilevel():
 def multilevel_measured():
     T = json.load(open("e5t.json"))
     O = json.load(open("overhead.json"))
-    fig, axs = plt.subplots(1, 2, figsize=(6.3, 2.4), gridspec_kw=dict(width_ratios=[1.6, 1]))
+    # left: measured gains (top) and peak memories relative to ERK4 (bottom), one thread; right: gains against the model
+    fig = plt.figure(figsize=(6.3, 3.9))
+    gs = fig.add_gridspec(2, 2, width_ratios=[1.6, 1], height_ratios=[1.5, 1])
+    axs = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[:, 1])]
+    axm = fig.add_subplot(gs[1, 0], sharex=axs[0])
     meshes = ["pt_W1_D6", "pt_W1_D8", "pt_W2_D8", "pt_W4_D8", "line_W1_D5", "disk_W1_D4"]
     labels = {"pt_W1_D6": "point, W=1\n$p=64$", "pt_W1_D8": "point, W=1\n$p=256$", "pt_W2_D8": "point, W=2\n$p=256$",
               "pt_W4_D8": "point, W=4\n$p=256$", "line_W1_D5": "curve, W=1\n$p=32$", "disk_W1_D4": "area, W=1\n$p=16$"}
     ax = axs[0]
     x = np.arange(len(meshes))
-    keys = (("all2", "MLTS, ratios 2", "#e07a85"), ("bestr", "MLTS, best levels", "#b7202e"), ("lts", "two levels (LTS)", "#dd6b20"),
+    keys = (("all2", "MLTS, ratios 2", "#e07a85"), ("bestr", "MLTS, best levels", "#b7202e"), ("lts", "MLTS, 2 levels", "#dd6b20"),
             ("li", "LI", "#2b6cb0"))
     for j, (k, lab, c) in enumerate(keys):
         v = [next(r["G"][k] for r in T if r["mesh"] == m and r["threads"] == 1) for m in meshes]
         ax.bar(x + (j - 1.5) * 0.2, v, width=0.19, color=c, label=lab, edgecolor="#1a1a1a", linewidth=0.3)
     gid = [next(r["Gid"] for r in T if r["mesh"] == m and r["threads"] == 1) for m in meshes]
     ax.plot(x, gid, "_", color="#1a1a1a", ms=14, mew=1.2, label=r"ideal $G_{\rm id}$")
-    ax.set_xticks(x); ax.set_xticklabels([labels[m] for m in meshes], fontsize=5.5)
     ax.set_yscale("log"); ax.axhline(1, color="#6a6a66", lw=0.6, ls="--"); ax.grid(True, axis="y", **GRID)
     ax.set_ylabel("measured gain over ERK4 (1 thread)", labelpad=1)
     ax.legend(loc="upper right", frameon=False, ncol=2, fontsize=5.5)
+    ax.tick_params(labelbottom=False)
+    for j, (k, lab, c) in enumerate(keys):
+        v = [next(r["mem"][k] / r["mem"]["erk"] for r in T if r["mesh"] == m and r["threads"] == 1) for m in meshes]
+        axm.bar(x + (j - 1.5) * 0.2, v, width=0.19, color=c, edgecolor="#1a1a1a", linewidth=0.3)
+    axm.axhline(1, color="#6a6a66", lw=0.6, ls="--"); axm.grid(True, axis="y", **GRID)
+    axm.set_ylim(0, 2.1); axm.set_ylabel("peak memory / ERK4", labelpad=1)
+    axm.set_xticks(x); axm.set_xticklabels([labels[m] for m in meshes], fontsize=5.5)
+    axm.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
     ax = axs[1]
     for th, mk in ((1, "o"), (6, "s")):
         for fam, c in (("lts", "#dd6b20"), ("mlts", "#b7202e")):
@@ -171,17 +202,17 @@ def multilevel_measured():
             G_meas = np.array([4 * r["N"] * r["ratio"] * r["kappa"] / r["t"] for r in R])
             G_mod = np.array([4 * r["N"] * r["ratio"] / pv for r, pv in zip(R, pred)])
             ax.plot(G_mod, G_meas, mk, color=c, ms=2.6, mfc=c if th == 1 else "white", mew=0.6,
-                    label=f"{fam.upper()}, {th} thr.")
+                    label=("MLTS, 2 levels" if fam == "lts" else "MLTS, more levels") + f", {th} thr.")
     g = np.array([0.1, 40]); ax.plot(g, g, "-", color="#6a6a66", lw=0.6)
     style(ax, r"model $\kappa(aW+n_0C)$", "measured gain")
     ax.set_xlim(0.1, 40); ax.set_ylim(0.1, 40)
     ax.legend(loc="upper left", frameon=False, fontsize=5.5)
-    fig.tight_layout(pad=0.2, w_pad=0.8)
+    fig.tight_layout(pad=0.2, w_pad=0.8, h_pad=0.6)
     save(fig, "multilevel_measured.pdf")
 
 
 if __name__ == "__main__":
-    for f in (stability, two_levels, li_vs_lts, multilevel, multilevel_measured):
+    for f in (stability, two_levels, two_levels_memory, li_vs_lts, multilevel, multilevel_measured):
         try:
             f()
         except Exception as e:

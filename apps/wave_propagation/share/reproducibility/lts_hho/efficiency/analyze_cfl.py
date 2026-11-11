@@ -37,11 +37,12 @@ for m in sorted(glob.glob("meshes/*.txt")):
         d = max(np.hypot(*(q[i] - q[j])) for i in range(len(q)) for j in range(i + 1, len(q)))
         mm["diam"] = min(mm["diam"], d); mm["face"] = min(mm["face"], e[e > 1e-14].min())
         mm["ap"] = min(mm["ap"], 4 * A / e.sum()); mm["ad"] = min(mm["ad"], A / d); mm["w"] = min(mm["w"], width(q))
-    for k in (3, 1):
+    for k in (3, 1, 2):
         f = f"runs/k{k}_{b}/c.dat"
         if os.path.exists(f):
             dt = float(open(f).read().split("\n")[1].split()[2])
-            out.append(dict(mesh=b, k=k, dt=dt, **mm))
+            g = re.search(r"gamma\* = ([0-9.eE+-]+)", open(f"runs/k{k}_{b}/log.txt").read())
+            out.append(dict(mesh=b, k=k, dt=dt, **mm, **(dict(gamma_star=float(g.group(1))) if g else {})))
 json.dump(out, open("cfl.json", "w"), indent=1)
 print(f"{'mesh':18} k {'dt':>9} | dt/face  dt/diam  dt/(4A/P)  dt/(A/d)  dt/width")
 for r in out:

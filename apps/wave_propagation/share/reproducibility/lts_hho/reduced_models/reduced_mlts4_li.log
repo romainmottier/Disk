@@ -1,0 +1,17 @@
+check: batched MLTS = plan_extra.mlts_alg4_amplification: 6.78e-21
+  order2 eps = 0.01: dt_ref = 2.8058, max rho MLTS 0.997154, LI 0.944502; min dt_c/dt_ref MLTS 0.998, LI 1.005
+  order2 eps = 0.05: dt_ref = 2.7205, max rho MLTS 0.986671, LI 0.762153; min dt_c/dt_ref MLTS 1.000, LI 1.037
+  order2 eps = 0.1: dt_ref = 2.6241, max rho MLTS 0.975365, LI 0.779004; min dt_c/dt_ref MLTS 0.998, LI 1.075
+  order2 eps = 0.25: dt_ref = 2.3866, max rho MLTS 0.949147, LI 0.846871; min dt_c/dt_ref MLTS 1.006, LI 1.173
+  order2 eps = 0.5: dt_ref = 2.1029, max rho MLTS 0.993873, LI 0.976456; min dt_c/dt_ref MLTS 1.008, LI 1.122
+  order1_nobuf eps = 0.01: dt_ref = 2.7834, max rho MLTS 0.994357, LI 0.891796; min dt_c/dt_ref MLTS 0.999, LI 1.013
+  order1_nobuf eps = 0.05: dt_ref = 2.6167, max rho MLTS 0.974568, LI 0.811172; min dt_c/dt_ref MLTS 0.122, LI 1.078
+  order1_nobuf eps = 0.1: dt_ref = 2.4345, max rho MLTS 1.137567, LI 1.020844; min dt_c/dt_ref MLTS 0.115, LI 0.961
+  order1_nobuf eps = 0.25: dt_ref = 2.0138, max rho MLTS 2.414189, LI 1.344208; min dt_c/dt_ref MLTS 0.129, LI 0.824
+  order1_nobuf eps = 0.5: dt_ref = 1.5635, max rho MLTS 3.772292, LI 2.671894; min dt_c/dt_ref MLTS 0.166, LI 0.704
+  order1_buf eps = 0.01: dt_ref = 2.7771, max rho MLTS 0.999913, LI 0.877621; min dt_c/dt_ref MLTS 0.994, LI 1.015
+  order1_buf eps = 0.05: dt_ref = 2.5892, max rho MLTS 0.999419, LI 0.782533; min dt_c/dt_ref MLTS 0.996, LI 1.089
+  order1_buf eps = 0.1: dt_ref = 2.3873, max rho MLTS 0.999314, LI 0.823610; min dt_c/dt_ref MLTS 0.997, LI 1.181
+  order1_buf eps = 0.25: dt_ref = 1.9347, max rho MLTS 0.995564, LI 0.951008; min dt_c/dt_ref MLTS 1.003, LI 1.354
+  order1_buf eps = 0.5: dt_ref = 1.4702, max rho MLTS 1.000000, LI 0.999999; min dt_c/dt_ref MLTS 1.007, LI 1.360
+saved /home/mottie0000/Github/Diskpp/Disk/apps/wave_propagation/share/reproducibility/lts_hho/reduced_models/reduced_mlts4_li.npz

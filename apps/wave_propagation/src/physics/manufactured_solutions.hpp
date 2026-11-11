@@ -21,6 +21,7 @@ namespace coupling_common {
             {"acoustic_quadratic_in_time",  F::reproduction_acoustic},
             {"acoustic_quadratic_in_space", F::EFunctionAcousticQuadraticInSpace},
             {"acoustic_non_polynomial",     F::EFunctionAcousticNonPolynomial},
+            {"acoustic_quadratic_sum",      F::EFunctionAcousticQuadraticSum},
             {"acoustic_quadratic_in_space_cos", F::EFunctionAcousticQuadraticInSpaceCos},
             {"acoustic_non_polynomial_cos", F::EFunctionAcousticNonPolynomialCos},
             {"lshape_corner",               F::EFunctionAcousticLShapeCorner},

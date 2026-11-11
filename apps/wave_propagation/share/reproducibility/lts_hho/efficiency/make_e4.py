@@ -42,8 +42,9 @@ for p, lst in cases.items():
         a, b = (n - m) // 2, (n + m) // 2
         box = f"box:{a / n!r},{b / n!r},{a / n!r},{b / n!r}"
         add(f"two_n{n}_m{m}_L{L}", f"--n {n} --depth {L} --grading two --feature {box}", p, n * n - m * m, m * m * 4 ** L, n)
-# geometry: a strip of one square across the domain, 16 scattered single squares (p = 4 and 16), n = 64
-for p in (4, 16):
+# geometry: a strip of one square across the domain, 16 scattered single squares, n = 64 (p = 4 and 16; p = 2 and 8
+# added on 2026-11-01: nine meshes for each p)
+for p in (2, 4, 8, 16):
     L = int(round(math.log2(p)))
     n = 64
     y = 31.5 / 64

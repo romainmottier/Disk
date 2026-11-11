@@ -58,6 +58,9 @@ for (mesh, th), s in sorted(rows.items(), key=lambda kv: (kv[0][1], kv[0][0])):
             rec[f"setup_{key}"] = m_["tint"] - (sum(m_["t_coef"]) + m_["t_term"] + m_["t_close"])
     if "li" in s and "t_solve" in s["li"]:
         li = s["li"]; rec["Gs_li"] = e["tint"] / (li["t_coarse"] + li["t_solve"] + li["t_stage"])
+    for key, r_ in s.items():                        # peak memory (MiB) of every scheme
+        if r_.get("mem"):
+            rec[f"mem_{key}"] = r_["mem"]
     out.append(rec)
     f = lambda k: f"{rec[k]:6.2f}" if rec.get(k) is not None else f"{'-':>6}"
     print(f"{mesh:18} {th:2d} {p:3d} {int(N):8d} {rec['theta']:6.3f} {rec['sigma']:6.3f} | {f('G_lts')} {f('G_lts_model')} |"

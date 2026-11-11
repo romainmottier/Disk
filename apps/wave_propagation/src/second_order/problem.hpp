@@ -43,6 +43,12 @@ namespace hho_second_order {
             dd = classify_domain(msh, prm.problem.medium);
 
             functions.set_function_type(solution_type(prm.problem.solution));
+            // L-shaped domain (problem.lshape_corner, problem.lshape_exponent), as the first order: without them the
+            // default corner (0.5, 0.5) and exponent 2/3 were used
+            scal_vec_analytic_functions::lshape_cx = prm.problem.lshape_corner[0];
+            if (prm.problem.frequency > 0.0) scal_vec_analytic_functions::quadratic_sum_w = prm.problem.frequency;
+            scal_vec_analytic_functions::lshape_cy = prm.problem.lshape_corner[1];
+            scal_vec_analytic_functions::lshape_nu = prm.problem.lshape_exponent;
             u_fun      = functions.Evaluate_u(m_t);
             v_fun      = functions.Evaluate_v(m_t);
             a_fun      = functions.Evaluate_a(m_t);

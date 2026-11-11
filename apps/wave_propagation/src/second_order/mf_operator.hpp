@@ -16,6 +16,8 @@
 //  matrix-matrix product. Their contributions to the faces are written in slots laid out as the batch matrices and
 //  summed per face unknown. OpenMP over the batches, then over the face unknowns or blocks: the sums do not depend on
 //  the number of threads.
+//  Views (faces.projected_solver = "explicit"): the same products on a subset of the cells and of the face blocks, the
+//  blocks of the cells and of the preconditioner read in the operator of the whole mesh (nothing stored but indices).
 //
 
 #pragma once
@@ -52,15 +54,59 @@ public:
         build_batches();
     }
 
+    // View of g (an operator of the whole mesh, which must outlive the view) on its cells `cells` and its face blocks
+    // `faces` (increasing): cell unknowns numbered as the cells, face unknowns as the face blocks; the face unknowns of
+    // the cells outside `faces` read as zero (index m_na of padded copies) and their slots never summed. Same products
+    // as the operator of the restriction of K to these unknowns (up to round-off). serial: no team of threads (small
+    // subsets, where the synchronizations would dominate).
+    mf_second_order_operator(const mf_second_order_operator& g, const std::vector<int>& cells,
+                             const std::vector<int>& faces, int max_batch, bool serial)
+        : m_nu(0), m_na(0), m_tol(g.m_tol), m_max_batch(std::max(1, max_batch)), m_base(&g), m_parallel(!serial) {
+        if (g.m_base) throw std::runtime_error("mf_second_order_operator: view of a view");
+        std::vector<int> amap(g.m_na, -1);
+        for (int f : faces) {
+            const face_item& fi = g.m_faces[size_t(f)];
+            m_faces.push_back(face_item{int(m_na), fi.s, fi.o});
+            for (int i = 0; i < fi.s; i++) amap[size_t(fi.a0 + i)] = int(m_na) + i;
+            m_na += size_t(fi.s);
+        }
+        for (int c : cells) {
+            const cell_item& gc = g.m_cells[size_t(c)];
+            m_cells.push_back(cell_item{int(m_nu), gc.n, gc.m, gc.cls, m_J.size()});
+            for (int l = 0; l < gc.m; l++) {
+                const int d = amap[size_t(g.m_J[gc.j0 + size_t(l)])];
+                m_J.push_back(d < 0 ? int(m_na) : d);
+            }
+            m_nu += size_t(gc.n);
+            m_buf = std::max(m_buf, size_t(std::max(gc.n, gc.m)));
+        }
+        m_x.resize(m_buf);
+        m_y.resize(m_buf);
+        build_chunks();
+        build_batches();
+    }
+
     // r = F_a - K_au u
     void face_rhs(const T* Fa, const T* u, T* r) {
-        #pragma omp parallel
+        const std::vector<cell_class>& cls = classes();
+        if (!m_parallel) {
+            for (size_t d = 0; d < m_na; d++) r[d] = Fa[d];
+            for (const cell_item& cb : m_cells) {
+                T* y = m_y.data();
+                std::fill(y, y + cb.m, T(0));
+                cls[cb.cls].P.apply_one(u + cb.r0, y);
+                const int* J = m_J.data() + cb.j0;
+                for (int l = 0; l < cb.m; l++) if (size_t(J[l]) < m_na) r[J[l]] -= y[l];
+            }
+            return;
+        }
+        #pragma omp parallel if (m_parallel)
         {
             dense_type U;
             #pragma omp for schedule(dynamic, 1)
             for (long b = 0; b < long(m_batches.size()); b++) {
                 const batch& bt = m_batches[b];
-                const cell_class& C = m_classes[bt.cls];
+                const cell_class& C = cls[bt.cls];
                 gather_cells(bt, C.n, u, U);
                 Eigen::Map<dense_type> S(m_slots.data() + bt.f0, bt.count, C.m);
                 C.P.apply(U, S, true);
@@ -73,8 +119,9 @@ public:
     // q = K_aa p; with dot: returns p.q (sums over fixed chunks of faces: independent of the number of threads)
     T face_product(const T* p, T* q, bool dot = false) {
         m_part.assign(m_chunks.size() - 1, T(0));
-        #pragma omp parallel
-        product_team(p, q, dot ? m_part.data() : nullptr);
+        const T* pp = padded(p, m_pad);
+        #pragma omp parallel if (m_parallel)
+        product_team(pp, q, dot ? m_part.data() : nullptr);
         T pq = 0;
         if (dot) for (T v : m_part) pq += v;
         return pq;
@@ -82,12 +129,13 @@ public:
 
     // z = D^-1 r
     void face_precond(const T* r, T* z) const {
-        if (m_Di.empty()) throw std::runtime_error("mf_second_order_operator: no preconditioner of the faces");
-        #pragma omp parallel for schedule(static)
+        const std::vector<T>& Di = this->Di();
+        if (Di.empty()) throw std::runtime_error("mf_second_order_operator: no preconditioner of the faces");
+        #pragma omp parallel for schedule(static) if (m_parallel)
         for (long f = 0; f < long(m_faces.size()); f++) {
             const face_item& fi = m_faces[f];
             T zz = 0, rz = 0;
-            precond_face(fi.s, m_Di.data() + fi.o, r + fi.a0, z + fi.a0, zz, rz);
+            precond_face(fi.s, Di.data() + fi.o, r + fi.a0, z + fi.a0, zz, rz);
         }
     }
 
@@ -96,15 +144,21 @@ public:
     // the scalars by one thread), fused passes over the face unknowns, sums over fixed chunks of faces (independent of
     // the number of threads). Returns the number of iterations (as solve_faces_fast: 1 when the initial guess already
     // satisfies the test), 0 if not converged within max_iter.
-    size_t pcg(const T* r, T* a, T tol, size_t max_iter) {
-        if (m_Di.empty()) throw std::runtime_error("mf_second_order_operator: no preconditioner of the faces");
+    size_t pcg(const T* r, T* a_io, T tol, size_t max_iter) {
+        const std::vector<T>& Di = this->Di();
+        if (Di.empty()) throw std::runtime_error("mf_second_order_operator: no preconditioner of the faces");
         const long nch = long(m_chunks.size()) - 1;
         m_res.resize(m_na);
         m_z.resize(m_na);
-        m_p.resize(m_na);
+        m_p.resize(m_base ? m_na + 1 : m_na);     // views: zero at m_na (faces outside the view)
+        if (m_base) m_p[m_na] = T(0);
         m_q.resize(m_na);
+        T* a = m_base ? const_cast<T*>(padded(a_io, m_pad)) : a_io;
         T *res = m_res.data(), *z = m_z.data(), *p = m_p.data(), *q = m_q.data();
-        std::vector<T> part(3 * static_cast<size_t>(nch)), ppq(static_cast<size_t>(nch));
+        m_part3.resize(3 * static_cast<size_t>(nch));
+        m_ppq.resize(static_cast<size_t>(nch));
+        T* part = m_part3.data();
+        T* ppq = m_ppq.data();
         T zz = 0, aa = 0, rz = 0, alpha = 0, beta = 0;
         bool done = false;
         size_t result = 0;
@@ -121,14 +175,14 @@ public:
                 for (size_t d = d0; d < d1; d++) s1 += a[d] * a[d];
                 for (int f = m_cf[c]; f < m_cf[c + 1]; f++) {
                     const face_item& fi = m_faces[f];
-                    precond_face(fi.s, m_Di.data() + fi.o, res + fi.a0, z + fi.a0, s0, s2);
+                    precond_face(fi.s, Di.data() + fi.o, res + fi.a0, z + fi.a0, s0, s2);
                 }
                 part[3 * c] = s0;
                 part[3 * c + 1] = s1;
                 part[3 * c + 2] = s2;
             }
         };
-        #pragma omp parallel
+        #pragma omp parallel if (m_parallel)
         {
             product_team(a, q, nullptr);
             update(true);
@@ -146,11 +200,11 @@ public:
                 #pragma omp for schedule(static)
                 for (long d = 0; d < long(m_na); d++) p[d] = z[d];
                 for (size_t m = 1; m <= max_iter; m++) {
-                    product_team(p, q, ppq.data());
+                    product_team(p, q, ppq);
                     #pragma omp single
                     {
                         T pq = 0;
-                        for (T v : ppq) pq += v;
+                        for (long c = 0; c < nch; c++) pq += ppq[c];
                         alpha = rz / pq;
                     }
                     update(false);
@@ -171,18 +225,37 @@ public:
                 }
             }
         }
+        if (m_base) std::copy(a, a + m_na, a_io);
         return result;
     }
 
     // out = M^-1 (F_u - K_uu u - K_ua a) = M^-1 F_u + D u + E a
-    void cell_rates(const T* Fu, const T* u, const T* a, T* out) {
-        #pragma omp parallel
+    void cell_rates(const T* Fu, const T* u, const T* a_in, T* out) {
+        const std::vector<cell_class>& cls = classes();
+        const T* a = padded(a_in, m_pad);
+        if (!m_parallel) {
+            for (const cell_item& cb : m_cells) {
+                const cell_class& C = cls[cb.cls];
+                T* o = m_y.data();
+                std::fill(o, o + cb.n, T(0));
+                C.D.apply_one(u + cb.r0, o);
+                C.Mi.apply_one(Fu + cb.r0, o);
+                if (cb.m > 0) {
+                    const int* J = m_J.data() + cb.j0;
+                    for (int l = 0; l < cb.m; l++) m_x[size_t(l)] = a[J[l]];
+                    C.E.apply_one(m_x.data(), o);
+                }
+                std::copy(o, o + cb.n, out + cb.r0);
+            }
+            return;
+        }
+        #pragma omp parallel if (m_parallel)
         {
             dense_type U, A, F, O;
             #pragma omp for schedule(dynamic, 1)
             for (long b = 0; b < long(m_batches.size()); b++) {
                 const batch& bt = m_batches[b];
-                const cell_class& C = m_classes[bt.cls];
+                const cell_class& C = cls[bt.cls];
                 gather_cells(bt, C.n, u, U);
                 gather_cells(bt, C.n, Fu, F);
                 O.resize(bt.count, C.n);
@@ -199,17 +272,25 @@ public:
         }
     }
 
+    // before the views (make_local_view): row-major copies of the small blocks for their cell-by-cell products
+    void prepare_views() {
+        if (m_views_ready) return;
+        for (cell_class& C : m_classes)
+            for (block_op* B : {&C.P, &C.L, &C.D, &C.E, &C.Mi}) B->make_rows();
+        m_views_ready = true;
+    }
+
     std::string summary() const {
         size_t bytes = 0;
         size_t entries = 0, kept = 0;
-        for (const cell_class& C : m_classes)
+        for (const cell_class& C : classes())
             for (const block_op* B : {&C.P, &C.L, &C.D, &C.E, &C.Mi}) {
                 bytes += B->bytes();
                 entries += size_t(B->rows) * B->cols;
                 kept += B->nonzeros();
             }
-        bytes += sizeof(T) * m_Di.size();
-        return std::to_string(m_cells.size()) + " cells (" + std::to_string(m_classes.size()) + " distinct blocks), "
+        bytes += sizeof(T) * Di().size();
+        return std::to_string(m_cells.size()) + " cells (" + std::to_string(classes().size()) + " distinct blocks), "
              + std::to_string(m_faces.size()) + " face blocks, " + std::to_string(entries ? 100 * kept / entries : 0)
              + " % of the entries kept, " + std::to_string(m_batches.size()) + " batches of cells, "
              + std::to_string(bytes >> 20) + " MB";
@@ -224,6 +305,7 @@ private:
         dense_type At;
         std::vector<int> ri, ci;
         std::vector<T> v;
+        std::vector<T> R;      // views: row-major copy of a block stored by entries and more than half full (apply_one)
         block_op() = default;
         block_op(const dense_type& A, T drop) : rows(int(A.rows())), cols(int(A.cols())) {
             const T mx = A.size() ? A.cwiseAbs().maxCoeff() : T(0);
@@ -257,6 +339,24 @@ private:
                 for (Eigen::Index i = 0; i < nb; i++) o[i] += c * x[i];
             }
         }
+        // o += A x (one cell)
+        void apply_one(const T* x, T* o) const {
+            if (dense || !R.empty()) {
+                const T* a = dense ? At.data() : R.data();
+                for (int i = 0; i < rows; i++, a += cols) {
+                    T t = 0;
+                    for (int j = 0; j < cols; j++) t += a[j] * x[j];
+                    o[i] += t;
+                }
+                return;
+            }
+            for (size_t k = 0; k < v.size(); k++) o[ri[k]] += v[k] * x[ci[k]];
+        }
+        void make_rows() {
+            if (dense || !R.empty() || 2 * v.size() <= size_t(rows) * size_t(cols)) return;
+            R.assign(size_t(rows) * size_t(cols), T(0));
+            for (size_t k = 0; k < v.size(); k++) R[size_t(ri[k]) * size_t(cols) + size_t(ci[k])] = v[k];
+        }
         size_t nonzeros() const { return dense ? size_t(At.size()) : v.size(); }
         size_t bytes() const { return dense ? sizeof(T) * size_t(At.size()) : v.size() * (sizeof(T) + 2 * sizeof(int)); }
     };
@@ -269,6 +369,23 @@ private:
     size_t m_nu, m_na;
     T m_tol;
     int m_max_batch;
+    const mf_second_order_operator* m_base = nullptr;   // view: the operator of the whole mesh holding the blocks
+    bool m_parallel = true;                             // team of threads (false: small views)
+    std::vector<T> m_pad;                               // views: faces copied with a zero at m_na
+    size_t m_buf = 0;                                   // views on one thread: buffers of a cell
+    std::vector<T> m_x, m_y;
+    bool m_views_ready = false;
+    std::vector<T> m_part3, m_ppq;                      // sums of the conjugate gradients per chunk
+
+    const std::vector<cell_class>& classes() const { return m_base ? m_base->m_classes : m_classes; }
+    const std::vector<T>& Di() const { return m_base ? m_base->m_Di : m_Di; }
+    // x (m_na values) itself, or for a view its copy in buf followed by the zero read for the faces outside the view
+    const T* padded(const T* x, std::vector<T>& buf) const {
+        if (!m_base) return x;
+        buf.assign(x, x + m_na);
+        buf.push_back(T(0));
+        return buf.data();
+    }
     std::vector<cell_item> m_cells;
     std::vector<int> m_J;                   // face unknowns of the cells (algebraic numbering), cell c: [j0, j0 + m)
     std::vector<int> m_face_of;             // face block of each algebraic unknown
@@ -302,11 +419,30 @@ private:
     // pq[c] = p.q on the chunks c when pq is given
     void product_team(const T* p, T* q, T* pq) {
         const long nch = long(m_chunks.size()) - 1;
+        const std::vector<cell_class>& cls = classes();
+        if (!m_parallel) {     // views on one thread (team of one): cell by cell, added in place
+            std::fill(q, q + m_na, T(0));
+            for (const cell_item& cb : m_cells) {
+                const int* J = m_J.data() + cb.j0;
+                for (int l = 0; l < cb.m; l++) m_x[size_t(l)] = p[J[l]];
+                T* y = m_y.data();
+                std::fill(y, y + cb.m, T(0));
+                cls[cb.cls].L.apply_one(m_x.data(), y);
+                for (int l = 0; l < cb.m; l++) if (size_t(J[l]) < m_na) q[J[l]] += y[l];
+            }
+            if (pq)
+                for (long c = 0; c < nch; c++) {
+                    T t = 0;
+                    for (size_t d = m_chunks[c]; d < m_chunks[c + 1]; d++) t += p[d] * q[d];
+                    pq[c] = t;
+                }
+            return;
+        }
         dense_type A;
         #pragma omp for schedule(dynamic, 1)
         for (long b = 0; b < long(m_batches.size()); b++) {
             const batch& bt = m_batches[b];
-            const cell_class& C = m_classes[bt.cls];
+            const cell_class& C = cls[bt.cls];
             gather_faces(bt, C.m, p, A);
             Eigen::Map<dense_type> S(m_slots.data() + bt.f0, bt.count, C.m);
             C.L.apply(A, S, true);
@@ -558,14 +694,7 @@ private:
         for (const face_item& f : m_faces) total += size_t(f.s) * f.s;
         const bool precond = Dinv.rows() == Eigen::Index(m_na) && m_na > 0;
         if (precond) m_Di.assign(total, T(0));
-        const size_t nch = std::max<size_t>(1, std::min<size_t>(256, m_faces.size()));
-        m_chunks.assign(1, 0);
-        m_cf.assign(1, 0);
-        for (size_t k = 1; k <= nch; k++) {
-            const size_t f = k * m_faces.size() / nch;
-            m_chunks.push_back(f < m_faces.size() ? size_t(m_faces[f].a0) : m_na);
-            m_cf.push_back(int(f));
-        }
+        build_chunks();
         if (!precond) return;
         #pragma omp parallel for schedule(static)
         for (long f = 0; f < long(m_faces.size()); f++) {
@@ -575,40 +704,53 @@ private:
         }
     }
 
+    // chunks of face unknowns of the sums
+    void build_chunks() {
+        const size_t nch = std::max<size_t>(1, std::min<size_t>(256, m_faces.size()));
+        m_chunks.assign(1, 0);
+        m_cf.assign(1, 0);
+        for (size_t k = 1; k <= nch; k++) {
+            const size_t f = k * m_faces.size() / nch;
+            m_chunks.push_back(f < m_faces.size() ? size_t(m_faces[f].a0) : m_na);
+            m_cf.push_back(int(f));
+        }
+    }
+
     // cells sorted by class (increasing order in a class), batches of at most m_max_batch cells of a class
     void build_batches() {
-        std::vector<int> count(m_classes.size() + 1, 0);
+        const std::vector<cell_class>& cls = classes();
+        std::vector<int> count(cls.size() + 1, 0);
         for (const cell_item& cb : m_cells) count[cb.cls + 1]++;
-        for (size_t k = 0; k < m_classes.size(); k++) count[k + 1] += count[k];
+        for (size_t k = 0; k < cls.size(); k++) count[k + 1] += count[k];
         m_order.assign(m_cells.size(), 0);
         std::vector<int> fill(count.begin(), count.end() - 1);
         for (size_t c = 0; c < m_cells.size(); c++) m_order[fill[m_cells[c].cls]++] = int(c);
         size_t f0 = 0, c0 = 0;
-        for (size_t k = 0; k < m_classes.size(); k++)
+        for (size_t k = 0; k < cls.size(); k++)
             for (int i = count[k]; i < count[k + 1]; i += m_max_batch) {
                 const int nb = std::min(m_max_batch, count[k + 1] - i);
                 m_batches.push_back(batch{int(k), i, nb, f0, c0});
-                f0 += size_t(nb) * m_classes[k].m;
-                c0 += size_t(nb) * m_classes[k].n;
+                f0 += size_t(nb) * cls[k].m;
+                c0 += size_t(nb) * cls[k].n;
             }
         // gather tables in the layout of the batch matrices (column l of the batch: unknown l of its cells)
         m_bf.assign(f0, 0);
         m_bc.assign(c0, 0);
         for (const batch& bt : m_batches) {
-            const int m = m_classes[bt.cls].m, n = m_classes[bt.cls].n;
+            const int m = cls[bt.cls].m, n = cls[bt.cls].n;
             for (int k = 0; k < bt.count; k++) {
                 const cell_item& cb = m_cells[m_order[bt.first + k]];
                 for (int l = 0; l < m; l++) m_bf[bt.f0 + size_t(l) * bt.count + k] = m_J[cb.j0 + l];
                 for (int j = 0; j < n; j++) m_bc[bt.c0 + size_t(j) * bt.count + k] = cb.r0 + j;
             }
         }
-        // slots of each algebraic unknown (CSR): the entries of m_bf holding it
+        // slots of each algebraic unknown (CSR): the entries of m_bf holding it (views: not the faces outside, m_na)
         m_sp.assign(m_na + 1, 0);
-        for (int d : m_bf) m_sp[d + 1]++;
+        for (int d : m_bf) if (size_t(d) < m_na) m_sp[d + 1]++;
         for (size_t d = 0; d < m_na; d++) m_sp[d + 1] += m_sp[d];
         m_sl.assign(m_bf.size(), 0);
         std::vector<int> pos(m_sp.begin(), m_sp.end() - 1);
-        for (size_t t = 0; t < m_bf.size(); t++) m_sl[pos[m_bf[t]]++] = int(t);
+        for (size_t t = 0; t < m_bf.size(); t++) if (size_t(m_bf[t]) < m_na) m_sl[pos[m_bf[t]]++] = int(t);
         m_slots.assign(m_bf.size(), T(0));
         bool two = true;
         for (size_t d = 0; d < m_na && two; d++) two = m_sp[d + 1] - m_sp[d] >= 1 && m_sp[d + 1] - m_sp[d] <= 2;

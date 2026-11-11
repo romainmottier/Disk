@@ -34,6 +34,7 @@
 #define lts_hpp
 
 #include <Eigen/Dense>
+#include <array>
 #include <deque>
 #include <functional>
 #include <type_traits>
@@ -154,15 +155,36 @@ namespace local_time_stepping {
         });
     }
 
+    // Weights of the coarse coefficients w_j in stage i of LI: the Taylor polynomial at c_i dt, or its stage value
+    // y_n + dt sum_{l<=i} a_il Y'(c_l dt) (stage_values), i.e. dt sum_l a_il (c_l dt)^(j-1) / (j-1)!
+    inline std::array<double, 4> li_weights(const runge_kutta::tableau_matrix& a, const runge_kutta::tableau_vector& c,
+                                            size_t i, double dt, bool stage_values) {
+        if (!stage_values) return runge_kutta::taylor_weights(c(i) * dt);
+        std::array<double, 4> t = {1.0, 0.0, 0.0, 0.0};
+        for (size_t l = 0; l <= i; l++) {
+            const double cl = c(l) * dt;
+            t[1] += dt * a(i, l);
+            t[2] += dt * a(i, l) * cl;
+            t[3] += dt * a(i, l) * cl * cl / 2;
+        }
+        return t;
+    }
+
     // One LI step [t_n, t_n + dt] of x: SDIRK (a, b, c) whose stages (I - h B P) Z = rhs are solved by solve(rhs),
-    // h = a_ii dt; force(t) = F(t)
+    // h = a_ii dt; force(t) = F(t); stage_values: weights of li_weights
     template<typename Op, typename V, typename Force, typename Solve>
     void li_step(Op& op, V& x, const std::vector<V>& w, double tn, double dt, const runge_kutta::tableau_matrix& a,
                  const runge_kutta::tableau_vector& b, const runge_kutta::tableau_vector& c, double h, Force&& force,
-                 Solve&& solve) {
+                 Solve&& solve, bool stage_values = false) {
         runge_kutta::sdirk(x, 1, dt, a, b, c, [](double, const V&) {}, [&](size_t i, double t, V& R, V& k) {
             V F = force(tn + t);
-            V wt = runge_kutta::taylor_polynomial(w, c(i) * dt);
+            V wt;
+            if (stage_values) {
+                const std::array<double, 4> tw = li_weights(a, c, i, dt, true);
+                wt = w[0] + tw[1]*w[1] + tw[2]*w[2] + tw[3]*w[3];
+            }
+            else
+                wt = runge_kutta::taylor_polynomial(w, c(i) * dt);
             V rhs = R + h * (fine_forcing_term(op, F) + wt);
             V Z = solve(rhs);
             if constexpr (Op::slope == stage_slope::from_solve)
@@ -323,12 +345,13 @@ namespace local_time_stepping {
         return x;
     }
 
-    // LI-SDIRK from x, nt steps up to tf (stage solve: see li_step); observe(t, x) after each step
+    // LI-SDIRK from x, nt steps up to tf (stage solve, stage_values: see li_step); observe(t, x) after each step
     // Fast mode: coarse_coefficients_fast, forces of the coarse coefficients reused by the stages at the same times
     template<typename Op, typename V, typename Force, typename Solve>
     V integrate_li(Op& op, V x, size_t nt, double tf, const runge_kutta::tableau_matrix& a,
                    const runge_kutta::tableau_vector& b, const runge_kutta::tableau_vector& c, Force&& force, Solve&& solve,
-                   const std::function<void(double, const std::type_identity_t<V>&)>& observe = {}, bool fast = false) {
+                   const std::function<void(double, const std::type_identity_t<V>&)>& observe = {}, bool fast = false,
+                   bool stage_values = false) {
         double dt = tf / nt;
         double h = a(0,0) * dt;
         std::vector<V> w(4);
@@ -339,12 +362,12 @@ namespace local_time_stepping {
             if (fast) {
                 V Fn = memo.F(tn), Fh = memo.F(tn + 0.5 * dt), Fe = memo.F(tn + dt);
                 coarse_coefficients_fast(op, x, Fn, Fh, Fe, dt, w);
-                li_step(op, x, w, tn, dt, a, b, c, h, memo_force, solve);
+                li_step(op, x, w, tn, dt, a, b, c, h, memo_force, solve, stage_values);
                 if (observe) observe(dt * (it + 1), x);
                 continue;
             }
             coarse_coefficients(op, x, force(tn), force(tn + 0.5 * dt), force(tn + dt), dt, w);
-            li_step(op, x, w, tn, dt, a, b, c, h, force, solve);
+            li_step(op, x, w, tn, dt, a, b, c, h, force, solve, stage_values);
             if (observe) observe(dt * (it + 1), x);
         }
         return x;

@@ -5,7 +5,8 @@
 //  s+1) on the shared drivers (time_schemes/runge_kutta.hpp), two-level LTS-RK4 and LI-SDIRK(4,3) on the shared ones
 //  (time_schemes/lts.hpp: force masked after the operator, LI slopes from the stage solves), Newmark on all the
 //  unknowns, and the choice of the integrator from the parameters (integrate). faces.localize (F = 0): LTS and MLTS
-//  with local evaluations of B (local_operator, second_order_system::eval_local).
+//  with local evaluations of B (local_operator, second_order_system::eval_local). faces.projected: LTS, MLTS and LI
+//  with the projected condensation (integrate_lts_projected, integrate_mlts_projected, integrate_li_projected).
 //
 
 #pragma once
@@ -16,6 +17,9 @@
 #include "../time_schemes/runge_kutta.hpp"
 #include "../time_schemes/lts.hpp"
 #include <array>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace hho_second_order {
 
@@ -131,8 +135,9 @@ namespace hho_second_order {
     }
 
     // LI-SDIRK(4,3): coarse ERK4 Taylor coefficients, one SDIRK(3,4) step of z' = B P z + P g(t) + w(tau) whose
-    // stages (I - a_ii dt B P) Z = R + a_ii dt (P g + w) are solved with the projected stage matrix
-    inline vector_type integrate_li(problem& pb, vector_type y, size_t nt, RealType tf) {
+    // stages (I - a_ii dt B P) Z = R + a_ii dt (P g + w) are solved with the projected stage matrix; time.li_coupling =
+    // "stage": stage values of the coarse polynomial (local_time_stepping::li_weights)
+    inline vector_type integrate_li(problem& pb, const wave_parameters& prm, vector_type y, size_t nt, RealType tf) {
         Matrix<RealType, Dynamic, Dynamic> a; vector_type b, c;
         dirk_butcher_tableau::sdirk_tables(3, a, b, c);
         second_order_system& sys = pb.system();
@@ -140,7 +145,7 @@ namespace hho_second_order {
         lts_operator op(pb);
         return local_time_stepping::integrate_li(op, y, nt, tf, a, b, c, [&](RealType t) { return pb.eval_F(t); },
                                                  [&](const vector_type& r) { return sys.stage_solve(op.zero, r); }, {},
-                                                 sys.fast());
+                                                 sys.fast(), prm.time.li_coupling == "stage");
     }
 
     // Operator of one level of the multilevel LTS-RK4 (local_time_stepping::integrate_mlts): lts_operator with the
@@ -451,12 +456,45 @@ namespace hho_second_order {
         return y;
     }
 
+    // faces.projected: LI of the splitting of integrate_lts_projected, B = A + (B - A), A = B~ P: one SDIRK(3,4) step of
+    // z' = A z + P g(t) + w(tau), B - A in the coarse polynomial (coarse_coefficients_fast); the stage systems
+    // (I - a_ii dt A) Z = R are local (faces of the fine region and faces.projected_rings rings, factorize_stage_projected);
+    // time.li_local: their right-hand sides and solutions on the cells of these faces only (stage_solve_zero)
+    inline vector_type integrate_li_projected(problem& pb, const wave_parameters& prm, vector_type y, size_t nt, RealType tf) {
+        Matrix<RealType, Dynamic, Dynamic> a; vector_type b, c;
+        dirk_butcher_tableau::sdirk_tables(3, a, b, c);
+        second_order_system& sys = pb.system();
+        sys.build_local();
+        const bool zF = zero_force(pb, tf);
+        projected_operator op(pb, prm.faces.projected_rings, zF);
+        const bool local = prm.time.li_local;
+        sys.factorize_stage_projected(a(0,0) * (tf / nt), pb.Py, op.cap, local);
+        std::cout << "      projected LI: fine cells " << op.pc.size() << ", faces of A " << op.cap_faces << " / "
+                  << sys.graph().a_ofs.size() << " algebraic faces (" << prm.faces.projected_rings << " ring(s))"
+                  << (zF ? ", F = 0" : "");
+        if (local) std::cout << ", local stages (" << sys.stage_cell_unknowns() << " / " << sys.n_c << " cell unknowns)";
+        std::cout << std::endl;
+        const vector_type F0 = vector_type::Zero(sys.N);
+        auto solve = [&](const vector_type& r) { return local ? sys.stage_solve_zero(r) : sys.stage_solve(op.zero, r); };
+        const bool stage_values = prm.time.li_coupling == "stage";
+        if (zF)
+            return local_time_stepping::integrate_li(op, y, nt, tf, a, b, c, [&](RealType) { return F0; }, solve, {}, true,
+                                                     stage_values);
+        return local_time_stepping::integrate_li(op, y, nt, tf, a, b, c, [&](RealType t) { return pb.eval_F(t); }, solve,
+                                                 {}, true, stage_values);
+    }
+
     // faces.projected, multilevel: nested splitting B = A_{L-1} + sum_{l < L-1} (A_l - A_{l+1}), A_0 = B and, for l >= 1,
     // A_l the operator of the unknowns of the levels >= l whose faces are solved on their cells and faces.projected_rings
     // rings around them only. Level l < L-1 freezes (A_l - A_{l+1}) a_i over its window, a_i the derivatives of its own
     // problem z' = A_l z + W(tau) (W: Taylor polynomial of the coarser levels, a_0 = z, a_{i+1} = A_l a_i + W^(i)), adds
     // them to W and hands the sum, re-expanded at the start of each sub-window, to level l+1; the finest level takes RK4
-    // steps of z' = A_{L-1} z + W(tau). With two levels, the scheme of integrate_lts_projected. F = 0 only.
+    // steps of z' = A_{L-1} z + W(tau). With two levels, the scheme of integrate_lts_projected.
+    // Forcing (F != 0): g(F) = f(F, 0) is split by the masks P_{l-1} of the levels >= l, as after_operator: level l adds
+    // P_{l-1} G^(i) to the derivatives of its own problem and (P_{l-1} - P_l) G^(i) to its coefficients, G^(i) the
+    // derivatives at the start of its window of the quadratic interpolant of g(F) at t, t + h/2, t + h (G^(3) = 0); the
+    // finest level adds P_{L-2} g(F) to its stages. The splitting stays exact. Local arrays (solver.matrix_free): F = 0,
+    // or F != 0 with time.mlts_forcing = "cubic"; the general path otherwise.
     inline vector_type integrate_mlts_projected(problem& pb, const wave_parameters& prm, vector_type y, size_t nt, RealType tf) {
         std::vector<int> level;
         const size_t L = pb.mlts_state_levels(prm, level);
@@ -465,10 +503,17 @@ namespace hho_second_order {
         for (size_t r : ratios) std::cout << " " << r;
         std::cout << std::endl;
         if (L == 1) return integrate_erk(pb, y, nt, tf, 4);
-        if (!zero_force(pb, tf))
-            throw std::runtime_error("faces.projected with time.scheme = \"mlts\": F = 0 only (no source, homogeneous Dirichlet data)");
+        const bool zF = zero_force(pb, tf);
+        if (!zF) std::cout << "      forcing split by the levels (F != 0)" << std::endl;
         second_order_system& sys = pb.system();
         sys.build_local();
+        // faces.projected_solver = "explicit": the levels l >= 1 are views on the matrix-free operator of the whole mesh
+        // (lists of unknowns only, no matrix stored, faces by conjugate gradients); "hybrid": the same views, except
+        // the levels of at most faces.projected_direct_max unknowns, which store their local block and factorize it
+        const bool hybrid = prm.faces.projected_solver == "hybrid";
+        const bool views = prm.faces.projected_solver == "explicit" || hybrid;
+        if (views && !(sys.matrix_free() && (zF || prm.time.mlts_forcing == "cubic")))
+            throw std::runtime_error("faces.projected_solver = \"explicit\" or \"hybrid\": solver.matrix_free and F = 0 or time.mlts_forcing = \"cubic\"");
         struct level_set { std::vector<int> c, d; std::vector<char> cap; size_t faces = 0; std::unique_ptr<second_order_system::local_block> blk; };
         std::vector<level_set> A(L);
         for (size_t l = 1; l < L; l++) {
@@ -479,7 +524,9 @@ namespace hho_second_order {
             A[l].d = sys.mask_dblocks(m);
             A[l].cap = sys.cells_cap(sys.grow_cells(in, prm.faces.projected_rings));
             for (char c : A[l].cap) A[l].faces += c ? 1 : 0;
-            A[l].blk = sys.make_local_block(A[l].c, A[l].d, A[l].cap);
+            A[l].blk = sys.make_local_block(A[l].c, A[l].d, A[l].cap, !views);
+            if (hybrid && A[l].blk->rc.size() + A[l].blk->ci.size() <= prm.faces.projected_direct_max)
+                A[l].blk = sys.make_local_block(A[l].c, A[l].d, A[l].cap, true);
             std::cout << "      levels >= " << l << ": cells " << A[l].c.size() << ", faces of A_" << l << " " << A[l].faces
                       << " / " << sys.graph().a_ofs.size() << std::endl;
         }
@@ -489,7 +536,24 @@ namespace hho_second_order {
             return l == 0 ? sys.eval(F0, v, ws[i]) : sys.apply_local_block(*A[l].blk, v);
         };
         const double dt = tf / double(nt);
-        if (sys.matrix_free()) {
+        // Forcing: g(F(t)) = f(F(t), 0)
+        vector_type g_ws;
+        const vector_type y0 = vector_type::Zero(sys.state_size());
+        auto g_exact = [&](double t) { return sys.eval(pb.eval_F(t), y0, g_ws); };
+        // time.mlts_forcing = "cubic": g(F(t)) interpolated on each coarse step [t_n, t_n + dt] by the cubic through its
+        // values at t_n + k dt / 3, k = 0..3 (4 global face solves per coarse step instead of 3 per window of every level
+        // and 2 per finest substep; interpolation error O(dt^4), the order four is kept)
+        const bool cubic = prm.time.mlts_forcing == "cubic" && !zF;
+        double t_cub = 0.0;
+        std::array<vector_type, 4> g_cub;
+        // weights of the 4 values in the cubic at t
+        auto lagrange = [&](double t) -> std::array<double, 4> {
+            const double x = (t - t_cub) / dt;
+            return {-4.5 * (x - 1.0 / 3.0) * (x - 2.0 / 3.0) * (x - 1.0), 13.5 * x * (x - 2.0 / 3.0) * (x - 1.0),
+                    -13.5 * x * (x - 1.0 / 3.0) * (x - 1.0), 4.5 * x * (x - 1.0 / 3.0) * (x - 2.0 / 3.0)};
+        };
+        if (cubic) std::cout << "      forcing interpolated by a cubic in time on each coarse step" << std::endl;
+        if (sys.matrix_free() && (zF || cubic)) {
             // Local arrays (solver.matrix_free): level l >= 1 only holds the unknowns S_l of the rows of A_l (the columns
             // read by A_l are among them, S_{l+1} in S_l). Over its window, the unknowns of S_l \ S_{l+1} follow the Taylor
             // polynomial of level l (the RK4 substeps of the finest level integrate it exactly): they are updated in
@@ -498,6 +562,7 @@ namespace hho_second_order {
             // of its rows and its faces (make_local_mf), the faces by conjugate gradients warm-started from the previous
             // call at the same site (derivatives of each level, RK4 stages). Same scheme, equal up to round-off.
             const Eigen::Index N = Eigen::Index(sys.state_size()), nc = Eigen::Index(sys.n_c);
+            const std::vector<int>& state_level = level;   // (hidden by the struct below)
             struct level { std::vector<int> S, px, pu, pv, prc, prd, sub, own, pin; };   // positions in the local array
             std::vector<level> lev(L);
             std::vector<int> pos(size_t(N), -1);
@@ -528,13 +593,94 @@ namespace hho_second_order {
             }
             // A_l on a local array of S_l, matrix-free: u of the cells of its rows (zero outside the level), faces by
             // conjugate gradients from the warm start ws, velocities of the rows; u' = v on the cells of the level
+            // faces.projected_solver: "direct" (level l: A_l from its local block, apply_local_block on the local array,
+            // the faces by the factorization of make_local_block, on one thread), "auto" (direct on one thread or when the
+            // level has at most faces.projected_direct_max unknowns, cells of its rows and faces solved), "cg" otherwise;
+            // "explicit": conjugate gradients on views of the operator of the whole mesh, on one thread for the levels of
+            // at most faces.projected_direct_max unknowns; "hybrid": direct for them instead
+            std::vector<char> direct(L, 0), serial(L, 0);
+            {
+                int threads = 1;
+#ifdef _OPENMP
+                threads = omp_get_max_threads();
+#endif
+                const std::string& fs = prm.faces.projected_solver;
+                std::cout << "      local faces:";
+                for (size_t l = 1; l < L; l++) {
+                    const size_t n = A[l].blk->rc.size() + A[l].blk->ci.size();
+                    direct[l] = fs == "direct" || (fs == "auto" && (threads == 1 || n <= prm.faces.projected_direct_max))
+                             || (hybrid && n <= prm.faces.projected_direct_max);
+                    serial[l] = views && n <= prm.faces.projected_direct_max;
+                    std::cout << " " << n << (views ? (direct[l] ? "d" : serial[l] ? "s" : "v") : direct[l] ? "d" : "c");
+                }
+                std::cout << " unknowns of the levels >= 1 ("
+                          << (hybrid ? "views, conjugate gradients, d: factorization"
+                              : views ? "views, conjugate gradients, s: one thread" : "d: factorization, c: conjugate gradients")
+                          << ")" << std::endl;
+            }
             std::vector<std::unique_ptr<mf_second_order_operator<RealType>>> mfl(L);
             for (size_t l = 1; l < L; l++)
-                mfl[l] = sys.make_local_mf(*A[l].blk, RealType(prm.solver.matrix_free_tolerance), int(prm.solver.matrix_free_batch));
-            size_t local_solves = 0, local_iterations = 0, local_failures = 0;
+                if (views && !direct[l])
+                    mfl[l] = sys.make_local_view(*A[l].blk, int(prm.solver.matrix_free_batch), serial[l]);
+                else if (!direct[l])
+                    mfl[l] = sys.make_local_mf(*A[l].blk, RealType(prm.solver.matrix_free_tolerance), int(prm.solver.matrix_free_batch));
+            // Forcing (time.mlts_forcing = "cubic"): the 4 values of the cubic restricted to S_l once per coarse step,
+            // masked by P_{l-1} (gm: levels >= l) and P_{l-1} - P_l (gd: level l). As in the general path, a window
+            // [t, t + h] of level l takes the derivatives at t of the quadratic interpolant at t, t + h/2, t + h (weights
+            // of the 4 values: window_weights), the finest level the cubic at its stages.
+            const bool forced = !zF;
+            std::vector<vector_type> mP(L), mD(L);
+            std::vector<std::array<vector_type, 4>> gm(L), gd(L);
+            vector_type mD0;
+            if (forced) {
+                for (size_t l = 1; l < L; l++) {
+                    mP[l] = mD[l] = vector_type::Zero(Eigen::Index(lev[l].S.size()));
+                    for (size_t k = 0; k < lev[l].S.size(); k++) {
+                        const int lv = state_level[size_t(lev[l].S[k])];
+                        if (lv >= int(l)) mP[l](Eigen::Index(k)) = 1.0;
+                        if (lv == int(l)) mD[l](Eigen::Index(k)) = 1.0;
+                    }
+                }
+                mD0 = vector_type::Zero(N);
+                for (Eigen::Index p = 0; p < N; p++) if (state_level[size_t(p)] == 0) mD0(p) = 1.0;
+            }
+            auto window_weights = [&](double t, double h) {
+                const std::array<double, 4> c0 = lagrange(t), ch = lagrange(t + 0.5 * h), ce = lagrange(t + h);
+                std::array<std::array<double, 4>, 3> c;
+                for (size_t k = 0; k < 4; k++) {
+                    c[0][k] = c0[k];
+                    c[1][k] = (-3 * c0[k] + 4 * ch[k] - ce[k]) / h;
+                    c[2][k] = (4 * c0[k] - 8 * ch[k] + 4 * ce[k]) / (h * h);
+                }
+                return c;
+            };
+            auto comb = [](const std::array<vector_type, 4>& g, const std::array<double, 4>& c) -> vector_type {
+                return c[0] * g[0] + c[1] * g[1] + c[2] * g[2] + c[3] * g[3];
+            };
+            size_t local_solves = 0, local_iterations = 0, local_failures = 0, local_direct = 0;
             auto apply_local = [&](size_t l, const vector_type& z, vector_type& ws) {
                 const second_order_system::local_block& lb = *A[l].blk;
                 const level& lv = lev[l];
+                if (direct[l]) {
+                    vector_type x(Eigen::Index(lb.xi.size()));
+                    for (size_t k = 0; k < lb.xi.size(); k++) x(Eigen::Index(k)) = z(lv.px[k]);
+                    vector_type res = -(lb.Kxx * x);
+                    if (!lb.ci.empty()) {
+                        const vector_type af = lb.ldlt.solve(-(lb.Kax * x));
+                        res -= lb.Kxa * af;
+                        local_direct++;
+                    }
+                    vector_type out = vector_type::Zero(z.size());
+                    for (size_t i = 0; i < lb.vc.size(); i++) out(lv.pu[i]) = z(lv.pv[i]);
+                    const Eigen::Index nrc = Eigen::Index(lb.rc.size());
+                    const vector_type vc = lb.Minv * res.head(nrc);
+                    for (Eigen::Index k = 0; k < nrc; k++) out(lv.prc[size_t(k)]) = vc(k);
+                    if (!lb.rd.empty()) {
+                        const vector_type vd = lb.Cinv * res.tail(res.size() - nrc);
+                        for (size_t k = 0; k < lb.rd.size(); k++) out(lv.prd[k]) = vd(Eigen::Index(k));
+                    }
+                    return out;
+                }
                 mf_second_order_operator<RealType>& op = *mfl[l];
                 const Eigen::Index nr = Eigen::Index(lb.rc.size()), nf = Eigen::Index(lb.ci.size());
                 vector_type u(nr), zero = vector_type::Zero(std::max(nr, nf)), r(nf), vd(nr);
@@ -576,31 +722,39 @@ namespace hho_second_order {
             };
             // pre (first sub-window of a window of level l - 1): A_l a_i already computed by level l - 1 on the same
             // derivatives (its window starts at the same time with the same z, and w_in = w of level l - 1 makes the
-            // derivatives of level l those of level l - 1): reused, as the first RK4 slope of the finest level
-            std::function<void(size_t, double, vector_type&, const std::vector<vector_type>&, const std::vector<vector_type>*)> step_local =
-                [&](size_t l, double h, vector_type& z, const std::vector<vector_type>& w_in, const std::vector<vector_type>* pre) {
+            // derivatives of level l those of level l - 1): reused, as the first RK4 slope of the finest level. With a
+            // forcing, for i = 0 only (the derivatives of the forcing, i >= 1, depend on the window).
+            std::function<void(size_t, double, double, vector_type&, const std::vector<vector_type>&, const std::vector<vector_type>*)> step_local =
+                [&](size_t l, double t0, double h, vector_type& z, const std::vector<vector_type>& w_in, const std::vector<vector_type>* pre) {
                 if (l == L - 1) {
                     z += runge_kutta::rk4_increment(z, h, [&](const vector_type& zz, int st) {
+                        const double tau = st == 0 ? 0.0 : st < 3 ? 0.5 * h : h;
                         vector_type k = st == 0 && pre ? (*pre)[0] : apply_local(l, zz, wsl[l][8 + size_t(st)]);
-                        k += runge_kutta::taylor_polynomial(w_in, st == 0 ? 0.0 : st < 3 ? 0.5 * h : h);
+                        k += runge_kutta::taylor_polynomial(w_in, tau);
+                        if (forced) k += comb(gm[l], lagrange(t0 + tau));
                         return k;
                     });
                     return;
                 }
+                std::array<std::array<double, 4>, 3> c{};
+                if (forced) c = window_weights(t0, h);
                 std::vector<vector_type> w = w_in, An(4);
                 vector_type a = z;
                 for (size_t i = 0; i < 4; i++) {
-                    vector_type Aa = pre ? (*pre)[i] : apply_local(l, a, wsl[l][i]);
+                    vector_type Aa = pre && (!forced || i == 0) ? (*pre)[i] : apply_local(l, a, wsl[l][i]);
                     An[i] = apply_local(l + 1, restrict_to(l, a), wsl[l + 1][4 + i]);
                     w[i] += Aa - lift(l, An[i], z.size());
+                    if (forced && i < 3) w[i] += comb(gd[l], c[i]);
                     if (i < 3) a = Aa + w_in[i];
+                    if (forced && i < 3) a += comb(gm[l], c[i]);
                 }
                 const double hs = h / double(ratios[l]);
                 std::vector<vector_type> wr(4);
                 for (size_t i = 0; i < 4; i++) wr[i] = restrict_to(l, w[i]);
                 vector_type zc = restrict_to(l, z);
                 for (size_t m = 0; m < ratios[l]; m++)
-                    step_local(l + 1, hs, zc, local_time_stepping::taylor_shift(wr, double(m) * hs), m == 0 ? &An : nullptr);
+                    step_local(l + 1, t0 + double(m) * hs, hs, zc, local_time_stepping::taylor_shift(wr, double(m) * hs),
+                               m == 0 ? &An : nullptr);
                 for (int p : lev[l].own) z(p) += integral(w, p, h);
                 for (size_t k = 0; k < lev[l].sub.size(); k++) z(lev[l].sub[k]) = zc(Eigen::Index(k));
             };
@@ -614,6 +768,21 @@ namespace hho_second_order {
             };
             std::vector<vector_type> w(4);
             for (size_t it = 0; it < nt; it++) {
+                const double tn = dt * double(it);
+                std::array<vector_type, 3> G;
+                if (forced) {
+                    t_cub = tn;
+                    for (size_t k = 0; k < 4; k++) g_cub[k] = g_exact(t_cub + double(k) * dt / 3.0);
+                    for (size_t l = 1; l < L; l++)
+                        for (size_t k = 0; k < 4; k++) {
+                            vector_type r(Eigen::Index(lev[l].S.size()));
+                            for (size_t j = 0; j < lev[l].S.size(); j++) r(Eigen::Index(j)) = g_cub[k](lev[l].S[j]);
+                            gm[l][k] = mP[l].cwiseProduct(r);
+                            if (l + 1 < L) gd[l][k] = mD[l].cwiseProduct(r);
+                        }
+                    const std::array<std::array<double, 4>, 3> c = window_weights(tn, dt);
+                    for (size_t i = 0; i < 3; i++) G[i] = comb(g_cub, c[i]);
+                }
                 vector_type a = y;
                 std::vector<vector_type> A1(4);
                 for (size_t i = 0; i < 4; i++) {
@@ -623,6 +792,7 @@ namespace hho_second_order {
                     const vector_type& o = A1[i];
                     for (size_t k = 0; k < lev[1].S.size(); k++) A1a(lev[1].S[k]) = o(Eigen::Index(k));
                     w[i] = Ba - A1a;
+                    if (forced && i < 3) { w[i] += mD0.cwiseProduct(G[i]); Ba += G[i]; }
                     if (i < 3) a = Ba;
                 }
                 const double hs = dt / double(ratios[0]);
@@ -630,39 +800,68 @@ namespace hho_second_order {
                 for (size_t i = 0; i < 4; i++) wr[i] = restrict0(w[i]);
                 vector_type z1 = restrict0(y);
                 for (size_t m = 0; m < ratios[0]; m++)
-                    step_local(1, hs, z1, local_time_stepping::taylor_shift(wr, double(m) * hs), m == 0 ? &A1 : nullptr);
+                    step_local(1, tn + double(m) * hs, hs, z1, local_time_stepping::taylor_shift(wr, double(m) * hs),
+                               m == 0 ? &A1 : nullptr);
                 #pragma omp parallel for schedule(static)
                 for (Eigen::Index p = 0; p < N; p++)
                     if (!in1[size_t(p)]) y(p) += integral(w, p, dt);
                 for (size_t k = 0; k < lev[1].S.size(); k++) y(lev[1].S[k]) = z1(Eigen::Index(k));
             }
-            std::cout << "      local faces (matrix-free): " << local_solves << " solves, "
-                      << (local_solves ? double(local_iterations) / double(local_solves) : 0.0)
-                      << " iterations on average, not converged " << local_failures << std::endl;
+            std::cout << "      local faces: " << local_direct << " factorized solves, " << local_solves
+                      << " conjugate gradients (" << (local_solves ? double(local_iterations) / double(local_solves) : 0.0)
+                      << " iterations on average, not converged " << local_failures << ")" << std::endl;
             return y;
         }
-        std::function<void(size_t, double, const std::vector<vector_type>&)> step = [&](size_t l, double h, const std::vector<vector_type>& w_in) {
+        // Forcing: P[l] = P_{l-1} (unknowns of the levels >= l, P[0] = I)
+        std::vector<vector_type> P;
+        auto g_at = [&](double t) -> vector_type {
+            if (!cubic) return g_exact(t);
+            const std::array<double, 4> c = lagrange(t);
+            return c[0] * g_cub[0] + c[1] * g_cub[1] + c[2] * g_cub[2] + c[3] * g_cub[3];
+        };
+        if (!zF)
+            for (size_t l = 0; l < L; l++) {
+                P.push_back(vector_type::Zero(sys.state_size()));
+                for (size_t i = 0; i < level.size(); i++) if (level[i] >= int(l)) P[l](Eigen::Index(i)) = 1.0;
+            }
+        std::function<void(size_t, double, double, const std::vector<vector_type>&)> step =
+            [&](size_t l, double t0, double h, const std::vector<vector_type>& w_in) {
             if (l == L - 1) {
                 y += runge_kutta::rk4_increment(y, h, [&](const vector_type& z, int st) {
+                    const double tau = st == 0 ? 0.0 : st < 3 ? 0.5 * h : h;
                     vector_type k = apply(L - 1, z, 0);
-                    k += runge_kutta::taylor_polynomial(w_in, st == 0 ? 0.0 : st < 3 ? 0.5 * h : h);
+                    k += runge_kutta::taylor_polynomial(w_in, tau);
+                    if (!zF) k += P[L - 1].cwiseProduct(g_at(t0 + tau));
                     return k;
                 });
                 return;
+            }
+            std::vector<vector_type> G(3);
+            if (!zF) {
+                G[0] = g_at(t0);
+                const vector_type gh = g_at(t0 + 0.5 * h), ge = g_at(t0 + h);
+                runge_kutta::quadratic_in_time(G[0], gh, ge, h, G[1], G[2]);
             }
             std::vector<vector_type> w = w_in;
             vector_type a = y;
             for (size_t i = 0; i < 4; i++) {
                 vector_type Aa = apply(l, a, i);
                 w[i] += Aa - apply(l + 1, a, i);
+                if (!zF && i < 3) w[i] += (P[l] - P[l + 1]).cwiseProduct(G[i]);
                 if (i < 3) a = Aa + w_in[i];
+                if (!zF && i < 3) a += P[l].cwiseProduct(G[i]);
             }
             const double hs = h / double(ratios[l]);
             for (size_t m = 0; m < ratios[l]; m++)
-                step(l + 1, hs, local_time_stepping::taylor_shift(w, double(m) * hs));
+                step(l + 1, t0 + double(m) * hs, hs, local_time_stepping::taylor_shift(w, double(m) * hs));
         };
-        for (size_t it = 0; it < nt; it++)
-            step(0, dt, std::vector<vector_type>(4, vector_type::Zero(sys.state_size())));
+        for (size_t it = 0; it < nt; it++) {
+            if (cubic) {
+                t_cub = dt * double(it);
+                for (size_t k = 0; k < 4; k++) g_cub[k] = g_exact(t_cub + double(k) * dt / 3.0);
+            }
+            step(0, dt * double(it), dt, std::vector<vector_type>(4, vector_type::Zero(sys.state_size())));
+        }
         print_local_stats(sys);
         return y;
     }
@@ -724,7 +923,8 @@ namespace hho_second_order {
         }
         if (prm.time.scheme == "lts")   return integrate_lts(pb, y, nt, tf);
         if (prm.time.scheme == "mlts")  return integrate_mlts(pb, prm, y, nt, tf);
-        return integrate_li(pb, y, nt, tf);
+        if (prm.faces.projected) return integrate_li_projected(pb, prm, y, nt, tf);
+        return integrate_li(pb, prm, y, nt, tf);
     }
 
 }

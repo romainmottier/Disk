@@ -12,6 +12,8 @@ water_mlts) and writes into the second one:
     tfus_focus.pdf      peak pressure maps (water, intact skull, plate) and profiles along and across the axis
     tfus_signals.pdf    pressure at the focus (three models; schemes and steps with the plate), discrete energy (fitted
                         and staircase interfaces), costs
+    tfus_cost.txt       Table tfus-cost: best of three integration times (6 threads: fit/plate_*; 1 thread: t1/*, 8 us
+                        extrapolated, the factorization of LI counted once), gains, memory
 Usage: python3 make_tfus.py <runs> <figures>
 """
 import math, os, re, sys
@@ -415,6 +417,13 @@ def wall(d):
     return float(open(f).read().split()[0]) if os.path.exists(f) else None
 
 
+def best_integration(d):
+    """Best integration wall time of d and of its repetitions d_r2, d_r3 (same job, run alone)."""
+    v = [integration(x) for x in (d, d + "_r2", d + "_r3")]
+    v = [x for x in v if x is not None]
+    return min(v) if v else None
+
+
 def integration(d):
     f = os.path.join(d, "log.txt")
     if not os.path.exists(f):
@@ -432,7 +441,11 @@ def energy(d):
 
 
 def signals():
-    fig, axs = plt.subplots(1, 4, figsize=(6.3, 2.15), gridspec_kw=dict(width_ratios=[1.15, 1.0, 1.0, 0.8]))
+    # top: signals and energies; bottom: costs of Table tfus-cost (times, peak memories)
+    fig = plt.figure(figsize=(6.3, 4.2))
+    gs = fig.add_gridspec(2, 6, height_ratios=[1, 0.9])
+    axs = [fig.add_subplot(gs[0, 0:2]), fig.add_subplot(gs[0, 2:4]), fig.add_subplot(gs[0, 4:6]),
+           fig.add_subplot(gs[1, 0:3]), fig.add_subplot(gs[1, 3:6])]
     ax = axs[0]
     for (r, lab), c in zip((("water_li", "water"), ("intact_li", "intact skull"), ("plate_li", "skull and plate")),
                            ("#2b6cb0", "#2f855a", "#b7202e")):
@@ -460,33 +473,35 @@ def signals():
             ax.plot(E[0], E[1], ls, color=c, lw=0.8, label=lab)
     ax.set_xlabel(r"$t$ ($\mu$s)", labelpad=1); ax.set_ylabel(r"$E(t)/E(0)$", labelpad=1); ax.grid(True, **GRID)
     ax.legend(loc="lower left", frameon=False, fontsize=5.0); ax.set_title("discrete energy", fontsize=7, pad=2)
-    ax = axs[3]
-    # costs on six threads: ERK4 measured over 8 us and extrapolated to 80 us (its steps are all alike), MLTS, LI; memory
-    def mem(d):
-        f = os.path.join(d, "time.txt")
-        return float(open(f).read().split()[2]) / 1048576 if os.path.exists(f) else None
-    t, m = {}, {}
-    e8 = integration(run("plate_erk_8us"))
-    if e8:
-        t["erk"] = e8 * 80.0 / 8.0; m["erk"] = mem(run("plate_erk_8us"))
-    for s_, d in (("mlts", mlts_run), ("li", "plate_li")):
-        if integration(run(d)):
-            t[s_] = integration(run(d)); m[s_] = mem(run(d))
-    names = [s_ for s_ in ("erk", "mlts", "li") if s_ in t]
-    ax.bar(range(len(names)), [t[s_] / 60 for s_ in names], color=[SCH[s_][1] for s_ in names], edgecolor="#1a1a1a", linewidth=0.4)
-    for i_, s_ in enumerate(names):
-        lab = f"{t[s_] / 60:.0f} min"
-        if s_ != "erk" and "erk" in t:
-            lab += f"\n($\\times${t['erk'] / t[s_]:.1f})"
-        if m.get(s_):
-            lab += f"\n{m[s_]:.1f} GiB"
-        ax.text(i_, t[s_] / 60 * 1.02, lab, ha="center", va="bottom", fontsize=5.2)
-    ax.set_xticks(range(len(names))); ax.set_xticklabels([SCH[s_][0] for s_ in names], fontsize=6.5)
-    ax.set_ylabel("time integration (min), 6 threads", labelpad=1)
-    if names:
-        ax.set_ylim(0, max(t[s_] / 60 for s_ in names) * 1.45)
-    ax.grid(True, axis="y", **GRID)
-    fig.tight_layout(pad=0.2, w_pad=0.6)
+    T, M = cost_data()
+    names = [s_ for s_ in ("erk", "mlts", "li") if T.get((s_, 6)) or T.get((s_, 1))]
+    for ax, D, yl in ((axs[3], T, "time integration (min)"), (axs[4], M, "peak memory (GiB)")):
+        for i_, s_ in enumerate(names):
+            for j_, th in enumerate((1, 6)):
+                v = D.get((s_, th))
+                if not v:
+                    continue
+                xi = i_ + (j_ - 0.5) * 0.38
+                ax.bar(xi, v, width=0.36, color=SCH[s_][1], edgecolor="#1a1a1a", linewidth=0.4,
+                       hatch="////" if th == 1 else None)
+                lab = f"{v:.0f}" if D is T else f"{v:.1f}"
+                if s_ != "erk" and D.get(("erk", th)):
+                    r_ = D[("erk", th)] / v if D is T else v / D[("erk", th)]
+                    lab += f"\n($\\times${r_:.1f})" if D is T else f"\n($\\times${r_:.2f})"
+                ax.text(xi, v * (1.08 if D is T else 1.02), lab, ha="center", va="bottom", fontsize=5.2)
+        ax.set_xticks(range(len(names))); ax.set_xticklabels([SCH[s_][0] for s_ in names], fontsize=6.5)
+        ax.set_ylabel(yl, labelpad=1); ax.grid(True, axis="y", **GRID)
+        vals = [v for v in D.values() if v]
+        if D is T:
+            ax.set_yscale("log"); ax.set_ylim(min(vals) / 2, max(vals) * 8)
+        else:
+            ax.set_ylim(0, max(vals) * 1.4)
+    axs[3].legend(handles=[Rectangle((0, 0), 1, 1, fc="white", ec="#1a1a1a", lw=0.4, hatch="////", label="1 thread"),
+                           Rectangle((0, 0), 1, 1, fc="white", ec="#1a1a1a", lw=0.4, label="6 threads")],
+                  loc="upper right", fontsize=5.5, frameon=False)
+    axs[3].set_title("time integration (best of three)", fontsize=7, pad=2)
+    axs[4].set_title("peak memory", fontsize=7, pad=2)
+    fig.tight_layout(pad=0.2, w_pad=0.6, h_pad=1.0)
     save(fig, "tfus_signals.pdf")
 
 
@@ -522,8 +537,8 @@ def polytopal():
     ax.set_xlim(X0, X1); ax.set_ylim(Y0, Y1); ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
     ax.set_title(r"$t=44\,\mu$s, Voronoi mesh", fontsize=6.5, pad=2)
     ax = fig.add_subplot(gs[0, 2])
-    for r, kind, lab, c, ls in (("plate_li", "fit", "quadtree, cut cells", "#b7202e", "-"),
-                                ("plate_li", "vor", "Voronoi, cut cells", "#2b6cb0", "--")):
+    for r, kind, lab, c, ls in (("plate_li", "fit", "quadtree", "#b7202e", "-"),
+                                ("plate_li", "vor", "Voronoi", "#2b6cb0", "--")):
         f = os.path.join(run(r, kind), "c_focus.csv")
         if os.path.exists(f):
             A = csv(f); ax.plot(A[:, 0], A[:, 1], ls, color=c, lw=0.8, label=lab)
@@ -532,8 +547,44 @@ def polytopal():
     save(fig, "tfus_polytopal.pdf")
 
 
+def cost_data():
+    """Costs of Table tfus-cost, best of three: integration times (min) T[(scheme, threads)] and peak memories (GiB)
+    M[(scheme, threads)]. ERK4 over 8 us (10150 identical steps) x 10; on one thread, MLTS and LI over 8 us (139 of the
+    1394 steps) extrapolated, the factorization of LI ("fine system") counted once."""
+    def fact(d):
+        m = re.search(r"fine system ([0-9.eE+-]+)", re.sub(r"\x1b\[[0-9;]*m", "", open(os.path.join(d, "log.txt")).read()))
+        return float(m.group(1))
+    def best(d, f):
+        v = [f(x) for x in (d, d + "_r2", d + "_r3") if integration(x) is not None]
+        return min(v) / 60 if v else None
+    mlts_run = "plate_mlts_w" if os.path.isdir(run("plate_mlts_w")) else "plate_mlts"
+    T = {("erk", 6): best(run("plate_erk_8us"), lambda x: 10 * integration(x)),
+         ("mlts", 6): best(run(mlts_run), integration), ("li", 6): best(run("plate_li"), integration),
+         ("erk", 1): best(run("erk_8us", "t1"), lambda x: 10 * integration(x)),
+         ("mlts", 1): best(run("mlts_8us", "t1"), lambda x: integration(x) * 1394 / 139),
+         ("li", 1): best(run("li_8us", "t1"), lambda x: (integration(x) - fact(x)) * 1394 / 139 + fact(x))}
+    M = {(s_, th): os.path.join(d, "time.txt") for s_, th, d in
+         (("erk", 6, run("plate_erk_8us")), ("mlts", 6, run(mlts_run)), ("li", 6, run("plate_li")),
+          ("erk", 1, run("erk_8us", "t1")), ("mlts", 1, run("mlts_8us", "t1")), ("li", 1, run("li_8us", "t1")))}
+    M = {k: float(open(f).read().split()[2]) / 1048576 for k, f in M.items() if os.path.exists(f)}
+    return T, M
+
+
+def cost_table():
+    """Table tfus-cost (cost_data), memory of the runs on six threads."""
+    T, M = cost_data()
+    M = {s_: M[(s_, 6)] for s_ in ("erk", "mlts", "li") if (s_, 6) in M}
+    with open(os.path.join(OUT, "tfus_cost.txt"), "w") as fo:
+        fo.write("scheme | 6 threads [min] gain | 1 thread [min] gain | memory [GiB] ratio\n")
+        for s_ in ("erk", "mlts", "li"):
+            g = lambda th: T[("erk", th)] / T[(s_, th)] if T[(s_, th)] and T[("erk", th)] else float("nan")
+            fo.write(f"{s_:5} | {T[(s_, 6)] or float('nan'):6.1f} {g(6):5.2f} | {T[(s_, 1)] or float('nan'):6.1f} {g(1):5.2f} | "
+                     f"{M.get(s_, float('nan')):4.1f} {M.get(s_, float('nan')) / M.get('erk', float('nan')):5.2f}\n")
+    print(open(os.path.join(OUT, "tfus_cost.txt")).read())
+
+
 if __name__ == "__main__":
-    for f in (model, snapshots, skull, focus, signals, polytopal):
+    for f in (model, snapshots, skull, focus, signals, polytopal, cost_table):
         try:
             f()
         except Exception as ex:

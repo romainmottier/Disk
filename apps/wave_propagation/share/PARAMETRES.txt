@@ -157,7 +157,7 @@ dans ses systemes d'etage.
                    localize = false a la tolerance des faces pres. Sans
                    effet sur erk, sdirk, li, newmark.
   localize_margin  anneaux ajoutes a R (2)
-  projected        (false) lts et mlts : condensation projetee. Les
+  projected        (false) lts, mlts et li : condensation projetee. Les
                    sous-pas du niveau l >= 1 utilisent l'operateur B~_l
                    des niveaux >= l dont les faces ne sont resolues que
                    sur leurs cellules (+ projected_rings anneaux), nulles
@@ -167,12 +167,43 @@ dans ses systemes d'etage.
                    (B~_l - B~_{l+1}) a_i, a_i derivees de z' = B~_l z +
                    W(tau) ; seul le niveau 0 evalue B sur tout le
                    maillage (4 fois par pas grossier). Schema different
-                   de projected = false (memes ordre et stabilite :
-                   limite CFL des cellules grossieres sans recouvrement
-                   supplementaire, verifie jusqu'a p = 16). mlts : F = 0
-                   seulement.
-  projected_rings  anneaux de cellules ajoutes aux faces resolues (2 ;
-                   0 suffit et sert dans le preprint)
+                   de projected = false : meme stabilite (limite CFL des
+                   cellules grossieres sans recouvrement supplementaire,
+                   verifie jusqu'a p = 16, des 0 anneau) ; meme ordre 4
+                   avec 2 anneaux seulement (0 anneau : ordre ~2.5 sur
+                   maillages raffines, 1 anneau : defaut croissant,
+                   ordre 3.84 au niveau le plus fin ; 2026-10-30). Source
+                   (F non nul) : g(F) = f(F, 0) reparti par les masques
+                   des niveaux (decoupage toujours exact) ; mlts avec
+                   solver.matrix_free : tableaux locaux pour F = 0 ou
+                   time.mlts_forcing = "cubic", chemin general sinon.
+                   li : meme decoupage a deux niveaux, B~ P dans les
+                   etages implicites (I - gamma dt B~ P) Z = R (cellules
+                   fines eliminees cellule par cellule, faces des
+                   cellules fines + projected_rings anneaux factorisees
+                   une fois), B - B~ P dans le polynome grossier ; sans
+                   interface elasto-acoustique (meme limite CFL que li
+                   exact, verifie jusqu'a p = 16 ; memes erreurs que li
+                   exact avec 2 anneaux).
+  projected_rings  anneaux de cellules ajoutes aux faces resolues (2,
+                   valeur du preprint : necessaire a l'ordre 4 ; 0 suffit
+                   pour la stabilite seulement)
+  projected_solver mlts avec projected et solver.matrix_free : faces des
+                   niveaux l >= 1 par gradients conjugues sans matrice
+                   sur les fils ("cg", defaut), par la factorisation
+                   LDL^T de leur bloc local, calculee une fois, sur un fil
+                   ("direct" : une resolution par evaluation), ou "auto" :
+                   direct sur un fil ou pour les niveaux d'au plus
+                   projected_direct_max inconnues (defaut 10000), cg
+                   sinon, ou "explicit" : gradients conjugues sur des
+                   vues de l'operateur sans matrice du maillage entier
+                   (aucune matrice stockee par niveau, seulement des
+                   listes d'inconnues ; un fil pour les niveaux d'au
+                   plus projected_direct_max inconnues), ou "hybrid" :
+                   les memes vues, sauf les niveaux d'au plus
+                   projected_direct_max inconnues, qui stockent leur
+                   bloc local et sa factorisation (comme "direct")
+                   (memes resultats aux arrondis pres)
 
 En ordre egal avec la stabilisation "hho", alpha_solide =
 lambda_max(S_aa, sigma*_aa) - 1 vaut 1.63 / 0.91 / 1.79 pour
@@ -242,7 +273,7 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
                avant le choix du niveau (defaut 0) : des milieux de
                vitesses voisines (tissus mous 1.50 / 1.55) restent au meme
                niveau ; le pas grossier diminue d'au plus ce facteur
-  li_coupling  li (mode rapide) : "taylor" (defaut) ou "stage" : valeurs
+  li_coupling  li (ordre 1 : mode rapide ; ordre 2) : "taylor" (defaut) ou "stage" : valeurs
                grossieres des etages implicites = valeurs d'etage du
                tableau SDIRK, y_n + dt sum_l a_il Y'(c_l dt), au lieu du
                polynome de Taylor en t_n + c_i dt : supprime la reduction
@@ -252,6 +283,11 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
                systeme fin (inconnues de cellules eliminees cellule par
                cellule, LU du complement de Schur sur les faces fines :
                systeme 4 fois plus petit, 3 a 7 fois plus rapide)
+  li_local     li avec faces.projected (ordre 2) : true = seconds
+               membres et solutions des etages sur les seules cellules
+               des faces du systeme d'etage (l'etage laisse les autres
+               inconnues inchangees ; egal aux erreurs d'arrondi pres,
+               sans produits globaux par etage)
   li_system    li (mode rapide) : "dynamic" (defaut) ou "constraint" :
                faces internes a la zone fine donnees par leur
                condensation statique u_F = G u_T dans les systemes
@@ -278,6 +314,17 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
                coefficients, erreur en temps 16 fois plus petite a dt
                egal pour r = 2, meme limite de stabilite). Un seul
                niveau : ERK4.
+  mlts_forcing mlts avec faces.projected, ordre 2, source ou donnees de
+               Dirichlet non nulles : "exact" (defaut : g(F(t)) a chaque
+               instant utile, 3 resolutions globales des faces par fenetre
+               de chaque niveau et 2 par sous-pas fin) ou "cubic" (g(F(t))
+               interpole sur chaque pas grossier par la cubique passant par
+               ses valeurs en t_n + k dt / 3, k = 0..3 : 4 resolutions par
+               pas grossier ; erreur O(dt^4), ordre 4 conserve). Domaine en
+               L, n = 4 : 13.8 s au lieu de 131 s, erreurs egales a 6
+               chiffres (2026-10-30). Avec solver.matrix_free = true :
+               tableaux locaux des niveaux (cout d'un sous-pas fin
+               proportionnel au niveau fin, et non au maillage)
   newmark_beta, newmark_gamma  parametres de Newmark (beta > 0, gamma >= 1/2)
   solver.static_condensation   sdirk d'ordre 1, newmark : condensation
                                statique des cellules
@@ -286,7 +333,7 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
                                sans matrice globale ; sdirk : produits
                                paralleles, Pardiso sans raffinement
                                iteratif ; assemblage parallele, donnees de
-                               F(t) gardees ; ordre 2 (erk, lts, mlts, sans
+                               F(t) gardees ; ordre 2 (erk, lts, mlts, li, sans
                                interface elasto-acoustique) : mode rapide
                                avec produits sans matrice (blocs partages
                                des cellules, gradients conjugues fusionnes
@@ -302,6 +349,10 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
   solver.matrix_free_tolerance blocs locaux partages a cette tolerance
                                relative pres (defaut 1e-10 ; 0 : egalite
                                bit a bit, < 0 : un bloc par cellule)
+                               ; ordre 2 sur maillages raffines : 0 (avec
+                               1e-10, l'operateur perturbe limite l'erreur :
+                               MLTS projete ordre 3.2 au lieu de 4.02 sur
+                               le maillage 64 x 64 raffine, 2026-10-30)
   solver.matrix_free_batch     cellules par produit de blocs (defaut 64)
   solver.parallel_threshold    lts, mlts, li (mode rapide) : produits sur
                                un ensemble de plus de parallel_threshold
@@ -531,7 +582,9 @@ sert d'exemple pour chacune de ces cles).
                            <table>_cells.dat et <table>_snapshot_<i>.dat)
   output.cpu               colonnes cpu (secondes d'assemblage et
                            d'integration), dofs et face_dofs (inconnues
-                           avant / apres condensation statique)
+                           avant / apres condensation statique) ; ordre
+                           2 : colonne cpu seule (construction et
+                           integration, diagnostics exclus)
   output.profile           ordre 1, mode rapide : temps de l'integration
                            seule ; lts, mlts, li : travail par macro-pas
                            (inconnues x produits, en pas d'ERK4) et temps

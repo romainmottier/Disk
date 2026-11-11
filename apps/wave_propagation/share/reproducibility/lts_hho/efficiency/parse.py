@@ -7,7 +7,7 @@ def num(s):
 
 def read_run(d):
     """dict: tint (integration wall time), N (unknowns), steps, W (work per macro step), erk_eq (W / 4N), S, fine,
-    t_coarse, t_fine (LTS), t_coef (list), t_term, t_close (MLTS), cells per level (MLTS), dt, wall (time.txt)."""
+    t_coarse, t_fine (LTS), t_coef (list), t_term, t_close (MLTS), cells per level (MLTS), dt, wall and mem (peak memory in MiB, time.txt)."""
     r = {"dir": d}
     log = os.path.join(d, "log.txt")
     if not os.path.exists(log):
@@ -58,4 +58,5 @@ def read_run(d):
     if os.path.exists(t):
         s = open(t).read().split()
         r["wall"] = float(s[0]) if s and s[0] != "failed" else None
+        r["mem"] = float(s[2]) / 1024 if len(s) > 2 and s[0] != "failed" else None     # peak memory (MiB)
     return r

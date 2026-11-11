@@ -35,6 +35,7 @@
 
 // system.hpp (first-order system), problem.hpp (problem), time_schemes.hpp (integrators), studies.hpp (summaries)
 #include "studies.hpp"
+#include <chrono>
 
 void HHOSecondOrder(const wave_parameters& prm);
 
@@ -144,18 +145,28 @@ void HHOSecondOrder(const wave_parameters& prm) {
     }
     else if (prm.study.type != "time") {
         names = all.names;
+        // output.cpu: column cpu, seconds of the construction of the problem and of the time integration (as the first
+        // order; the diagnostics of problem_summary and check_time_step excluded)
+        if (prm.output.cpu) names.push_back("cpu");
+        using clock = std::chrono::steady_clock;
         std::vector<size_t> levels = study_levels(prm);
         for (size_t l : levels) {
+            auto t0 = clock::now();
             problem pb(prm, l, splitting, gamma);
+            RealType cpu = std::chrono::duration<RealType>(clock::now() - t0).count();
             size_t nt = study_steps(prm, l, pb.dd.h_min);
             std::cout << bold << cyan << "      l = " << l << "  nt = " << nt << reset << std::endl;
             std::string summary = problem_summary(pb, explicit_scheme);
             std::cout << summary;
             log << summary;
             if (explicit_scheme) check_time_step(pb, prm, tf / nt);
+            auto t1 = clock::now();
             vector_type y = run(pb, nt, l == levels.back());
+            cpu += std::chrono::duration<RealType>(clock::now() - t1).count();
             print_splitting_stats(pb.system(), std::cout);
-            rows.push_back({pb.dd.h_max, tf / nt, all.select(all_errors(pb.errors(y, tf))), pb.dd.h_min});
+            std::vector<RealType> e = all.select(all_errors(pb.errors(y, tf)));
+            if (prm.output.cpu) e.push_back(cpu);
+            rows.push_back({pb.dd.h_max, tf / nt, e, pb.dd.h_min});
             print_table(names, rows, false, std::cout);
         }
         print_table(names, rows, false, log);

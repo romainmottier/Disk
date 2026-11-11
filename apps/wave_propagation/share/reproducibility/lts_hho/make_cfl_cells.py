@@ -3,7 +3,7 @@
 """
 Figure cfl_cells.pdf of the LTS_HHO preprint, main.tex 6.3 (what sets the CFL limit of an HHO cell): CFL limit of ERK4 (random
 data, k = 3 and 1) on the 16 x 16 square meshes of mesh_generation/lts_efficiency/generate_cfl_cells.py with one
-modified cell (thin rectangle, small face, cut corner) or anisotropic cells, against the smallest face, the smallest
+modified cell (thin rectangle, small face, cut corner), a column of thin cells or anisotropic cells, against the smallest face, the smallest
 diameter and the smallest width (altitude) of the cells. Input: the cfl.json of analyze_cfl.py (efficiency/).
 Usage: python3 make_cfl_cells.py <cfl.json> <figures>
 """
@@ -33,10 +33,9 @@ for ax, key, xl in ((axs[0], "face", "smallest face"), (axs[1], "diam", "smalles
                     lw=0.7, mfc=c if fill else "white", label=f"{lab}" if k == 3 else None)
     if key == "w":
         w = np.array([5e-4, 0.1])
-        ax.plot(w, 0.26 * w, "--", color="#6a6a66", lw=0.6)
-        ax.plot(w, 0.115 * w, ":", color="#6a6a66", lw=0.6)
-        ax.text(1.2e-3, 0.26 * 1.2e-3 * 1.6, r"$0.26\,w/c$", fontsize=6, color="#4a4a46")
-        ax.text(1.2e-2, 0.115 * 1.2e-2 * 0.45, r"$0.115\,w/c$", fontsize=6, color="#4a4a46")
+        ref = ax.plot(w, 0.26 * w, "--", color="#6a6a66", lw=0.6, label=r"$0.26\,w/c$")
+        ref += ax.plot(w, 0.115 * w, ":", color="#6a6a66", lw=0.6, label=r"$0.115\,w/c$")
+        ax.legend(handles=ref, loc="lower right", frameon=False, fontsize=6)   # below the curves, away from the data
     ax.set_xscale("log"); ax.set_yscale("log"); ax.grid(True, which="major", **GRID)
     ax.set_xlabel(xl, labelpad=1); ax.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
 axs[0].set_ylabel(r"CFL limit $\Delta t_{\rm crit}$ (ERK4)", labelpad=1)

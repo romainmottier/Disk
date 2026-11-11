@@ -338,6 +338,7 @@ namespace hho_second_order {
         // Stage systems Z - h f(F, P Z) = r, P = diag(P_T, P_T, P_d) 0/1 (all ones: implicit RK stage). The unknowns
         // (h v, d, a) solve (K diag(P_T, P_d, 1) + M / h^2 + C_dd / h) X = F + (M r_v / h, C_dd r_d / h, 0) - K (P_T r_u, 0, 0)
         void factorize_stage(RealType h, const vector_type& Py) {
+            m_stage_local = false;
             m_h = h;
             m_Pc = Py.head(n_c);
             vector_type Pw = vector_type::Ones(N);
@@ -378,11 +379,113 @@ namespace hho_second_order {
             vector_type z0 = vector_type::Zero(N);
             z0.head(n_c) = m_Pc.cwiseProduct(r.head(n_c));
             rhs -= Kw * z0;
-            vector_type X = m_fast ? m_stage_ls->solve(rhs) : vector_type(m_stage_lu.solve(rhs));
+            vector_type X = m_stage_local ? stage_solve_local(rhs) : m_fast ? m_stage_ls->solve(rhs) : vector_type(m_stage_lu.solve(rhs));
             vector_type Z(state_size());
             Z.head(n_c) = r.head(n_c) + m_Pc.cwiseProduct(X.head(n_c));
             Z.segment(n_c, n_c) = X.head(n_c) / m_h;
             Z.tail(n_d) = X.segment(n_c, n_d);
+            return Z;
+        }
+
+        // Stage systems of li with the projected condensation (faces.projected, n_d = 0, splitting; build_local done): the
+        // stages (I - h B~ P) Z = R of the projected operator B~ of projected_operator, whose faces are those of cap only
+        // (zero beyond). The cells are eliminated cell by cell, G = (M / h^2 + K_TT P_T)^-1 block diagonal, which leaves on
+        // the faces of cap S = K_aa - K_aT P_T G K_Ta, factorized once (local system). local (time.li_local): the sub-blocks
+        // on the cells C of the faces of cap are also kept, for stage_solve_zero.
+        void factorize_stage_projected(RealType h, const vector_type& Py, const std::vector<char>& cap, bool local = false) {
+            if (n_d > 0 || !splitting_Q || !m_local_ready)
+                throw std::runtime_error("li with faces.projected: no elasto-acoustic interface, faces.solver = \"splitting\"");
+            m_h = h;
+            m_Pc = Py.head(n_c);
+            m_stage_local = true;
+            const sparse_type Kcc = Kw.topLeftCorner(n_c, n_c);
+            sparse_type C = Mcc / (h * h) + sparse_type(Kcc * m_Pc.asDiagonal());
+            RealType off;
+            m_stage_G = block_diagonal_inverse(C, m_c_sizes, off);
+            if (off > 1.0e-12 * C.norm())
+                throw std::runtime_error("li with faces.projected: K_TT is not block diagonal");
+            m_stage_Kca = Kw.block(0, n_c, n_c, n_a);
+            m_stage_KacP = sparse_type(Kw.block(n_c, 0, n_a, n_c)) * m_Pc.asDiagonal();
+            const sparse_type S = Kaa - sparse_type(m_stage_KacP * m_stage_G * m_stage_Kca);
+            // faces of cap
+            m_stage_R.clear();
+            for (size_t b = 0; b < cap.size(); b++)
+                if (cap[b]) for (size_t k = 0; k < m_g.a_size[b]; k++) m_stage_R.push_back(int(m_g.a_ofs[b] + k));
+            std::vector<int> map(n_a, -1);
+            for (size_t k = 0; k < m_stage_R.size(); k++) map[m_stage_R[k]] = int(k);
+            std::vector<Triplet<RealType>> t;
+            for (int j : m_stage_R)
+                for (sparse_type::InnerIterator it(S, j); it; ++it)
+                    if (map[it.row()] >= 0) t.emplace_back(map[it.row()], map[j], it.value());
+            const Eigen::Index nR = Eigen::Index(m_stage_R.size());
+            sparse_type SRR(nR, nR);
+            SRR.setFromTriplets(t.begin(), t.end());
+            m_stage_cells = local;
+            if (local) {
+                // cells C of the faces of cap (the fine cells among them: their faces are in cap)
+                std::vector<char> inC(m_g.c_ofs.size(), 0);
+                for (size_t b = 0; b < cap.size(); b++) if (cap[b]) for (int c : m_g.a_c[b]) inC[size_t(c)] = 1;
+                m_sc.clear();
+                for (size_t c = 0; c < inC.size(); c++)
+                    if (inC[c]) for (size_t k = 0; k < m_g.c_size[c]; k++) m_sc.push_back(int(m_g.c_ofs[c] + k));
+                std::vector<char> in(n_c, 0);
+                for (int i : m_sc) in[size_t(i)] = 1;
+                for (size_t i = 0; i < n_c; i++)
+                    if (m_Pc(Eigen::Index(i)) != 0.0 && !in[i])
+                        throw std::runtime_error("li with faces.projected: a fine cell has a face outside the local faces");
+                const Eigen::Index nC = Eigen::Index(m_sc.size());
+                std::vector<Triplet<RealType>> tc, tr;
+                for (Eigen::Index k = 0; k < nC; k++) tc.emplace_back(k, m_sc[size_t(k)], 1.0);
+                for (Eigen::Index k = 0; k < nR; k++) tr.emplace_back(k, m_stage_R[size_t(k)], 1.0);
+                sparse_type Sc(nC, Eigen::Index(n_c)), Sr(nR, Eigen::Index(n_a));
+                Sc.setFromTriplets(tc.begin(), tc.end());
+                Sr.setFromTriplets(tr.begin(), tr.end());
+                m_sc_M = Sc * Mcc * Sc.transpose();
+                m_sc_KP = Sc * sparse_type(Kcc * m_Pc.asDiagonal()) * Sc.transpose();
+                m_sc_G = Sc * m_stage_G * Sc.transpose();
+                m_sc_KaP = Sr * m_stage_KacP * Sc.transpose();
+                m_sc_Kca = Sc * m_stage_Kca * Sr.transpose();
+                m_sc_P = Sc * m_Pc;
+            }
+#ifdef HAVE_INTEL_MKL
+            if (m_fast) {   // fast mode: Pardiso, as the stages of factorize_stage
+                m_stage_pardiso = std::make_unique<PardisoLDLT<sparse_type>>();
+                m_stage_pardiso->pardisoParameterArray()[24] = 2;    // parallel forward / backward substitution
+                m_stage_pardiso->compute(SRR);
+                if (m_stage_pardiso->info() != Success)
+                    throw std::runtime_error("li with faces.projected: factorization of the local faces failed");
+                return;
+            }
+#endif
+            m_stage_ldlt.compute(SRR);
+            if (m_stage_ldlt.info() != Success)
+                throw std::runtime_error("li with faces.projected: factorization of the local faces failed");
+        }
+        size_t stage_faces() const { return m_stage_R.size(); }
+        size_t stage_cell_unknowns() const { return m_sc.size(); }
+
+        // stage_solve(0, r) after factorize_stage_projected(..., local = true): the stage only changes the unknowns of
+        // the cells C and the faces of cap, Z = R elsewhere (the cells of C x C, cap x C, C x cap sub-blocks; equal up to
+        // round-off)
+        vector_type stage_solve_zero(const vector_type& r) {
+            if (!m_stage_cells) return stage_solve(vector_type::Zero(N), r);
+            const Eigen::Index nC = Eigen::Index(m_sc.size());
+            vector_type ru(nC), rv(nC);
+            for (Eigen::Index k = 0; k < nC; k++) { ru(k) = r(m_sc[size_t(k)]); rv(k) = r(Eigen::Index(n_c) + m_sc[size_t(k)]); }
+            const vector_type bc = m_sc_M * rv / m_h - m_sc_KP * ru;
+            const vector_type sR = -(m_sc_KaP * ru) - m_sc_KaP * (m_sc_G * bc);
+#ifdef HAVE_INTEL_MKL
+            const vector_type aR = m_stage_pardiso ? vector_type(m_stage_pardiso->solve(sR)) : vector_type(m_stage_ldlt.solve(sR));
+#else
+            const vector_type aR = m_stage_ldlt.solve(sR);
+#endif
+            const vector_type Xc = m_sc_G * (bc - m_sc_Kca * aR);
+            vector_type Z = r;
+            for (Eigen::Index k = 0; k < nC; k++) {
+                const Eigen::Index i = m_sc[size_t(k)];
+                Z(i) = r(i) + m_sc_P(k) * Xc(k);
+                Z(Eigen::Index(n_c) + i) = Xc(k) / m_h;
+            }
             return Z;
         }
 
@@ -566,7 +669,7 @@ namespace hho_second_order {
         // Local block (faces.projected): B~ y on the cells and interface blocks given, the algebraic faces of cap solved
         // exactly (sparse LDL^T of K_aa restricted to them, factorized once), zero on the other faces; the products on
         // submatrices restricted to the unknowns read, the faces solved and the rows reached (whole cell and interface
-        // blocks)
+        // blocks). matrices = false: the lists of unknowns only (make_local_view)
         struct local_block {
             std::vector<int> xi, ci, rc, rd, vc;     // x read, a solved, cell rows (u_T), d rows (d numbering), velocities copied
             sparse_type Kax, Kxx, Kxa, Minv, Cinv;
@@ -574,7 +677,7 @@ namespace hho_second_order {
             size_t faces = 0;                         // algebraic blocks solved
         };
         std::unique_ptr<local_block> make_local_block(const std::vector<int>& cells, const std::vector<int>& dblocks,
-                                                      const std::vector<char>& cap) {
+                                                      const std::vector<char>& cap, bool matrices = true) {
             const local_graph& g = m_g;
             const size_t nx = n_c + n_d;
             auto lb = std::make_unique<local_block>();
@@ -589,6 +692,7 @@ namespace hho_second_order {
             for (int j : lb->ci) for (sparse_type::InnerIterator it(m_Kxa_c, j); it; ++it) mark(int(it.row()));
             for (size_t c = 0; c < rcb.size(); c++) if (rcb[c]) for (size_t k = 0; k < g.c_size[c]; k++) lb->rc.push_back(int(g.c_ofs[c] + k));
             for (size_t b = 0; b < rdb.size(); b++) if (rdb[b]) for (size_t k = 0; k < g.d_size[b]; k++) lb->rd.push_back(int(g.d_ofs[b] + k));
+            if (!matrices) return lb;
             // local numberings
             std::vector<int> xmap(nx, -1), amap(n_a, -1), rmap(nx, -1);
             for (size_t k = 0; k < lb->xi.size(); k++) xmap[lb->xi[k]] = int(k);
@@ -655,6 +759,20 @@ namespace hho_second_order {
                 if (k == 0 || g.a_of[lb.ci[k]] != g.a_of[lb.ci[k - 1]]) fs.push_back(1); else fs.back()++;
             return std::make_unique<mf_second_order_operator<RealType>>(Ks, size_t(nr), Ms, Ds, cs, fs, share_tolerance, max_batch);
         }
+        // View of a local block on the matrix-free operator of the whole mesh (faces.projected_solver = "explicit"): the
+        // cells of its rows rc and its faces ci, their blocks and the preconditioner read in that operator (no matrix
+        // stored, the block may hold the lists of unknowns only); same operator as make_local_mf up to round-off
+        std::unique_ptr<mf_second_order_operator<RealType>> make_local_view(const local_block& lb, int max_batch,
+                                                                           bool serial) const {
+            if (!m_mf || n_d > 0 || !splitting_Q)
+                throw std::runtime_error("faces.projected_solver = \"explicit\": solver.matrix_free, splitting, no elasto-acoustic interface");
+            const local_graph& g = m_g;
+            std::vector<int> cells, faces;
+            for (int i : lb.rc) if (cells.empty() || cells.back() != g.c_of[i]) cells.push_back(g.c_of[i]);
+            for (int i : lb.ci) if (faces.empty() || faces.back() != g.a_of[i]) faces.push_back(g.a_of[i]);
+            m_mf->prepare_views();
+            return std::make_unique<mf_second_order_operator<RealType>>(*m_mf, cells, faces, max_batch, serial);
+        }
         vector_type apply_local_block(local_block& lb, const vector_type& y) const {
             vector_type x(Eigen::Index(lb.xi.size()));
             for (size_t k = 0; k < lb.xi.size(); k++) {
@@ -682,6 +800,43 @@ namespace hho_second_order {
         SparseLU<sparse_type> m_stage_lu;
         RealType m_h = 0.0;
         vector_type m_Pc;
+
+        // stage systems of factorize_stage_projected
+        bool m_stage_local = false;
+        sparse_type m_stage_G, m_stage_Kca, m_stage_KacP;
+        std::vector<int> m_stage_R;
+        SimplicialLDLT<sparse_type> m_stage_ldlt;
+        bool m_stage_cells = false;                 // local stage solves (stage_solve_zero)
+        std::vector<int> m_sc;                      //   cell unknowns of C
+        sparse_type m_sc_M, m_sc_KP, m_sc_G, m_sc_KaP, m_sc_Kca;
+        vector_type m_sc_P;
+#ifdef HAVE_INTEL_MKL
+        std::unique_ptr<PardisoLDLT<sparse_type>> m_stage_pardiso;     // fast mode
+#endif
+
+        // S a = s on the faces of cap, zero elsewhere (factorize_stage_projected)
+        vector_type stage_local_faces(const vector_type& s) {
+            vector_type sR(Eigen::Index(m_stage_R.size()));
+            for (size_t k = 0; k < m_stage_R.size(); k++) sR(Eigen::Index(k)) = s(m_stage_R[k]);
+#ifdef HAVE_INTEL_MKL
+            const vector_type aR = m_stage_pardiso ? vector_type(m_stage_pardiso->solve(sR)) : vector_type(m_stage_ldlt.solve(sR));
+#else
+            const vector_type aR = m_stage_ldlt.solve(sR);
+#endif
+            vector_type a = vector_type::Zero(n_a);
+            for (size_t k = 0; k < m_stage_R.size(); k++) a(m_stage_R[k]) = aR(Eigen::Index(k));
+            return a;
+        }
+
+        // X = (h v, a) of stage_solve from its right-hand side: faces of cap from S a = b_a - K_aT P_T G b_T, then cells
+        vector_type stage_solve_local(const vector_type& rhs) {
+            const vector_type bc = rhs.head(n_c);
+            const vector_type a = stage_local_faces(rhs.tail(n_a) - m_stage_KacP * (m_stage_G * bc));
+            vector_type X(N);
+            X.head(n_c) = m_stage_G * (bc - m_stage_Kca * a);
+            X.tail(n_a) = a;
+            return X;
+        }
 
         // f(t, y) of the fast mode: x = (u_T, d), r = F_a - K_ax x, faces, residuals of the rows (T, d) only
         vector_type eval_fast(const vector_type& Fw, const vector_type& y, vector_type& a_ws) {

@@ -40,7 +40,10 @@ class scal_vec_analytic_functions {
       // the same with u = sin(w t) phi: p(0) = w phi, v(0) = 0, initial data compatible with the discrete divergence
       // (the projection of the singular v(0) = grad phi of EFunctionAcousticLShapeCorner is not discretely
       // divergence free near the corner and starts a spurious wave that limits the convergence of v)
-      EFunctionAcousticLShapeCornerSin = 18};
+      EFunctionAcousticLShapeCornerSin = 18,
+      // p = sin(sqrt2 pi t) (x(1-x) + y(1-y)) on (0,1)^2, rho = 1, c = 1: degree 2 in space, reproduced exactly by the
+      // HHO spaces (k >= 2), so that the error against it is the time error alone; source and nonzero Dirichlet data
+      EFunctionAcousticQuadraticSum = 19};
       
       scal_vec_analytic_functions() {
           m_function_type = EFunctionNonPolynomial;
@@ -67,6 +70,7 @@ class scal_vec_analytic_functions {
       // reentrant corner (problem.lshape_corner; meshes with the corner at the origin keep the full relative precision of
       // the coordinates in the smallest cells)
       static inline double lshape_cx = 0.5, lshape_cy = 0.5;
+      static inline double quadratic_sum_w = std::sqrt(2.0) * M_PI;   // EFunctionAcousticQuadraticSum: sin(w t)
       // exponent nu of phi (problem.lshape_exponent): 2/3 (first singular function of the corner, grad phi ~ r^-1/3), or
       // 4/3 (second one: grad phi ~ r^1/3, unbounded second derivatives); 2 j / 3 so that phi vanishes on both edges
       static inline double lshape_nu = 2.0 / 3.0;
@@ -204,7 +208,7 @@ class scal_vec_analytic_functions {
               break;
               
               case reproduction_acoustic: case EFunctionAcousticQuadraticInSpace: case EFunctionAcousticNonPolynomial:
-              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: {
+              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: case EFunctionAcousticQuadraticSum: {
                   // no elastic part
                   return [](const typename disk::generic_mesh<double, 2>::point_type& pt) -> disk::static_vector<double, 2> {
                       disk::static_vector<double, 2> z{0.0, 0.0};
@@ -338,7 +342,7 @@ class scal_vec_analytic_functions {
               break;
               
               case reproduction_acoustic: case EFunctionAcousticQuadraticInSpace: case EFunctionAcousticNonPolynomial:
-              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: {
+              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: case EFunctionAcousticQuadraticSum: {
                   // no elastic part
                   return [](const typename disk::generic_mesh<double, 2>::point_type& pt) -> disk::static_vector<double, 2> {
                       disk::static_vector<double, 2> z{0.0, 0.0};
@@ -476,7 +480,7 @@ class scal_vec_analytic_functions {
               break;
               
               case reproduction_acoustic: case EFunctionAcousticQuadraticInSpace: case EFunctionAcousticNonPolynomial:
-              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: {
+              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: case EFunctionAcousticQuadraticSum: {
                   // no elastic part
                   return [](const typename disk::generic_mesh<double, 2>::point_type& pt) -> disk::static_vector<double, 2> {
                       disk::static_vector<double, 2> z{0.0, 0.0};
@@ -627,7 +631,7 @@ class scal_vec_analytic_functions {
               break;
               
               case reproduction_acoustic: case EFunctionAcousticQuadraticInSpace: case EFunctionAcousticNonPolynomial:
-              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: {
+              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: case EFunctionAcousticQuadraticSum: {
                   // no elastic part
                   return [](const typename disk::generic_mesh<double, 2>::point_type& pt) -> disk::static_vector<double, 2> {
                       disk::static_vector<double, 2> z{0.0, 0.0};
@@ -817,7 +821,7 @@ class scal_vec_analytic_functions {
               break;
               
               case reproduction_acoustic: case EFunctionAcousticQuadraticInSpace: case EFunctionAcousticNonPolynomial:
-              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: {
+              case EFunctionAcousticQuadraticInSpaceCos: case EFunctionAcousticNonPolynomialCos: case EFunctionAcousticLShapeCorner: case EFunctionAcousticLShapeCornerSin: case EFunctionAcousticQuadraticSum: {
                   // no elastic part
                   return [](const typename disk::generic_mesh<double, 2>::point_type& pt) -> disk::static_matrix<double,2,2> {
                       return disk::static_matrix<double,2,2>::Zero();
@@ -987,6 +991,15 @@ class scal_vec_analytic_functions {
                   return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
                       double x = pt.x(), y = pt.y();
                       return std::sin(std::sqrt(2.0)*M_PI*t)*x*(1.0-x)*y*(1.0-y);
+                  };
+              }
+              break;
+              
+              case EFunctionAcousticQuadraticSum: {
+                  // p
+                  return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
+                      double x = pt.x(), y = pt.y();
+                      return std::sin(quadratic_sum_w*t)*(x*(1.0-x) + y*(1.0-y));
                   };
               }
               break;
@@ -1169,6 +1182,15 @@ class scal_vec_analytic_functions {
               }
               break;
               
+              case EFunctionAcousticQuadraticSum: {
+                  // p_t
+                  return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
+                      double x = pt.x(), y = pt.y();
+                      return quadratic_sum_w*std::cos(quadratic_sum_w*t)*(x*(1.0-x) + y*(1.0-y));
+                  };
+              }
+              break;
+              
               case EFunctionAcousticNonPolynomial: {
                   // p_t
                   return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
@@ -1346,6 +1368,15 @@ class scal_vec_analytic_functions {
                   return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
                       double x = pt.x(), y = pt.y();
                       return -2.0*M_PI*M_PI*std::sin(std::sqrt(2.0)*M_PI*t)*x*(1.0-x)*y*(1.0-y);
+                  };
+              }
+              break;
+              
+              case EFunctionAcousticQuadraticSum: {
+                  // p_tt
+                  return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
+                      double x = pt.x(), y = pt.y();
+                      return -quadratic_sum_w*quadratic_sum_w*std::sin(quadratic_sum_w*t)*(x*(1.0-x) + y*(1.0-y));
                   };
               }
               break;
@@ -1538,6 +1569,15 @@ class scal_vec_analytic_functions {
                   return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
                       double x = pt.x(), y = pt.y();
                       return std::sin(std::sqrt(2.0)*M_PI*t)*(-2.0*M_PI*M_PI*x*(1.0-x)*y*(1.0-y) + 2.0*(x*(1.0-x) + y*(1.0-y)));
+                  };
+              }
+              break;
+              
+              case EFunctionAcousticQuadraticSum: {
+                  // p_tt - Delta p (rho = 1, c = 1), Delta p = -4 sin(w t)
+                  return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> double {
+                      double x = pt.x(), y = pt.y();
+                      return std::sin(quadratic_sum_w*t)*(-quadratic_sum_w*quadratic_sum_w*(x*(1.0-x) + y*(1.0-y)) + 4.0);
                   };
               }
               break;
@@ -1762,6 +1802,16 @@ class scal_vec_analytic_functions {
                       double x = pt.x(), y = pt.y();
                       double rx = std::sin(std::sqrt(2.0)*M_PI*t)*(1.0-2.0*x)*y*(1.0-y), ry = std::sin(std::sqrt(2.0)*M_PI*t)*x*(1.0-x)*(1.0-2.0*y);
                       disk::static_vector<double, 2> r{rx, ry};
+                      return r;
+                  };
+              }
+              break;
+              
+              case EFunctionAcousticQuadraticSum: {
+                  // grad p
+                  return [&t](const typename disk::generic_mesh<double, 2>::point_type& pt) -> disk::static_vector<double, 2> {
+                      double x = pt.x(), y = pt.y();
+                      disk::static_vector<double, 2> r{std::sin(quadratic_sum_w*t)*(1.0-2.0*x), std::sin(quadratic_sum_w*t)*(1.0-2.0*y)};
                       return r;
                   };
               }

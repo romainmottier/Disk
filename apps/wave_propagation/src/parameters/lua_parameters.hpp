@@ -65,10 +65,24 @@ struct wave_parameters {
                                                         //   the faces reached; B y, B^2 y, B^3 y of the coarse
                                                         //   coefficients truncated to R rings, R from the contraction)
         size_t      localize_margin = 2;                //   rings added to R
-        bool        projected = false;                  // lts: splitting B = A + (B - A), A = B P with the faces solved on
-                                                        //   the fine region and projected_rings rings only (local
-                                                        //   substeps), B - A in the coarse Taylor polynomial
+        bool        projected = false;                  // lts, mlts, li: splitting B = A + (B - A), A = B P with the faces
+                                                        //   solved on the fine region and projected_rings rings only
+                                                        //   (local substeps or stage systems), B - A in the coarse Taylor
+                                                        //   polynomial
         size_t      projected_rings = 2;
+        std::string projected_solver = "cg";            // mlts with projected and solver.matrix_free: faces of the
+                                                        //   levels l >= 1 by conjugate gradients, matrix-free, on the
+                                                        //   threads ("cg"), by the factorization of their local block
+                                                        //   computed once, on one thread ("direct": one solve per
+                                                        //   evaluation), or "auto": direct on one thread or for the
+                                                        //   levels of at most projected_direct_max unknowns, cg
+                                                        //   otherwise; "explicit": conjugate gradients on views of
+                                                        //   the matrix-free operator of the whole mesh (no matrix
+                                                        //   stored), on one thread for the levels of at most
+                                                        //   projected_direct_max unknowns; "hybrid": the same views,
+                                                        //   the levels of at most projected_direct_max unknowns
+                                                        //   storing their local block and its factorization
+        size_t      projected_direct_max = 10000;
     } faces;
 
     struct solver_data {
@@ -135,6 +149,11 @@ struct wave_parameters {
                                                         //   a_{i+1} = B a_i on its deep unknowns, masked products on the
                                                         //   boundary layer only (same scheme, about 4 instead of 7
                                                         //   products per unknown of a thick level)
+        std::string mlts_forcing = "exact";             // mlts with faces.projected (second order, F != 0): g(F(t)) at
+                                                        //   every time needed ("exact"), or interpolated on each coarse
+                                                        //   step by the cubic through 4 values ("cubic": 4 face solves per
+                                                        //   coarse step, order four kept; with solver.matrix_free, the
+                                                        //   local arrays of the levels)
         std::string li_coupling = "taylor";             // li (matrix-free): coarse values in the implicit stages, the
                                                         //   Taylor polynomial at t_n + c_i dt ("taylor") or the stage
                                                         //   values of the SDIRK tableau, y_n + dt sum_l a_il Y'(c_l dt)
@@ -142,6 +161,10 @@ struct wave_parameters {
                                                         //   reduction from the coarse / fine interface)
         bool        li_condensation = false;            // li (matrix-free): static condensation of the fine cell
                                                         //   unknowns, the stage systems solved on the fine faces only
+        bool        li_local = false;                   // li with faces.projected (second order): stage right-hand
+                                                        //   sides and solutions on the cells of the faces of the stage
+                                                        //   system only (the stage leaves the other unknowns unchanged;
+                                                        //   equal up to round-off)
         std::string li_system = "dynamic";              // li (matrix-free): fine face unknowns inside the fine region
                                                         //   by their evolution equation, k_f = G k_c ("dynamic"), or by
                                                         //   their static constraint u_f = G u_c, with the stage slopes
@@ -187,6 +210,7 @@ struct wave_parameters {
         std::map<int, zone> zones;                      // interface = "tags": problem.zones = {[tag] = {medium =
                                                         //   "acoustic" | "elastic", rho = .., vp = .., vs = ..}, ...}
         double omega = 1.0, theta = 10.0;               // coupled_sinusoidal: spatial and temporal frequencies
+        double frequency = 0.0;                         // acoustic_quadratic_sum: w of sin(w t) (0: sqrt2 pi)
         std::array<double, 2> lshape_corner = {0.5, 0.5};   // lshape_corner(_sin): reentrant corner of the L-shaped domain
         double lshape_exponent = 2.0 / 3.0;             // lshape_corner(_sin): exponent nu of phi = r^nu sin(nu theta)
                                                         //   (2/3: first singular function, 4/3: second one)
@@ -252,6 +276,7 @@ struct wave_parameters {
         bool cpu = false;                               // space study: columns cpu (seconds of assembly and time
                                                         //   integration of each level), dofs and face_dofs (unknowns
                                                         //   before and after the static condensation) in the tables
+                                                        //   (second order: cpu only)
         std::string errors = "fields";                  // first order: "fields" (L2 errors of each unknown) or
                                                         //   "energy" (components of the norms of Mottier-Ern-Khot-
                                                         //   Guillot, weighted by 1/kappa, rho, rho, C^-1: cell unknowns
@@ -275,6 +300,7 @@ struct wave_parameters {
             {"acoustic_quadratic_in_time", "acoustic", "p = t^2 sin(pi x) sin(pi y), Burman-Duran-Ern 2022 eq. (60)"},
             {"acoustic_quadratic_in_space", "acoustic", "p = sin(sqrt2 pi t) x(1-x) y(1-y), eq. (61)"},
             {"acoustic_non_polynomial", "acoustic", "p = sin(sqrt2 pi t) sin(pi x) sin(pi y) / (sqrt2 pi), eq. (62)"},
+            {"acoustic_quadratic_sum", "acoustic", "p = sin(w t) (x(1-x) + y(1-y)), w = problem.frequency (default sqrt2 pi): degree 2, exact in HHO (time errors)"},
             {"acoustic_quadratic_in_space_cos", "acoustic", "p = cos(sqrt2 pi t) x(1-x) y(1-y): eq. (61) with cos (published Fig. 1 right)"},
             {"acoustic_non_polynomial_cos", "acoustic", "p = cos(sqrt2 pi t) sin(pi x) sin(pi y) / (sqrt2 pi): eq. (62) with cos"},
             {"lshape_corner", "acoustic", "u = cos(2 t) r^(2/3) sin(2 theta / 3) on the L-shaped domain (0,1)^2 \\ [0.5,1)x(0.5,1] (corner (0.5,0.5))"},
@@ -374,7 +400,7 @@ struct wave_parameters {
             os << "   faces       : " << faces.solver << (faces.solver == "splitting" ? ", tolerance " : "")
                << (faces.solver == "splitting" ? std::to_string(faces.tolerance) : "")
                << (faces.localize ? ", local evaluations (lts, mlts), margin " + std::to_string(faces.localize_margin) : "")
-               << (faces.projected ? ", projected condensation (lts), " + std::to_string(faces.projected_rings) + " ring(s)" : "")
+               << (faces.projected ? ", projected condensation (lts, mlts, li), " + std::to_string(faces.projected_rings) + " ring(s)" : "")
                << std::endl;
         if ((formulation == "first_order" && time.scheme == "sdirk") || time.scheme == "newmark")
             os << "   solver      : static condensation " << (solver.static_condensation ? "yes" : "no")
@@ -436,6 +462,8 @@ struct wave_parameters {
            << (problem.source == "zero" ? ", no source" : "") << std::endl;
         if (problem.solution == "coupled_sinusoidal")
             os << "                 omega = " << problem.omega << ", theta = " << problem.theta << std::endl;
+        if (problem.solution == "acoustic_quadratic_sum" && problem.frequency > 0.0)
+            os << "                 frequency w = " << problem.frequency << " (sin(w t))" << std::endl;
         if (problem.medium == "coupled" || problem.interface == "tags") {
             if (problem.interface == "tags") {
                 os << "   materials   : zones of the mesh tags";
@@ -605,7 +633,8 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
                                               {"exact", "legacy"});
 
     sol::table faces = get_table(lua, "faces");
-    check_keys(faces, "faces", {"solver", "tolerance", "max_iterations", "localize", "localize_margin", "projected", "projected_rings"});
+    check_keys(faces, "faces", {"solver", "tolerance", "max_iterations", "localize", "localize_margin", "projected", "projected_rings",
+                                "projected_solver", "projected_direct_max"});
     p.faces.solver         = get_string(faces, "faces", "solver", p.faces.solver, {"splitting", "direct"});
     p.faces.tolerance      = get_number(faces, "faces", "tolerance", p.faces.tolerance);
     p.faces.max_iterations = get_count(faces, "faces", "max_iterations", p.faces.max_iterations);
@@ -613,6 +642,8 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     p.faces.localize_margin = get_count(faces, "faces", "localize_margin", p.faces.localize_margin);
     p.faces.projected       = get_bool(faces, "faces", "projected", p.faces.projected);
     p.faces.projected_rings = get_count(faces, "faces", "projected_rings", p.faces.projected_rings);
+    p.faces.projected_solver = get_string(faces, "faces", "projected_solver", p.faces.projected_solver, {"cg", "direct", "auto", "explicit", "hybrid"});
+    p.faces.projected_direct_max = get_count(faces, "faces", "projected_direct_max", p.faces.projected_direct_max);
 
     sol::table solver = get_table(lua, "solver");
     check_keys(solver, "solver", {"static_condensation", "iterative", "tolerance", "tolerance_growth", "matrix_free",
@@ -637,7 +668,7 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     sol::table time = get_table(lua, "time");
     check_keys(time, "time", {"scheme", "stages", "final_time", "n_steps", "dt_h", "substeps", "fine_size", "fine_layers", "newmark_beta",
                               "newmark_gamma", "steps_growth", "level_ratio", "level_ratios", "level_measure", "level_tolerance", "overlap",
-                              "mlts_refresh", "li_system", "li_coupling", "li_condensation", "overlaps", "mlts_reuse",
+                              "mlts_refresh", "li_system", "li_coupling", "li_condensation", "li_local", "mlts_forcing", "overlaps", "mlts_reuse",
                               "level_size", "fine_measure"});
     p.time.scheme        = get_string(time, "time", "scheme", p.time.scheme, {"erk", "sdirk", "lts", "li", "mlts", "newmark"});
     p.time.stages        = get_count(time, "time", "stages", p.time.stages);
@@ -691,7 +722,9 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     p.time.mlts_refresh  = get_string(time, "time", "mlts_refresh", p.time.mlts_refresh, {"window", "substep"});
     p.time.li_system = get_string(time, "time", "li_system", p.time.li_system, {"dynamic", "constraint"});
     p.time.li_coupling = get_string(time, "time", "li_coupling", p.time.li_coupling, {"taylor", "stage"});
+    p.time.mlts_forcing = get_string(time, "time", "mlts_forcing", p.time.mlts_forcing, {"exact", "cubic"});
     p.time.li_condensation = get_bool(time, "time", "li_condensation", p.time.li_condensation);
+    p.time.li_local = get_bool(time, "time", "li_local", p.time.li_local);
 
     sol::table mesh = get_table(lua, "mesh");
     check_keys(mesh, "mesh", {"type", "x", "y", "nx", "ny", "level", "refine_points", "refine_levels", "refine_box", "files"});
@@ -745,7 +778,7 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
 
     sol::table problem = get_table(lua, "problem");
     check_keys(problem, "problem", {"medium", "solution", "dirichlet", "source", "interface", "acoustic", "elastic", "zones",
-                                    "omega", "theta", "ricker", "lshape_corner", "lshape_exponent"});
+                                    "omega", "theta", "ricker", "lshape_corner", "lshape_exponent", "frequency"});
     p.problem.medium = get_string(problem, "problem", "medium", p.problem.medium, {"coupled", "acoustic", "elastic"});
     std::set<std::string> solutions;
     for (auto& s : wave_parameters::solution_names())
@@ -756,6 +789,7 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     p.problem.interface = get_string(problem, "problem", "interface", p.problem.interface, {"x", "y", "tags"});
     p.problem.omega     = get_number(problem, "problem", "omega", p.problem.omega);
     p.problem.theta     = get_number(problem, "problem", "theta", p.problem.theta);
+    p.problem.frequency = get_number(problem, "problem", "frequency", p.problem.frequency);
     auto material_table = [&](const char* key) -> sol::table {
         sol::object o = problem[key];
         if (!o.valid()) return lua.create_table();
@@ -935,9 +969,9 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
                                                                      || p.time.scheme == "li" || p.time.scheme == "sdirk"
                                                                      || p.time.scheme == "mlts"))
                              && !(p.formulation == "second_order" && (p.time.scheme == "erk" || p.time.scheme == "lts"
-                                                                      || p.time.scheme == "mlts")))
+                                                                      || p.time.scheme == "mlts" || p.time.scheme == "li")))
         throw std::runtime_error("solver.matrix_free: first order with time.scheme = \"erk\", \"lts\", \"li\", \"mlts\" or "
-                                 "\"sdirk\", second order with \"erk\", \"lts\" or \"mlts\" only");
+                                 "\"sdirk\", second order with \"erk\", \"lts\", \"mlts\" or \"li\" only");
     if (p.solver.matrix_free_batch < 1)
         throw std::runtime_error("solver.matrix_free_batch must be positive");
     if (p.solver.tolerance <= 0.0 || p.solver.tolerance_growth <= 0.0)

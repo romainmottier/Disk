@@ -235,3 +235,219 @@ efficacite, 6.7 tete) :
     puis make_eff_figures.py ;
   - form.pdf : campagne form_mf2 du 2026-10-21 ci-dessus (make_article.py,
     formulations()).
+
+2026-10-30, condensation projetee a 2 anneaux (faces.projected_rings = 2,
+jobs.txt) : 0 anneau garde la stabilite mais pas la precision (ordre ~2.5
+sur phi en convergence espace-temps sur maillages raffines, MLTS comme LI ;
+1 anneau : defaut croissant, ordre 3.84 au niveau le plus fin ; 2 anneaux :
+erreurs du schema exact a 4-6 chiffres ; campagnes dans
+~/Github/Diskpp/lts_work/li2). Relances avec 2 anneaux dans
+~/Github/Diskpp/lts_work/article_r2 :
+  - stab2/L*_ltsp, L*_mltsp : 162 pas pour p = 1..16, comme avec 0 anneau
+    (courbes en pointilles de la figure stab inchangees) ;
+  - form/o2_mltsp_q, _q1 (binaire wave_propagation_mf2 de la campagne
+    form_mf2, seuls sur la machine) : 43.1 / 64.3 s (6 / 1 fils) au lieu de
+    42.8 / 61.4 s ; 2496 faces pour B~_1 au lieu de 2320, 8.9 iterations
+    locales ; form.pdf refait depuis ~/Github/Diskpp/lts_work/form_mf2_r2
+    (form_mf2 avec ces deux runs).
+LI a l'ordre 2 : faces.projected = true s'applique aussi a li
+(integrate_li_projected), time.li_coupling = "stage" aussi a l'ordre 2.
+
+2026-10-31, section 5 (sous-sections 5.1-5.3 : les quatre schemas 1E/2E
+MLTS/LI) :
+  - setting (2E) : matrix-free avec solver.matrix_free_tolerance = 0
+    obligatoire sur maillages raffines (avec 1e-10, MLTS d'ordre 3.2 au
+    lieu de 4.02) ; campagnes conv2/, tconv2/, stab2/L*_lip, form/o2_*,
+    ls2/ dans ~/Github/Diskpp/lts_work/sec5_2e et timing5 ;
+  - MLTS (2E) avec source : time.mlts_forcing = 'cubic' (F interpole par une
+    cubique en temps sur chaque pas grossier, 4 resolutions globales sur
+    les faces par pas au lieu de plusieurs milliers ; 9.5 fois plus rapide,
+    memes erreurs a 6 chiffres) ;
+  - 5.2.2 en (2E) : MLTS a dt = 1/(25n) (81 % de la CFL des cellules
+    grossieres en (2E)), LI a dt = 1/(400n) : au pas de MLTS, l'erreur de LI
+    sur grad p est domine par l'erreur en temps de SDIRK(3,4) (ls2/li_*,
+    comparee au SDIRK(3,4) global ls2/sdirk_*) ; figure lshape2.pdf
+    (make_article.py, lshape_2e()) ; temps : voir 2026-11-01 ;
+  - 5.2.2 en (1E) recalcule seul (~/Github/Diskpp/lts_work/verif1e) :
+    ordres identiques a l'article, temps 5.6e3 s (MLTS, n = 16) au lieu de
+    5.8e3, ERK 20 s au lieu de 22, memoire LI 0.48 GiB ; lshape.pdf refait ;
+    la colonne cpu (horloge monotone) exclut les mises en veille de la
+    machine, pas time.txt ;
+  - ls13/ : verification de l'ordre en vitesse avec mu = 1/3
+    (inputs/lshape_mu1-3.lua).
+
+2026-11-01, couts du setting (2E) a niveau d'optimisation egal (campagne
+~/Github/Diskpp/lts_work/final, binaire sec5f) :
+  - MLTS (2E) avec source : le chemin general manipulait des vecteurs de
+    tout le maillage a chaque sous-pas fin (cout d'un sous-pas
+    proportionnel au maillage : n = 16 non termine apres 21 h). Les
+    tableaux locaux des niveaux (solver.matrix_free) acceptent maintenant
+    la source avec time.mlts_forcing = 'cubic' (memes erreurs a 6
+    chiffres ; croissance du temps x5.3 par raffinement, comme en (1E)) ;
+  - faces locales des niveaux : faces.projected_solver = 'auto'
+    (factorisation LDL^T du bloc local, calculee une fois, sur un fil ou
+    pour les niveaux d'au plus faces.projected_direct_max = 10000
+    inconnues ; gradients conjugues sans matrice sinon). Domaine en L,
+    n = 4 : 7.4 s (43.7 s en gradients conjugues) ; patch p = 16 : 47 s
+    sur 6 fils (gradients conjugues, inchange), 73 s au lieu de 93 s sur
+    un fil ;
+  - LI (2E) : time.li_local = true, etages calcules sur les seules
+    cellules des faces du systeme d'etage (plus de produits creux globaux
+    par etage) : patch p = 16, 10.5 s au lieu de 15.4 s (6 fils), 17.2 au
+    lieu de 22.4 s (1 fil), memes erreurs ;
+  - colonne cpu en (2E) (output.cpu) : construction et integration, comme
+    en (1E), diagnostics (omega_max, rayon du decoupage) exclus ;
+  - rechronometres seuls : form/ (les deux formulations), ls2/mltsp_*,
+    ls2/li16_* ; tconv2/mltsp_auto remplace tconv2/mltsp (calcule avec la
+    tolerance 1e-10 des blocs partages) ; conv/li10_g (LI a deux fois le
+    pas de conv/li_g), stab/L5_* (CFL (1E) a p = 32) ; puis efficacite
+    (lts_work/eff6) et modele de tete (lts_work/head6) avec le meme binaire ;
+  - temps : form/ et le tableau des couts du modele de tete (fit/plate_*,
+    t1/*) repetes deux fois (<run>_r2, <run>_r3), meilleur des trois
+    (make_article.py formulations(), make_tfus.py signals()) ; ecarts
+    observes jusqu'a 20 % d'une execution a l'autre (LI (1E), 6 fils) ;
+  - meme nombre de points sur toutes les courbes : conv2/ jusqu'a n = 128
+    (comme conv/), stab2/ jusqu'a p = 32 (ERK4 a p = 16 et 32, LTS, MLTS,
+    LI a p = 32), cfl_cells (efficiency/run_cfl_cells.sh : chaque famille
+    avec six eps, k = 3 et 1), efficacite E4 : bande et carres disperses
+    aussi a p = 2 et 8 (neuf maillages par p, make_e4.py) ; exceptions :
+    ERK4 au premier maillage seulement sur le domaine en L (son pas est
+    hmax/hmin fois plus petit), LI a partir de p = 2 dans stab.pdf ;
+  - efficiency/analyze_e5t.py (nouveau) : gains mesures sur les quadtrees
+    gradues -> e5t.json (figure multilevel_measured.pdf) ;
+  - make_tfus.py cost_table() (nouveau) -> tfus_cost.txt : tableau
+    tfus-cost au meilleur des trois (1 fil : MLTS et LI mesures sur 8 us,
+    139 pas, extrapoles, factorisation de LI comptee une fois). Resultat :
+    6 fils ERK 51.0, MLTS 27.4, LI 13.6 min ; 1 fil 203, 78.3, 17.7 min ;
+    gains inchanges (1.9, 3.8 ; 2.6, 11.5) ;
+  - make_cfl_cells.py : droites 0.26 w/c et 0.115 w/c en legende (les
+    etiquettes chevauchaient les nouveaux points k = 1) ; nouveaux
+    rapports k = 1 / k = 3 : 2.9 (coin coupe) a 4 (cellules minces) ;
+  - conv2/ a n = 128 : erreur sur p de LI 17 % au-dessus de MLTS (ordre
+    3.7), erreur en temps de SDIRK(3,4) ; verification au pas moitie
+    (conv2/*_n128_dt2) : LI 5.08e-11 -> 4.26e-11, MLTS 4.34e-11 ->
+    4.12e-11 (ERK4 uniforme 4.05e-11), ecart ramene a 4 % ;
+
+2026-11-02, memoire avec chaque temps (demande de l'auteur : tout graphe de
+temps CPU s'accompagne d'un graphe des couts memoire) : memoire = pic de
+memoire residente (time.txt, %M de /usr/bin/time), aucun calcul relance :
+  - make_article.py : form.pdf en 2 x 2 (en bas : memoire d'ERK4 en
+    fonction du nombre de cellules, memoire des calculs du patch, celle du
+    meilleur des trois) ; lshape.pdf et lshape2.pdf : quatrieme panneau,
+    erreur en fonction de la memoire ;
+  - efficiency/make_eff_figures.py : two_levels_memory.pdf (nouveau, a cote
+    de two_levels.pdf rogne dans main.tex) ; multilevel_measured.pdf :
+    memoire / ERK4 sous les gains ; parse.py lit la memoire (mem, MiB),
+    analyze_e4.py (mem_<schema>) et analyze_e5t.py (mem) l'ecrivent dans
+    e4.json et e5t.json (autres champs inchanges) ;
+  - make_tfus.py : tfus_signals.pdf sur deux lignes (en bas : temps sur 1 et
+    6 fils et memoire, cost_data() commun avec tfus_cost.txt) ;
+  - LTS et MLTS gardent la memoire d'ERK4 a 0.4 % ; LI jusqu'a +50 %
+    (maillages a deux tailles), +84 % (disque), +47 % (L, (1E)) ; (2E) :
+    MLTS et LI +19 a 31 % sur le patch, MLTS 0.62 contre 0.52 GiB pour LI
+    sur le L.
+
+2026-11-02, MLTS (2E) entierement explicite (choix de l'auteur : aucune
+matrice stockee, dans l'esprit d'un schema explicite) :
+  - option faces.projected_solver = 'explicit' (mf_operator.hpp : vues sur
+    l'operateur sans matrice du maillage entier, blocs et preconditionneur
+    partages, noyaux cellule par cellule sur un fil pour les niveaux d'au
+    plus projected_direct_max inconnues ; system.hpp : make_local_block
+    sans matrices, make_local_view ; time_schemes.hpp) ; resultats par
+    defaut inchanges bit a bit, memes erreurs a ~1e-9 pres en relatif ;
+  - tous les calculs MLTS (2E) (form*/o2_mltsp_q*, ls2/mltsp_l*,
+    conv2/mltsp_g*, tconv2/mltsp_auto, stab2/L*_mltsp) relances avec cette
+    option dans lts_work/expl (jobs.txt mis a jour ; chronometres seuls,
+    form/ repete trois fois) ; figures depuis lts_work/expl/view (vue de
+    final/view, les calculs MLTS (2E) remplaces) ;
+  - comparaison des formulations : form.pdf regroupe les barres par schema
+    (1E plein, 2E clair, 1 et 6 fils, temps et memoire) ; nouvelle figure
+    lshape_form.pdf (make_article.lshape_formulations) : MLTS et LI des
+    deux formulations sur le domaine en L, temps CPU et memoire en fonction
+    de h_max, erreur sur grad u (vitesse en (1E), grad p en (2E)) en
+    fonction des deux.
+  - variante factorisee (remarque de l'article) : option
+    faces.projected_solver = 'hybrid' (les memes vues, sauf les niveaux
+    d'au plus projected_direct_max inconnues, qui stockent leur bloc local
+    et sa factorisation LDL^T) ; l'ancien mode 'auto' stockait en plus les
+    matrices et la factorisation de TOUS les niveaux et des copies pour les
+    niveaux par gradients conjugues, ce qui gonflait sa memoire ; calculs
+    ls2/mltsph_l* chronometres seuls dans lts_work/hyb.
+
+2026-11-06, setting (2E) avec h_T et solution singuliere du domaine en L
+(campagne ~/Github/Diskpp/lts_work/hT_timed, binaire wave_propagation_hT) :
+  - bogue : second_order/problem.hpp ignorait problem.lshape_corner et
+    problem.lshape_exponent (le premier ordre les lit) ; avec les valeurs
+    par defaut (coin (0.5, 0.5), exposant 2/3), le coin est hors du domaine
+    (r >= 0.5) : tous les calculs ls2/ anterieurs resolvaient une solution
+    reguliere (source et donnees de Dirichlet coherentes). Corrige (3
+    lignes) ; (1E) inchange bit a bit ;
+  - h = diametre de la cellule h_T dans la stabilisation 1/h du setting
+    (2E), comme la formule stab-param-F de l'article (choix de l'auteur :
+    "h_T tout le temps") : inputs alg2, cart2, lshape2, stab2 et
+    efficiency/inputs/cfl_cells2 avec space.stabilization_size = "cell" ;
+    le defaut du code reste "diskpp" (h_F en (2E)) ; sur carres uniformes
+    les deux choix donnent le meme operateur (gamma* suit h) : alg/ et
+    conv2/erk_u inchanges ;
+  - parite des binaires (h_F) : form/o2_lip_q1 et o2_mltsp_q1 avec les
+    anciens binaires et le nouveau, memes erreurs, temps a 1 % ;
+  - stab2/, conv2/lip_g, mltsp_g (+ _n128_dt2), tconv2/ refaits en h_T
+    (lts_work/hT/out, non chronometres) : CFL identiques (ERK4 p = 2 :
+    +1.25 %) ; conv2 : LI et MLTS a 0.2 % jusqu'a n = 64, a n = 128 erreur
+    sur p de LI 58 % au-dessus de MLTS (ordre 3.1), 3 % au pas moitie ;
+    tconv2 MLTS ordres 2.1, 3.6, 3.9 ;
+  - form/o2_* et ls2/ chronometres seuls (form/ et ls2 l1-l3 trois fois,
+    meilleur des trois ; MLTS l4-l5 une fois) ; LI (2E) sur le L a
+    dt = 1/(100n) (ls2/li4_*) au lieu de 1/(400n) : avec la vraie solution
+    singuliere, au pas de MLTS (ls2/li_*) l'erreur de LI sur grad p est
+    celle de MLTS a 5 %, sur p 1.7 a 3.9 fois plus grande (n = 4..8) ; a
+    1/(50n) (ls2/li2_*) 6 % ; a 1/(100n) 0.1 % ; l'ancien constat "LI
+    doit prendre 1/(400n), erreur sur grad p 8 a 87 fois plus grande au pas
+    de MLTS" venait de la solution reguliere ;
+  - figures depuis lts_work/hT_timed/view_best (make_article.py : ls2
+    li16 -> li4) : stab, conv_cart2, tconv2, lshape2, form, lshape_form.
+  - ls2/mltsph_* (MLTS factorise, faces.projected_solver = 'hybrid',
+    remarque rem::factorized) chronometres seuls dans lts_work/hT_timed
+    (l1-l3 meilleur des trois, l4-l5 une fois) : memes erreurs que
+    mltsp, 2.0 a 2.4 fois plus rapide, 2 a 9 % de memoire en plus ; plus
+    fin : 7389 s contre 15102 s, 455 contre 445 MiB (LI : 516 MiB).
+  - 2026-11-09 : cart_meshes.pdf sur une ligne (8x8 et 16x16, uniformes
+    puis raffines trois fois ; make_article.meshes_cart) ; les c_cells.dat
+    des jobs meshes/cart_{u0,u1,g0,g1} sont regeneres dans
+    lts_work/meshes_cart/out (python3 -c "...m.meshes_cart()" avec
+    R = lts_work/meshes_cart/out).
+  - 2026-11-09 : conv_cart.pdf = (1E) et (2E) dans une seule figure, un
+    panneau par setting avec les deux erreurs (v/p puis p/grad p, marqueurs
+    pleins/creux) ; make_article.convergence (convergence_2e l'appelle) ;
+    conv_cart2.pdf n'est plus utilise.
+  - 2026-11-09 : conv_cart.pdf en marqueurs pleins/creux ("full"/"hollow"
+    dans les legendes) ; tconv.pdf = (1E) et (2E) dans une seule figure au
+    format de conv_cart.pdf (make_article.time_orders, time_orders_2e
+    l'appelle) ; tconv2.pdf n'est plus utilise.
+  - 2026-11-10 : figure tconv (convergence en temps) refaite sur la
+    solution p = sin(w t)(x(1-x) + y(1-y)), w = 8 sqrt2 pi (eq:poly),
+    reproduite exactement en espace par HHO : erreur contre la solution
+    exacte, sans reference (jobs tconvp/ ; code : solution
+    "acoustic_quadratic_sum" et cle problem.frequency, non commites).
+    Avec la reference (ancienne figure), LI et SDIRK butaient sur un
+    plancher d'arrondi (1e-12 a 1e-11) avant l'ordre 4. Ordres : MLTS
+    3.95-4.06 (1E, 2E) ; LI et SDIRK 3.9-4.0 pour dt <= 4e-4.
+    (2026-11-10, suite : la figure garde les 6 memes pas sur toutes les courbes ; les pas plus petits tconvp/*_x ne sont pas traces.)
+  - 2026-11-10 : lshape.pdf et lshape2.pdf en trois panneaux : les deux
+    erreurs dans le premier (marqueurs pleins/creux, ordres de MLTS ;
+    make_article.two_errors_panel), puis temps CPU et memoire.
+  - 2026-11-10 : lshape_meshes.pdf plus petite (5.1 x 1.7 in, panneaux espaces, incluse a 0.8 textwidth), quart retire transparent (contour en L, sans cadre ni gris).
+  - 2026-11-10 : section efficacite reecrite autour du modele de cout
+    (valable 1E et 2E, facteur beta, regle R_l < N_l, deux exemples
+    calcules par le modele) ; figures two_levels/multilevel_measured
+    retirees de l'article ; form.pdf (1E fonce / 2E clair, un thread a
+    droite) et lshape_form.pdf (erreur contre CPU et memoire) simplifiees.
+  - 2026-11-10 : cost_examples.pdf (make_cost_examples.py <figures>) : deux maillages et gains du modele de cout (1E/2E), sans calcul.
+    Maillages quadtree 32x32 raffines vers des interfaces (equilibres 2:1) : (a) couche courbe d'epaisseur 3h raffinee une fois
+    + inclusion de rayon h/5 raffinee trois fois (rho = 20) ; (b) inclusion de rayon h/64 raffinee jusqu'a h/256 (rho = 15).
+    rho par setting, mesure sur ces maillages : 16 en (1E), 6 en (2E) (un produit 2E resout aussi les faces : 3-4 fois
+    plus cher par cellule, une resolution 1.5 fois seulement). Maillages : make_cost_examples.py <figures> <maillages>
+    (src/mesh_generation/lts_efficiency/meshes_cost). Mesures : jobs cost/, cost_r2/, cost_r3/ (inputs/cost.lua,
+    cost2.lua ; un thread, seuls ; n et 2n pas grossiers, difference / n ; meilleur des trois) et
+    analyze_cost_check.py cost cost_r2 cost_r3 : LI a 10 % pres, MLTS -40 % en (1E), jusqu'a +50 % en (2E), schema le
+    plus rapide toujours celui predit.

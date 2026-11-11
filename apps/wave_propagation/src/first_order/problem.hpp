@@ -89,6 +89,7 @@ namespace hho_first_order {
             functions.set_function_type(solution_type(prm.problem.solution));
             functions.set_paper_frequencies(prm.problem.omega, prm.problem.theta);
             scal_vec_analytic_functions::lshape_cx = prm.problem.lshape_corner[0];
+            if (prm.problem.frequency > 0.0) scal_vec_analytic_functions::quadratic_sum_w = prm.problem.frequency;
             scal_vec_analytic_functions::lshape_cy = prm.problem.lshape_corner[1];
             scal_vec_analytic_functions::lshape_nu = prm.problem.lshape_exponent;
             v_fun      = functions.Evaluate_v(m_t);

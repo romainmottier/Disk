@@ -3,7 +3,8 @@
 -- k = 2 mixed order, weight 3 gamma*, random initial cell data, largest stable number of steps searched downwards by 1 %;
 -- LTS and MLTS with the exact condensation or with the projected one (faces.projected)
 formulation = "second_order"
-space   = { k = 2, order = "mixed", stabilization = "least_squares", scaling = "1/h", weight = "auto", weight_factor = 3 }
+space   = { k = 2, order = "mixed", stabilization = "least_squares", scaling = "1/h", weight = "auto", weight_factor = 3,
+            stabilization_size = "cell" }   -- h = cell diameter h_T in the 1/h weight (paper, eq. stab-param-F)
 faces   = { solver = "splitting", tolerance = 1e-14 }
 time    = { scheme = "erk", final_time = 1.0, n_steps = 170 }
 mesh    = { x = {0.0, 1.0}, y = {0.0, 1.0}, nx = 16, ny = 16, level = 0, refine_levels = 0,
