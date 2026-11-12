@@ -42,6 +42,10 @@ Contenu :
   ../make_article.py   figures (PDF) et tableaux (LaTeX) de 5 et 6.2-6.5
                    a partir des sorties de run_article.sh
   ../make_tfus.py      figures tfus_*.pdf de 6.7
+  ../make_tfus_movie.py donnees (npz) de l'animation Anim_IV.19_brain du cours
+                   d'EDO (Bale, seance 26 : ~/Github/Teaching, Handsout/Course/src/
+                   animations_chapter4.py anim_brain, data/brain_tfus.npz) : fit/plate_li
+                   avec 200 instantanes (un tous les 7 pas, lignes Lua dans le script)
   ../make_cfl_cells.py figure cfl_cells.pdf de 6.3
   ../reduced_models/   plan_extra.py (LI, MLTS), lts_erk_reduced.py et li_stage_reduced.py (LI corrige)
                    (LTS, ERK4) : modeles reduits de la section 5 (moteurs
