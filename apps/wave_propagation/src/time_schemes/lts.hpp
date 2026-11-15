@@ -39,6 +39,7 @@
 #include <functional>
 #include <type_traits>
 #include <vector>
+#include "../output/algebraic_memory.hpp"
 
 #include "runge_kutta.hpp"
 
@@ -272,6 +273,7 @@ namespace local_time_stepping {
                         return k;
                     });
                 }
+                algebraic_memory::probe();
                 if (observe) observe(dt * (it + 1), x);
             }
             return x;
@@ -286,6 +288,7 @@ namespace local_time_stepping {
                 double tm = m * dtau, tmh = tm + 0.5 * dtau, tme = tm + dtau;
                 fine_substep(op, x, w, force(tn + tm), force(tn + tmh), force(tn + tme), tm, dtau);
             }
+            algebraic_memory::probe();
             if (observe) observe(dt * (it + 1), x);
         }
         return x;
@@ -340,6 +343,7 @@ namespace local_time_stepping {
         for (size_t it = 0; it < nt; it++) {
             const double tn = dt * double(it);
             step(0, tn, dt, std::vector<V>(4, fine.zero_state()));
+            algebraic_memory::probe();
             if (observe) observe(dt * double(it + 1), x);
         }
         return x;
@@ -363,11 +367,13 @@ namespace local_time_stepping {
                 V Fn = memo.F(tn), Fh = memo.F(tn + 0.5 * dt), Fe = memo.F(tn + dt);
                 coarse_coefficients_fast(op, x, Fn, Fh, Fe, dt, w);
                 li_step(op, x, w, tn, dt, a, b, c, h, memo_force, solve, stage_values);
+                algebraic_memory::probe();
                 if (observe) observe(dt * (it + 1), x);
                 continue;
             }
             coarse_coefficients(op, x, force(tn), force(tn + 0.5 * dt), force(tn + dt), dt, w);
             li_step(op, x, w, tn, dt, a, b, c, h, force, solve, stage_values);
+            algebraic_memory::probe();
             if (observe) observe(dt * (it + 1), x);
         }
         return x;

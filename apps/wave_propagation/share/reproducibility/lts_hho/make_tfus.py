@@ -7,6 +7,9 @@ interfaces) and tfus.lua (voxel staircase), jobs fit/* and tfus/* of article/job
 given as first argument (fit/plate_li, intact_li, water_li, plate_li_dt2, plate_mlts; tfus/plate_mlts, intact_mlts,
 water_mlts) and writes into the second one:
     tfus_model.pdf      tissues, transducer, focus, beam axis; zoom on the plate
+    tfus_model_steps.pdf  (2026-11-15) construction of the mesh: T1 slice with the tissues in transparency, quadtree
+                        on the pixels (staircase) and cells split along the smoothed skull, over the T1 slice (needs the
+                        MRI of ~/Downloads/mri_dataset, or the folder given by the environment variable TFUS_MRI_DATA)
     tfus_snapshots.pdf  pressure in the fluids and mean stress -tr(sigma)/2 in the solids, one colour scale
     tfus_skull.pdf      zoom on the skull and the plate: mean stress (P waves) and shear stress (S waves)
     tfus_focus.pdf      peak pressure maps (water, intact skull, plate) and profiles along and across the axis
@@ -14,7 +17,10 @@ water_mlts) and writes into the second one:
                         and staircase interfaces), costs
     tfus_cost.txt       Table tfus-cost: best of three integration times (6 threads: fit/plate_*; 1 thread: t1/*, 8 us
                         extrapolated, the factorization of LI counted once), gains, memory
-Usage: python3 make_tfus.py <runs> <figures>
+Memories: with --memory <runs>, the algebraic memory of the time integration (output.algebraic_memory: operator, state
+and what the scheme allocates and keeps; <runs>/<fit|t1>/<run>/log.txt, campaign lts_work/algmem, same jobs, 3 steps);
+without it, the peak memory (maximum resident set size, time.txt).
+Usage: python3 make_tfus.py <runs> <figures> [--memory <runs>]
 """
 import math, os, re, sys
 import numpy as np
@@ -24,8 +30,13 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap, TwoSlopeNorm
 from matplotlib.patches import Rectangle
 
-RUNS = sys.argv[1] if len(sys.argv) > 1 else "."
-OUT = sys.argv[2] if len(sys.argv) > 2 else "."
+ARGS, MEM = sys.argv[1:], None
+if "--memory" in ARGS:
+    _k = ARGS.index("--memory")
+    MEM, ARGS = ARGS[_k + 1], ARGS[:_k] + ARGS[_k + 2:]
+RUNS = ARGS[0] if len(ARGS) > 0 else "."
+OUT = ARGS[1] if len(ARGS) > 1 else "."
+MEMORY_LABEL = "algebraic memory" if MEM else "peak memory"
 HERE = os.path.dirname(os.path.abspath(__file__))
 MESHES = os.path.join(HERE, "..", "..", "..", "src", "mesh_generation", "brain_mri", "meshes")
 os.makedirs(OUT, exist_ok=True)
@@ -224,6 +235,88 @@ def model():
     handles = [Rectangle((0, 0), 1, 1, fc=c, ec="#555", lw=0.3, label=n) for _, n, c in TISSUES]
     ax.legend(handles=handles, loc="lower left", fontsize=5.2, frameon=True, ncol=2, handlelength=1.0, columnspacing=0.6)
     save(fig, "tfus_model.pdf")
+
+
+# --------------------------------------------------------------------------------------------- model, mesh steps
+# T1 MRI and FSL segmentation of the head model (OpenNeuro ds001734, subject 1, slice 80; ~/Downloads/mri_dataset)
+MRI_DATA = os.environ.get("TFUS_MRI_DATA", os.path.expanduser("~/Downloads/mri_dataset/data"))
+ZOOM = (138, 164, 196, 222)     # window around the plate (mm), as in model()
+
+
+def mri_slice():
+    """T1 slice of the head model cropped as the meshes (generate_head_model.py --margin 40 --base 4, default
+    thresholds), rows = y, columns = x, 1 mm pixels, with its tissue raster; the crop is checked against the tissue
+    raster saved with the meshes (head_s80_fit_plate_tissues.npy)."""
+    sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "src", "mesh_generation", "brain_mri"))
+    import generate_head_model as G
+    seg = np.load(os.path.join(MRI_DATA, "segmentation", "sub-001_T1w.npy"))[80]
+    t1 = G.read_nifti(os.path.join(MRI_DATA, "mri", "sub-001_T1w.nii.gz"))[80]
+    tag, (r0, c0) = G.crop(G.tissues(seg, t1, 60.0, 120.0), 40, 4)
+    ref = np.load(os.path.join(MESHES, "head_s80_fit_plate_tissues.npy"))
+    if tag.shape != ref.shape or not np.array_equal(tag, ref):
+        raise RuntimeError("the crop of the MRI slice differs from the tissue raster of the meshes")
+    H, W = tag.shape
+    img = np.zeros((H, W))
+    sr0, sc0 = max(r0, 0), max(c0, 0)
+    sr1, sc1 = min(r0 + H, t1.shape[0]), min(c0 + W, t1.shape[1])
+    img[sr0 - r0:sr1 - r0, sc0 - c0:sc1 - c0] = t1[sr0:sr1, sc0:sc1]
+    return img, tag
+
+
+def model_steps():
+    """tfus_model_steps.pdf (2026-11-15): construction of the mesh of the head model with the plate. Left: T1 slice
+    with the tissues in transparency, transducer, its axis and focus, zoom window. Center: zoom, quadtree on the pixels
+    (staircase interfaces, head_s80_hf_plate.txt) over the T1 slice. Right: same zoom, cells split along the smoothed
+    skull (level 1/2 of the bone indicator smoothed by a Gaussian of 1 pixel, cubic interpolation, as in
+    generate_head_model_fitted.py; red) and along the exact plate and screws (head_s80_fit_plate.txt)."""
+    from matplotlib.collections import PolyCollection
+    from matplotlib.colors import to_rgba
+    from scipy import ndimage as ndi
+    img, tag = mri_slice()
+    H, W = tag.shape
+    order = [t for t, _, _ in TISSUES]
+    idx = np.vectorize({t: i for i, t in enumerate(order)}.get)(tag)
+    cmap = ListedColormap([c for _, _, c in TISSUES])
+    lo, hi = np.percentile(img[img > 0], [1, 99.5])
+    gray = dict(cmap="gray", vmin=lo, vmax=hi, origin="lower", interpolation="nearest", extent=(0, W, 0, H))
+    col = {t: c for t, _, c in TISSUES}
+    x0, x1, y0, y1 = ZOOM
+    fig = plt.figure(figsize=(6.3, 2.45))
+    hgt = 0.86
+    wa = hgt * 2.45 / 6.3 * W / H
+    wz = hgt * 2.45 / 6.3 * (x1 - x0) / (y1 - y0)
+    ax = fig.add_axes([0.0, 0.12, wa, hgt])
+    ax.imshow(img, **gray)
+    ax.imshow(idx, cmap=cmap, vmin=-0.5, vmax=len(order) - 0.5, alpha=0.5, origin="lower", interpolation="nearest",
+              extent=(0, W, 0, H))
+    transducer(ax, lw=1.2)
+    e = np.array([math.cos(AXIS), math.sin(AXIS)])
+    ax.plot([FOCUS[0], FOCUS[0] + RADIUS * e[0]], [FOCUS[1], FOCUS[1] + RADIUS * e[1]], ":", color="#d69e2e", lw=0.6)
+    ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False, ec="#b7202e", lw=0.8))
+    ax.set_xlim(0, W); ax.set_ylim(0, H); ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
+    ax.text(0.03, 0.97, f"{W} x {H} mm", transform=ax.transAxes, va="top", fontsize=5.5, color="white")
+    # smoothed skull: level 1/2 of the smoothed bone indicator, cubic interpolation on a fine grid of the window
+    phi = ndi.gaussian_filter(np.isin(tag, [1, 2]).astype(float), 1.0) - 0.5
+    coef = ndi.spline_filter(phi, order=3)
+    xs, ys = np.linspace(x0, x1, 521), np.linspace(y0, y1, 521)
+    XX, YY = np.meshgrid(xs, ys)
+    PHI = ndi.map_coordinates(coef, [YY.ravel() - 0.5, XX.ravel() - 0.5], order=3, prefilter=False,
+                              mode="nearest").reshape(XX.shape)
+    for k, name in enumerate(("head_s80_hf_plate.txt", "head_s80_fit_plate.txt")):
+        axz = fig.add_axes([wa + 0.02 + k * (wz + 0.02), 0.12, wz, hgt])
+        axz.imshow(img, **gray)
+        pts, cells = read_mesh(os.path.join(MESHES, name), ZOOM)
+        axz.add_collection(PolyCollection([pts[r] for r, _ in cells], facecolors=[to_rgba(col[t], 0.4) for _, t in cells],
+                                          edgecolors=(0, 0, 0, 0.7), linewidths=0.08))
+        if k == 1:
+            axz.contour(XX, YY, PHI, levels=[0.0], colors="#b7202e", linewidths=0.7)
+        axz.set_xlim(x0, x1); axz.set_ylim(y0, y1); axz.set_aspect("equal"); axz.set_xticks([]); axz.set_yticks([])
+        for s in axz.spines.values():
+            s.set_edgecolor("#b7202e"); s.set_linewidth(0.8)
+    handles = [Rectangle((0, 0), 1, 1, fc=c, ec="#555", lw=0.3, label=n) for _, n, c in TISSUES]
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.0), ncol=8, fontsize=5.5, frameon=False,
+               handlelength=1.0, columnspacing=0.8)
+    save(fig, "tfus_model_steps.pdf")
 
 
 def read_mesh(path, box):
@@ -466,8 +559,8 @@ def signals():
     ax = axs[2]
     for r, kind, lab, c, ls in (("water_li", "fit", "water", "#2b6cb0", "-"), ("intact_li", "fit", "intact, fitted", "#2f855a", "-"),
                                 ("plate_li", "fit", "plate, fitted", "#b7202e", "-"),
-                                ("intact_mlts", "tfus", "intact, voxels", "#2f855a", "--"),
-                                ("plate_mlts", "tfus", "plate, voxels", "#b7202e", "--")):
+                                ("intact_mlts", "tfus", "intact, staircase", "#2f855a", "--"),
+                                ("plate_mlts", "tfus", "plate, staircase", "#b7202e", "--")):
         E = energy(run(r, kind))
         if E is not None:
             ax.plot(E[0], E[1], ls, color=c, lw=0.8, label=lab)
@@ -475,7 +568,7 @@ def signals():
     ax.legend(loc="lower left", frameon=False, fontsize=5.0); ax.set_title("discrete energy", fontsize=7, pad=2)
     T, M = cost_data()
     names = [s_ for s_ in ("erk", "mlts", "li") if T.get((s_, 6)) or T.get((s_, 1))]
-    for ax, D, yl in ((axs[3], T, "time integration (min)"), (axs[4], M, "peak memory (GiB)")):
+    for ax, D, yl in ((axs[3], T, "time integration (min)"), (axs[4], M, f"{MEMORY_LABEL} (GiB)")):
         for i_, s_ in enumerate(names):
             for j_, th in enumerate((1, 6)):
                 v = D.get((s_, th))
@@ -500,7 +593,7 @@ def signals():
                            Rectangle((0, 0), 1, 1, fc="white", ec="#1a1a1a", lw=0.4, label="6 threads")],
                   loc="upper right", fontsize=5.5, frameon=False)
     axs[3].set_title("time integration (best of three)", fontsize=7, pad=2)
-    axs[4].set_title("peak memory", fontsize=7, pad=2)
+    axs[4].set_title(MEMORY_LABEL, fontsize=7, pad=2)
     fig.tight_layout(pad=0.2, w_pad=0.6, h_pad=1.0)
     save(fig, "tfus_signals.pdf")
 
@@ -566,6 +659,11 @@ def cost_data():
     M = {(s_, th): os.path.join(d, "time.txt") for s_, th, d in
          (("erk", 6, run("plate_erk_8us")), ("mlts", 6, run(mlts_run)), ("li", 6, run("plate_li")),
           ("erk", 1, run("erk_8us", "t1")), ("mlts", 1, run("mlts_8us", "t1")), ("li", 1, run("li_8us", "t1")))}
+    if MEM:   # algebraic memory of the same runs (line "algebraic memory: ... total X MB" of their log.txt), GiB
+        M = {k: os.path.join(MEM, os.path.relpath(os.path.dirname(f), RUNS), "log.txt") for k, f in M.items()}
+        M = {k: float(re.search(r"algebraic memory: .* total ([0-9.]+) MB", open(f).read()).group(1)) / 1024
+             for k, f in M.items() if os.path.exists(f) and "algebraic memory" in open(f).read()}
+        return T, M
     M = {k: float(open(f).read().split()[2]) / 1048576 for k, f in M.items() if os.path.exists(f)}
     return T, M
 
@@ -584,7 +682,7 @@ def cost_table():
 
 
 if __name__ == "__main__":
-    for f in (model, snapshots, skull, focus, signals, polytopal, cost_table):
+    for f in (model, model_steps, snapshots, skull, focus, signals, polytopal, cost_table):
         try:
             f()
         except Exception as ex:

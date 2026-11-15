@@ -280,6 +280,20 @@ public:
         m_views_ready = true;
     }
 
+    // bytes of the operator in its current state (blocks of the classes and inverse face blocks, own or of the base
+    // operator of a view, tables of the cells, faces and batches, buffers of the products and of the conjugate
+    // gradients): its algebraic memory (output.algebraic_memory)
+    size_t bytes() const {
+        size_t b = sizeof(T) * m_Di.size();
+        for (const cell_class& C : m_classes)
+            for (const block_op* B : {&C.P, &C.L, &C.D, &C.E, &C.Mi}) b += B->bytes();
+        auto vb = [](const auto& v) { return sizeof(typename std::decay_t<decltype(v)>::value_type) * v.size(); };
+        b += vb(m_cells) + vb(m_J) + vb(m_face_of) + vb(m_owner) + vb(m_order) + vb(m_batches) + vb(m_faces) + vb(m_bf)
+           + vb(m_bc) + vb(m_sp) + vb(m_sl) + vb(m_s1) + vb(m_s2) + vb(m_slots) + vb(m_chunks) + vb(m_cf) + vb(m_pad)
+           + vb(m_x) + vb(m_y) + vb(m_part3) + vb(m_ppq) + vb(m_part) + vb(m_res) + vb(m_z) + vb(m_p) + vb(m_q);
+        return b;
+    }
+
     std::string summary() const {
         size_t bytes = 0;
         size_t entries = 0, kept = 0;

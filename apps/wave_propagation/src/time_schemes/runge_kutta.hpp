@@ -18,6 +18,7 @@
 #include <array>
 #include <cstddef>
 #include <vector>
+#include "../output/algebraic_memory.hpp"
 
 namespace runge_kutta {
 
@@ -42,6 +43,7 @@ namespace runge_kutta {
                 slope(tn + c(i) * dt, y, k[i]);
                 x += dt * b(i) * k[i];
             }
+            algebraic_memory::probe();
             if (!after_step(dt * (it + 1), x)) return it + 1;
         }
         return nt;
@@ -67,6 +69,7 @@ namespace runge_kutta {
                 stage(i, tn + c(i) * dt, r, k[i]);
                 x += dt * b(i) * k[i];
             }
+            algebraic_memory::probe();
             if (!after_step(dt * (it + 1), x)) return it + 1;
         }
         return nt;

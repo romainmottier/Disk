@@ -610,6 +610,25 @@ sert d'exemple pour chacune de ces cles).
                            normes de M2AN 2025 (hho_p, hho_v, dg_m, dg_s,
                            erreurs contre les projections et normes L2
                            simples)
+  output.algebraic_memory  false (defaut) ; true (etude run, les deux
+                           ordres) : memoire algebrique de l'integration
+                           en temps, une ligne du log "algebraic memory:
+                           operator X MB, state Y MB, time scheme Z MB,
+                           total T MB" : operateur d'evolution (blocs sans
+                           matrice, ou blocs creux du mode rapide de
+                           l'ordre 2) et etat comptes sur leurs conteneurs,
+                           plus ce que le schema alloue et garde pendant
+                           l'integration (vecteurs de travail, niveaux de
+                           MLTS, systeme fin de LI et ses facteurs) : plus
+                           grande croissance du tas en usage (mallinfo2)
+                           a la fin des pas, au-dessus de sa valeur juste
+                           avant l'integration (F evalue une fois avant :
+                           ses caches ne comptent pas). Sans les
+                           bibliotheques, le maillage, l'assemblage et les
+                           sorties ; deterministe (ne depend ni du RSS, ni
+                           de la duree du calcul : 3 pas suffisent).
+                           Resultats inchanges (bit a bit). Script :
+                           output/algebraic_memory.hpp (2026-11-13)
 
 
 ----------------------------------------------------------------------

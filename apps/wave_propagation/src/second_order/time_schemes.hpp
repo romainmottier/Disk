@@ -69,6 +69,7 @@ namespace hho_second_order {
                 y(d) = yn(d) + dt * du;
                 y(n + d) = yn(n + d) + dt * dv;
             }
+            algebraic_memory::probe();
         }
         return y;
     }
@@ -806,6 +807,7 @@ namespace hho_second_order {
                 for (Eigen::Index p = 0; p < N; p++)
                     if (!in1[size_t(p)]) y(p) += integral(w, p, dt);
                 for (size_t k = 0; k < lev[1].S.size(); k++) y(lev[1].S[k]) = z1(Eigen::Index(k));
+                algebraic_memory::probe();
             }
             std::cout << "      local faces: " << local_direct << " factorized solves, " << local_solves
                       << " conjugate gradients (" << (local_solves ? double(local_iterations) / double(local_solves) : 0.0)
@@ -861,6 +863,7 @@ namespace hho_second_order {
                 for (size_t k = 0; k < 4; k++) g_cub[k] = g_exact(t_cub + double(k) * dt / 3.0);
             }
             step(0, dt * double(it), dt, std::vector<vector_type>(4, vector_type::Zero(sys.state_size())));
+            algebraic_memory::probe();
         }
         print_local_stats(sys);
         return y;

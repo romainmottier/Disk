@@ -455,3 +455,25 @@ matrice stockee, dans l'esprit d'un schema explicite) :
     cost2.lua ; un thread, seuls ; n et 2n pas grossiers, difference / n ; meilleur des trois) et
     analyze_cost_check.py cost cost_r2 cost_r3 : LI a 10 % pres, MLTS -40 % en (1E), jusqu'a +50 % en (2E), schema le
     plus rapide toujours celui predit.
+  - 2026-11-13 : modele de cout retire de l'article (section simplifiee, a la demande de l'auteur) ; l'article utilise
+    cost_meshes.pdf (maillages et zooms, Fig. cost-meshes, apres la description du cas test) et cost_gains.pdf (gains
+    MESURES en haut, memoire maximale rapportee a ERK4 en bas, Fig. cost-gains, avec les resultats) ; cost_examples.pdf
+    reunit les deux. Les trois sont ecrites par :
+      python3 make_cost_examples.py ~/Github/Preprints/LTS_HHO/figures_article --runs <out>/cost <out>/cost_r2 <out>/cost_r3
+    (sans --runs : l'ancienne figure du modele, toujours disponible). Gains : (a) 1E MLTS 1.62, 2 niveaux 1.07, LI 1.20 ;
+    2E LI 2.27, MLTS 1.37, 2 niveaux 0.87 ; (b) 1E LI 49.9, MLTS 3.31, 2 niveaux 1.79 ; 2E LI 89.7, 2 niveaux 2.36,
+    MLTS 1.67. Memoire / ERK4 : 1.00 en (1E), jusqu'a 1.26 (LI, 2E).
+  - 2026-11-13 : MEMOIRE ALGEBRIQUE partout dans l'article (choix de l'auteur : le pic RSS, domine par les bibliotheques,
+    le maillage et l'assemblage, cachait le surcout de LI). Option opt-in output.algebraic_memory (PARAMETRES.txt) :
+    operateur + etat + ce que le schema alloue et garde (vecteurs, niveaux de MLTS, systeme fin de LI et facteurs).
+    Campagne ~/Github/Diskpp/lts_work/algmem : jobs.txt = les 58 jobs des figures memoire (cost/, alg/, form/*_q1, ls/,
+    ls2/, fit/, t1/, vor/plate_li), 3 pas de meme taille, sorties coupees, binaire wave_propagation_algmem ; sorties
+    runs/<job>/log.txt. Figures (seules celles qui contiennent de la memoire) :
+      python3 ../make_article.py ~/Github/Diskpp/lts_work/hT_timed/view_best <figures> --memory ~/Github/Diskpp/lts_work/algmem/runs
+        (form.pdf, lshape.pdf, lshape2.pdf, lshape_form.pdf)
+      python3 ../make_tfus.py ~/Github/Diskpp/lts_work/recheck/view_head <figures> --memory ~/Github/Diskpp/lts_work/algmem/runs
+        (tfus_signals.pdf, tfus_cost.txt)
+      python3 ../make_cost_examples.py <figures> --memory ~/Github/Diskpp/lts_work/algmem/runs --runs <out>/cost <out>/cost_r2 <out>/cost_r3
+    (sans --memory : le pic RSS, comme avant). Resultats : tete ERK 0.35, MLTS 0.73 (x2.1), LI 6.1 GiB (x17.6) ; Voronoi
+    LI 20.3 GiB ; domaine en L, maillage le plus fin : LI = 12 x MLTS (1E), 1.7 x (2E) ; patch : 1E ERK 10, MLTS 29, LI
+    125 MiB, 2E 14, 61, 113 ; Fig. cost-gains : MLTS 2.5-4.2 x ERK4, LI 7-22 x.

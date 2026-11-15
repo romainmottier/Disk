@@ -273,6 +273,9 @@ struct wave_parameters {
                                                         //   nearest time step, files <table>_snapshot_<i>.dat)
         bool profile = false;                           // matrix-free lts / mlts / li: work per macro step (unknowns x
                                                         //   products) and wall times of the parts of the integrator
+        bool algebraic_memory = false;                  // run: memory of the linear algebra of the time integration
+                                                        //   (operator, state, what the scheme allocates and keeps:
+                                                        //   output/algebraic_memory.hpp), one line in the log
         bool cpu = false;                               // space study: columns cpu (seconds of assembly and time
                                                         //   integration of each level), dofs and face_dofs (unknowns
                                                         //   before and after the static condensation) in the tables
@@ -873,13 +876,14 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
 
     sol::table output = get_table(lua, "output");
     check_keys(output, "output", {"file", "table", "energy", "sensors", "sensor_every", "snapshots", "snapshot_samples", "cpu", "errors",
-                                  "profile", "snapshot_elastic", "peak_samples"});
+                                  "profile", "snapshot_elastic", "peak_samples", "algebraic_memory"});
     p.output.file   = get_string(output, "output", "file", p.output.file, {});
     p.output.table  = get_string(output, "output", "table", p.output.table, {});
     p.output.energy = get_bool(output, "output", "energy", p.output.energy);
     p.output.sensor_every = get_count(output, "output", "sensor_every", p.output.sensor_every);
     p.output.cpu = get_bool(output, "output", "cpu", p.output.cpu);
     p.output.profile = get_bool(output, "output", "profile", p.output.profile);
+    p.output.algebraic_memory = get_bool(output, "output", "algebraic_memory", p.output.algebraic_memory);
     p.output.errors = get_string(output, "output", "errors", p.output.errors, {"fields", "energy"});
     sol::object sens = output["sensors"];
     if (sens.valid()) {

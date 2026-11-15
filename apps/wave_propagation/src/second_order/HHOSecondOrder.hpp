@@ -93,6 +93,17 @@ void HHOSecondOrder(const wave_parameters& prm) {
             std::cout << bold << cyan << "      Newmark energy: max |E^n - E^0| / E^0 = " << var << reset << std::endl;
             return y;
         }
+        // algebraic memory (output.algebraic_memory): the forcing is evaluated once before the baseline (its caches are
+        // not counted), the heap is probed at the end of the steps of the integrators
+        algebraic_memory::enable(prm.output.algebraic_memory);
+        if (algebraic_memory::enabled()) {
+            vector_type y0 = pb.initial_state();
+            (void)pb.eval_F(0.0);
+            algebraic_memory::baseline(pb.system().operator_bytes(), sizeof(RealType) * size_t(y0.size()));
+            vector_type y = integrate(pb, prm, y0, nt);
+            std::cout << algebraic_memory::report() << std::endl;
+            return y;
+        }
         return integrate(pb, prm, pb.initial_state(), nt);
     };
 

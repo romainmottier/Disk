@@ -12,7 +12,10 @@ Data: <results> as written by run_article.sh (one directory per run: c.dat, log.
     alg/, form/ 6.6    rho/, stab/, stab2/ 6.2    conv/, tconv/, conv2/, tconv2/, meshes/ 6.4    ls/, ls2/, ls13/ 6.5
     cfl/, head/, head1/ 6.7 (earlier head model)
 and the reduced models (4): reduced_models/reduced_mlts4_li.npz.
-Usage: python3 make_article.py <results> <output directory>"""
+Memories: with --memory <runs>, the algebraic memory of the time integration (output.algebraic_memory: operator, state
+and what the scheme allocates and keeps), read in <runs>/<run>/log.txt (campaign lts_work/algmem, same jobs, 3 steps);
+without it, the peak memory (maximum resident set size, time.txt of the run).
+Usage: python3 make_article.py <results> <output directory> [--memory <runs>]"""
 import glob, math, os, re, sys
 import numpy as np
 import matplotlib
@@ -27,8 +30,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.normpath(os.path.join(HERE, "..", "..", "..", "src"))
 LS_MESHES = os.path.join(SRC, "mesh_generation", "lshape_graded", "meshes")
 HEAD_MESHES = os.path.join(SRC, "mesh_generation", "brain_mri", "meshes")
-R = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "results")
-OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "article_figures")
+ARGS, MEM = sys.argv[1:], None
+if "--memory" in ARGS:
+    _k = ARGS.index("--memory")
+    MEM, ARGS = ARGS[_k + 1], ARGS[:_k] + ARGS[_k + 2:]
+R = ARGS[0] if len(ARGS) > 0 else os.path.join(HERE, "results")
+OUT = ARGS[1] if len(ARGS) > 1 else os.path.join(HERE, "article_figures")
+MEMORY_LABEL = "algebraic memory" if MEM else "peak memory"
 
 plt.rcParams.update({
     "font.family": "serif", "font.serif": ["cmr10"], "mathtext.fontset": "cm",
@@ -77,6 +85,16 @@ def wall(d):
         return None, None
     m = re.match(r"([0-9.]+) s ([0-9]+) KB", open(f).read().strip())
     return (float(m.group(1)), float(m.group(2)) / 1024) if m else (None, None)
+
+
+def memory(d):
+    """Memory of the run d (MiB): its algebraic memory with --memory <runs> (line "algebraic memory: ... total X MB" of
+    <runs>/<d>/log.txt), otherwise its peak memory (time.txt)."""
+    if not MEM:
+        return wall(d)[1]
+    f = os.path.join(MEM, d, "log.txt")
+    m = re.search(r"algebraic memory: .* total ([0-9.]+) MB", open(f).read()) if os.path.exists(f) else None
+    return float(m.group(1)) if m else None
 
 
 def n_cells(d):
@@ -133,6 +151,14 @@ def style_log(ax, xlabel, ylabel):
     ax.xaxis.set_minor_formatter(NullFormatter()); ax.yaxis.set_minor_formatter(NullFormatter())
     ax.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
     ax.tick_params(which="minor", length=1.5, width=0.4)
+
+
+def mem_linear(ax, which):
+    """Memory axis (MiB) on a linear scale from 0: no log scale for the memories (user, 2026-11-13)."""
+    if which == "x":
+        ax.set_xscale("linear"); ax.set_xlim(0, ax.get_xlim()[1] * 1.05)
+    else:
+        ax.set_yscale("linear"); ax.set_ylim(0, ax.get_ylim()[1] * 1.05)
 
 
 def mem_ticks(axis):
@@ -279,13 +305,13 @@ def formulations():
             if not per:
                 w, _ = wall(f"alg/{o}_l{l}")
                 per = [w / n_steps]
-            nu.append(8 * 2 ** l); ms.append(1e3 * min(per)); mem.append(wall(f"alg/{o}_l{l}")[1] or np.nan)
+            nu.append(8 * 2 ** l); ms.append(1e3 * min(per)); mem.append(memory(f"alg/{o}_l{l}") or np.nan)
         if nu:
             ax.plot(np.array(nu) ** 2, ms, "-" + mk, color=c, lw=1.0, ms=3.2, label=lab)
             axm[0].plot(np.array(nu) ** 2, mem, "-" + mk, color=c, lw=1.0, ms=3.2, label=lab)
     style_log(ax, "cells", "wall time per ERK4 step (ms)")
     legend(ax, loc="upper left")
-    style_log(axm[0], "cells", "peak memory of ERK4 (MiB)"); mem_ticks(axm[0].yaxis)
+    style_log(axm[0], "cells", f"{MEMORY_LABEL} of ERK4 (MiB)"); mem_linear(axm[0], "y")
     legend(axm[0], loc="upper left")
     # right: wall time of the whole run on one thread (top) and its peak memory (bottom), the two formulations side by
     # side for each scheme (1E: full colour, 2E: light); second order: MLTS and LI with the projected condensation
@@ -299,13 +325,16 @@ def formulations():
             ws = [wall(f"{rep}/{o}_{run}_q1") for rep in ("form", "form_r2", "form_r3")]
             ws = [w for w in ws if w[0] is not None]
             v, mv = min(ws) if ws else (np.nan, np.nan)      # memory of the run with the best time
+            if MEM:
+                mv = memory(f"form/{o}_{run}_q1") or np.nan  # algebraic memory (deterministic)
             xi = k + (-0.18 if f == 0 else 0.18)
             for a, y in ((ax, v), (axm[1], mv)):
                 a.bar(xi, y, color=color if f == 0 else light(color), width=0.34, edgecolor="#1a1a1a", linewidth=0.4)
             if np.isfinite(v):
                 ax.text(xi, v + 1.5, f"{v:.0f}" if v >= 10 else f"{v:.1f}", ha="center", va="bottom", fontsize=6)
             if np.isfinite(mv):
-                axm[1].text(xi, mv + 6, f"{mv:.0f}", ha="center", va="bottom", fontsize=6)
+                axm[1].annotate(f"{mv:.0f}" if mv >= 10 else f"{mv:.1f}", (xi, mv), xytext=(0, 1.5),
+                                textcoords="offset points", ha="center", va="bottom", fontsize=6)
     xs, labels = list(range(len(groups))), [SCH[g[0]][0] for g in groups]
     ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=7)
     ax.legend(handles=[Rectangle((0, 0), 1, 1, fc="#5a5a56", ec="#1a1a1a", lw=0.4, label="setting (1E), $k=3$"),
@@ -317,7 +346,8 @@ def formulations():
     ax.set_title(r"$64\times64$ cells, central patch refined 4 times ($p=16$)", fontsize=7, pad=3)
     ax = axm[1]
     ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=7)
-    ax.set_ylabel("peak memory on one thread (MiB)", labelpad=1); ax.grid(True, axis="y", which="major", **GRID)
+    ax.set_ylabel(f"{MEMORY_LABEL} on one thread (MiB)" if not MEM else f"{MEMORY_LABEL} (MiB)", labelpad=1)
+    ax.grid(True, axis="y", which="major", **GRID)
     ax.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
     ax.set_ylim(0, max(b.get_height() for b in ax.patches if np.isfinite(b.get_height())) * 1.22)
     fig.tight_layout(pad=0.2, w_pad=1.2, h_pad=1.0)
@@ -631,11 +661,11 @@ def lshape():
     ax = axs[2]
     for s in ("mlts", "li"):
         lab, c, mk = SCH[s]
-        ax.plot([wall(d)[1] for d in data[s][4]], data[s][2], "-" + mk, color=c, lw=1.0, ms=3.0, label=lab)
+        ax.plot([memory(d) for d in data[s][4]], data[s][2], "-" + mk, color=c, lw=1.0, ms=3.0, label=lab)
     if len(erk[0]):
-        ax.plot([wall(erk[4][0])[1]], erk[2], "o", color=SCH["erk"][1], ms=3.5, label="ERK4")
-    style_log(ax, "peak memory (MiB)", r"$\Vert v-v_h\Vert_{L^2(\Omega)}$"); mem_ticks(ax.xaxis)
-    legend(ax, loc="lower left")
+        ax.plot([memory(erk[4][0])], erk[2], "o", color=SCH["erk"][1], ms=3.5, label="ERK4")
+    style_log(ax, f"{MEMORY_LABEL} (MiB)", r"$\Vert v-v_h\Vert_{L^2(\Omega)}$"); mem_linear(ax, "x")
+    legend(ax, loc="upper right")
     fig.tight_layout(pad=0.2, w_pad=0.6)
     save(fig, "lshape.pdf")
 
@@ -653,7 +683,7 @@ def ls2_series(prefix, levels):
         if not (np.isfinite(c("acoustic_grad_phi")) and c("acoustic_grad_phi") < 1):
             continue
         h.append(c("h")); p.append(c("acoustic_phi")); g.append(c("acoustic_grad_phi"))
-        t.append(c("cpu") if "cpu" in D[0] else (wall(d)[0] or np.nan)); m.append(wall(d)[1] or np.nan)
+        t.append(c("cpu") if "cpu" in D[0] else (wall(d)[0] or np.nan)); m.append(memory(d) or np.nan)
     return np.array(h), np.array(p), np.array(g), np.array(t), np.array(m)
 
 
@@ -678,7 +708,7 @@ def lshape_2e():
     for s in ("mlts", "li"):
         lab, c, mk = SCH[s]
         ax.plot(data[s][4], data[s][2], "-" + mk, color=c, lw=1.0, ms=3.0, label=lab)
-    style_log(ax, "peak memory (MiB)", r"$\Vert \nabla p-\nabla p_h\Vert_{L^2(\Omega)}$"); mem_ticks(ax.xaxis)
+    style_log(ax, f"{MEMORY_LABEL} (MiB)", r"$\Vert \nabla p-\nabla p_h\Vert_{L^2(\Omega)}$"); mem_linear(ax, "x")
     legend(ax, loc="upper right")
     fig.tight_layout(pad=0.2, w_pad=0.6)
     save(fig, "lshape2.pdf")
@@ -698,7 +728,7 @@ def lshape_formulations():
     S = {}
     for s in ("mlts", "li"):
         h, _, q, cpu, rows = one[s]
-        S[(s, 1)] = (h, q, cpu, np.array([wall(d)[1] or np.nan for d in rows]))
+        S[(s, 1)] = (h, q, cpu, np.array([memory(d) or np.nan for d in rows]))
         h, _, g, t, m = two[s]
         S[(s, 2)] = (h, g, t, m)
     fig, axs = plt.subplots(1, 2, figsize=(6.3, 2.5))
@@ -711,7 +741,7 @@ def lshape_formulations():
         axs[0].plot(t, e, ls + mk, **kw)
         axs[1].plot(m, e, ls + mk, **kw)
     style_log(axs[0], "CPU time on six threads (s)", r"error on $\nabla u$")
-    style_log(axs[1], "peak memory (MiB)", r"error on $\nabla u$"); mem_ticks(axs[1].xaxis)
+    style_log(axs[1], f"{MEMORY_LABEL} (MiB)", r"error on $\nabla u$"); mem_linear(axs[1], "x")
     fig.legend(*axs[0].get_legend_handles_labels(), loc="upper center", ncol=4, fontsize=6.5, frameon=False,
                bbox_to_anchor=(0.5, 1.0), handlelength=2.2, columnspacing=1.6)
     fig.tight_layout(pad=0.2, w_pad=1.5, rect=(0, 0, 1, 0.9))

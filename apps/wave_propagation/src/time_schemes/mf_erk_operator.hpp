@@ -206,18 +206,23 @@ public:
             }
     }
 
-    // sizes, for the logs
-    std::string summary() const {
-        size_t bytes = 0, kept = 0, full = 0, sparse = 0;
+    // bytes of the operator (shared blocks, their indices, the cell and face tables): its algebraic memory
+    size_t bytes() const {
+        size_t bytes = 0;
         for (auto* s : {&m_D, &m_E, &m_M, &m_G, &m_H, &m_mass})
             for (auto& b : *s) bytes += sizeof(T) * b.size();
-        for (auto& o : m_cell_ops) {
+        for (auto& o : m_cell_ops)
             for (auto* b : {&o.A, &o.H}) bytes += sizeof(int) * b->idx.size() + b->value_bytes();
-            sparse += o.A.sparse;
-        }
         for (auto& b : m_mass_ops) bytes += sizeof(int) * b.idx.size() + b.value_bytes();
         bytes += sizeof(int) * (m_J.size() + m_JF.size() + m_face_cells.size()) + sizeof(size_t) * m_cell_slots.size()
                + sizeof(cell_block) * m_cells.size() + sizeof(face_block) * m_faces.size() + sizeof(T) * m_side.size();
+        return bytes;
+    }
+
+    // sizes, for the logs
+    std::string summary() const {
+        size_t bytes = this->bytes(), kept = 0, full = 0, sparse = 0;
+        for (auto& o : m_cell_ops) sparse += o.A.sparse;
         for (auto& c : m_cells) {
             const cell_op& o = m_cell_ops[c.op];
             kept += o.A.stored() + o.H.stored();

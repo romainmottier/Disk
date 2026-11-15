@@ -10,6 +10,7 @@
 #define first_order_studies_hpp
 
 #include "time_schemes.hpp"
+#include "../output/algebraic_memory.hpp"
 
 namespace hho_first_order {
 
@@ -67,7 +68,19 @@ namespace hho_first_order {
         }
         if (energy_Q) energy_line(0.0, x);
         size_t step = 0;
+        // algebraic memory (output.algebraic_memory): the operator is built and the forcing evaluated once before the
+        // baseline, the heap is probed after each step
+        algebraic_memory::enable(prm.output.algebraic_memory);
+        if (algebraic_memory::enabled()) {
+            size_t op = 0;
+            if constexpr (std::is_same_v<Problem, problem>) {
+                if (prm.solver.matrix_free) op = pb.mf().bytes();
+                (void)pb.eval_F(0.0);
+            }
+            algebraic_memory::baseline(op, sizeof(RealType) * size_t(x.size()));
+        }
         x = integrate(pb, prm, x, nt, [&](RealType t, const vector_type& y) {
+            algebraic_memory::probe();
             step++;
             if (energy_Q) energy_line(t, y);
             if constexpr (std::is_same_v<Problem, problem>) {
@@ -76,6 +89,7 @@ namespace hho_first_order {
                 if (peaks) peaks->record(step, y);
             }
         }, level);
+        if (algebraic_memory::enabled()) std::cout << algebraic_memory::report() << std::endl;
         if constexpr (std::is_same_v<Problem, problem>) {
             if (peaks) peaks->write();
         }
@@ -218,7 +232,7 @@ namespace hho_first_order {
         // no error for the Ricker wavelet; energy history, sensors and snapshots of the last (or only) mesh
         const bool ricker = prm.problem.solution == "ricker";
         const bool observed = prm.output.energy || !prm.output.sensors.empty() || !prm.output.snapshots.empty()
-                              || prm.output.peak_samples > 0;
+                              || prm.output.peak_samples > 0 || prm.output.algebraic_memory;
         // components of the errors in the energy norms (output.errors = "energy", problem::energy_error_names)
         const bool energy_norms = prm.output.errors == "energy";
         auto final_errors = [&](Problem& pb, vector_type& x) -> std::vector<RealType> {

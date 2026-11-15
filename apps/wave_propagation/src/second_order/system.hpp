@@ -265,6 +265,32 @@ namespace hho_second_order {
         }
         bool matrix_free() const { return bool(m_mf); }
 
+        // bytes of the evolution operator used by the time steps (output.algebraic_memory): the matrix-free operator
+        // (solver.matrix_free), or the row-major blocks of the products and face solves of the fast mode (and the
+        // factorization of K_aa for the direct faces), or the assembled matrices
+        size_t operator_bytes() const {
+            auto sb = [](const auto& A) {
+                using M = std::decay_t<decltype(A)>;
+                return size_t(A.nonZeros()) * (sizeof(typename M::Scalar) + sizeof(typename M::StorageIndex))
+                     + size_t(A.outerSize() + 1) * sizeof(typename M::StorageIndex);
+            };
+            if (m_mf) return m_mf->bytes() + sizeof(RealType) * size_t(m_mf_r.size());
+            size_t b = 0;
+            if (m_fast) {
+                for (const sparse_rm_type* A : {&m_Kax, &m_Kxx, &m_Kxa, &m_Minv_rm, &m_Cinv_rm, &m_Kaa_rm, &m_Dinv_rm, &m_Raa_rm})
+                    b += sb(*A);
+#ifdef HAVE_INTEL_MKL
+                if (m_Kaa_pardiso) {
+                    auto& ip = m_Kaa_pardiso->pardisoParameterArray();   // KB: permanent (phases 1, 2) and factors
+                    b += 1024 * size_t(ip[15] + ip[16]);
+                }
+#endif
+                return b;
+            }
+            for (const sparse_type* A : {&Kw, &Minv, &Cinv, &Kaa, &Dinv, &Raa}) b += sb(*A);
+            return b;
+        }
+
         // Matrix-free rates of the velocities (set_matrix_free, n_d = 0): vdot = M^-1 (F_u - K_uu u - K_ua a), the faces a
         // solved from the cell values u (n_c values) with the warm start a_ws
         void mf_rates(const vector_type& Fw, const RealType* u, vector_type& a_ws, RealType* vdot) {
