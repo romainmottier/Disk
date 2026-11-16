@@ -15,7 +15,11 @@ and the reduced models (4): reduced_models/reduced_mlts4_li.npz.
 Memories: with --memory <runs>, the algebraic memory of the time integration (output.algebraic_memory: operator, state
 and what the scheme allocates and keeps), read in <runs>/<run>/log.txt (campaign lts_work/algmem, same jobs, 3 steps);
 without it, the peak memory (maximum resident set size, time.txt of the run).
-Usage: python3 make_article.py <results> <output directory> [--memory <runs>]"""
+Times of the L-shaped domain: with --times <json> (2026-11-15, off by default), the CPU time of each run of ls/ and ls2/
+is read in this file ({"ls/mlts_l4": seconds, ...}: one thread, best of three, extrapolated from runs of n and 2n macro
+steps for the longest runs, lts_work/pardiso/analyze.py) instead of the cpu column of its c.dat (the errors still come
+from the c.dat of the run), and the axes say "one thread".
+Usage: python3 make_article.py <results> <output directory> [--memory <runs>] [--times <json>]"""
 import glob, math, os, re, sys
 import numpy as np
 import matplotlib
@@ -34,6 +38,11 @@ ARGS, MEM = sys.argv[1:], None
 if "--memory" in ARGS:
     _k = ARGS.index("--memory")
     MEM, ARGS = ARGS[_k + 1], ARGS[:_k] + ARGS[_k + 2:]
+TIMES = None
+if "--times" in ARGS:
+    import json
+    _k = ARGS.index("--times")
+    TIMES, ARGS = json.load(open(ARGS[_k + 1])), ARGS[:_k] + ARGS[_k + 2:]
 R = ARGS[0] if len(ARGS) > 0 else os.path.join(HERE, "results")
 OUT = ARGS[1] if len(ARGS) > 1 else os.path.join(HERE, "article_figures")
 MEMORY_LABEL = "algebraic memory" if MEM else "peak memory"
@@ -601,7 +610,8 @@ def ls_series(prefix, levels):
         c = lambda n: D[1][-1, D[0].index(n)]
         if not (np.isfinite(c("acoustic_q")) and c("acoustic_q") < 1):
             continue
-        h.append(c("h")); p.append(c("acoustic_p")); q.append(c("acoustic_q")); cpu.append(c("cpu"))
+        h.append(c("h")); p.append(c("acoustic_p")); q.append(c("acoustic_q"))
+        cpu.append(TIMES[d] if TIMES is not None else c("cpu"))
         rows.append(d)
     return np.array(h), np.array(p), np.array(q), np.array(cpu), rows
 
@@ -683,7 +693,11 @@ def ls2_series(prefix, levels):
         if not (np.isfinite(c("acoustic_grad_phi")) and c("acoustic_grad_phi") < 1):
             continue
         h.append(c("h")); p.append(c("acoustic_phi")); g.append(c("acoustic_grad_phi"))
-        t.append(c("cpu") if "cpu" in D[0] else (wall(d)[0] or np.nan)); m.append(memory(d) or np.nan)
+        if TIMES is not None:
+            t.append(TIMES[d])
+        else:
+            t.append(c("cpu") if "cpu" in D[0] else (wall(d)[0] or np.nan))
+        m.append(memory(d) or np.nan)
     return np.array(h), np.array(p), np.array(g), np.array(t), np.array(m)
 
 
@@ -740,7 +754,8 @@ def lshape_formulations():
         ls = "-" if o == 1 else "--"
         axs[0].plot(t, e, ls + mk, **kw)
         axs[1].plot(m, e, ls + mk, **kw)
-    style_log(axs[0], "CPU time on six threads (s)", r"error on $\nabla u$")
+    style_log(axs[0], "CPU time on one thread (s)" if TIMES is not None else "CPU time on six threads (s)",
+              r"error on $\nabla u$")
     style_log(axs[1], f"{MEMORY_LABEL} (MiB)", r"error on $\nabla u$"); mem_linear(axs[1], "x")
     fig.legend(*axs[0].get_legend_handles_labels(), loc="upper center", ncol=4, fontsize=6.5, frameon=False,
                bbox_to_anchor=(0.5, 1.0), handlelength=2.2, columnspacing=1.6)

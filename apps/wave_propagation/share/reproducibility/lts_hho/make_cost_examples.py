@@ -23,7 +23,10 @@ LI. Two modes:
             about one square per level), h_max / h_min = 256: LI is the fastest scheme in both settings
 rho: cost of a fine solve in products of the setting, measured on these meshes (analyze_cost_check.py): 16 in the
 setting (1E), 6 in the setting (2E), whose products also solve for the faces of the whole mesh (three to four times
-the cost per cell of a product of the setting (1E), for a solve about 1.5 times as expensive).
+the cost per cell of a product of the setting (1E), for a solve about 1.5 times as expensive). These values come from
+SparseLU in (1E) and Pardiso with two refinement steps in (2E); with Pardiso in both settings and no iterative
+refinement (campaign of 2026-11-15, article/pardiso), rho = 8 to 12 in (1E) and 3.5 to 5 in (2E), and a solve costs
+1.2 to 2.1 times as much in (2E) as in (1E) (RHO below, used only without --runs, is kept).
 Rule of the cost model (two levels): LI is faster than MLTS when beta p_1 > 3 (1 + rho) / 4, p_1 = P_{L-1} the depth
 of the refinement, rho growing with the extent of the refined region (fill-in of the factors).
 Model (per coarse step, in products): ERK4 4 P_{L-1} N; MLTS 4 N + beta sum_{l>=1} m_l P_l |T_l|, m_{L-1} = 4, m_l = 7

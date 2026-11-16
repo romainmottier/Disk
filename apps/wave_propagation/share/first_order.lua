@@ -57,6 +57,12 @@ time = {
     -- li_coupling = "taylor",      -- li (matrix_free): coarse values in the implicit stages, "taylor" | "stage" (stage
                                     --   values of the SDIRK tableau: no order reduction) (default "taylor")
     -- li_condensation = false,     -- li (matrix_free): static condensation of the fine cell unknowns (default false)
+    -- li_solver = "sparse_lu",     -- li (matrix_free): sparse LU of the fine stage systems, "sparse_lu" (Eigen,
+                                    --   COLAMD, sequential) | "pardiso" (MKL Pardiso, METIS, multithreaded)
+                                    --   (default "sparse_lu")
+    -- li_refinement = 2,           -- li with Pardiso: most iterative refinement steps per stage solve (Pardiso
+                                    --   iparm[7]; 2: Eigen default, three times the cost of a solve; 0: only after
+                                    --   perturbed pivots) (default 2)
     -- li_system = "dynamic",       -- li (matrix_free): "dynamic" | "constraint" (interior fine faces by their static
                                     --   condensation: well conditioned on very stiff fine regions) (default "dynamic")
     -- overlap = 1,                 -- mlts: rings of vertex neighbours annexed by each level (default 1)

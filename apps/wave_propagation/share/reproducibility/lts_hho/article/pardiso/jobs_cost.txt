@@ -1,0 +1,33 @@
+# Section 5.3 (one thread, n and 2n coarse steps), from cost_check/jobs_cost_article.txt
+cost/o1_a_erk_n|1|cost.lua|mesh.level = 1; time.final_time = 2.5; time.n_steps = 8000
+cost/o1_a_erk_2n|1|cost.lua|mesh.level = 1; time.final_time = 5.0; time.n_steps = 16000
+cost/o1_a_mlts_n|1|cost.lua|mesh.level = 1; time.final_time = 5.0; time.n_steps = 2000; time.scheme = 'mlts'
+cost/o1_a_mlts_2n|1|cost.lua|mesh.level = 1; time.final_time = 10.0; time.n_steps = 4000; time.scheme = 'mlts'
+cost/o1_a_mlts2_n|1|cost.lua|mesh.level = 1; time.final_time = 5.0; time.n_steps = 2000; time.scheme = 'mlts'; time.level_ratios = {8}
+cost/o1_a_mlts2_2n|1|cost.lua|mesh.level = 1; time.final_time = 10.0; time.n_steps = 4000; time.scheme = 'mlts'; time.level_ratios = {8}
+cost/o1_a_li_n|1|cost.lua|mesh.level = 1; time.final_time = 5.0; time.n_steps = 2000; time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.li_solver = 'pardiso'; time.li_refinement = 0
+cost/o1_a_li_2n|1|cost.lua|mesh.level = 1; time.final_time = 10.0; time.n_steps = 4000; time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.li_solver = 'pardiso'; time.li_refinement = 0
+cost/o2_a_erk_n|1|cost2.lua|mesh.level = 1; time.final_time = 1.25; time.n_steps = 4000
+cost/o2_a_erk_2n|1|cost2.lua|mesh.level = 1; time.final_time = 2.5; time.n_steps = 8000
+cost/o2_a_mlts_n|1|cost2.lua|mesh.level = 1; time.final_time = 1.25; time.n_steps = 500; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_a_mlts_2n|1|cost2.lua|mesh.level = 1; time.final_time = 2.5; time.n_steps = 1000; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_a_mlts2_n|1|cost2.lua|mesh.level = 1; time.final_time = 1.25; time.n_steps = 500; time.scheme = 'mlts'; time.level_ratios = {8}; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_a_mlts2_2n|1|cost2.lua|mesh.level = 1; time.final_time = 2.5; time.n_steps = 1000; time.scheme = 'mlts'; time.level_ratios = {8}; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_a_li_n|1|cost2.lua|mesh.level = 1; time.final_time = 2.0; time.n_steps = 800; time.scheme = 'li'; time.li_coupling = 'stage'; faces.projected = true; faces.projected_rings = 2; time.li_local = true; time.li_refinement = 0
+cost/o2_a_li_2n|1|cost2.lua|mesh.level = 1; time.final_time = 4.0; time.n_steps = 1600; time.scheme = 'li'; time.li_coupling = 'stage'; faces.projected = true; faces.projected_rings = 2; time.li_local = true; time.li_refinement = 0
+cost/o1_b_erk_n|1|cost.lua|mesh.level = 2; time.final_time = 0.1; time.n_steps = 10240
+cost/o1_b_erk_2n|1|cost.lua|mesh.level = 2; time.final_time = 0.2; time.n_steps = 20480
+cost/o1_b_mlts_n|1|cost.lua|mesh.level = 2; time.final_time = 0.25; time.n_steps = 100; time.scheme = 'mlts'
+cost/o1_b_mlts_2n|1|cost.lua|mesh.level = 2; time.final_time = 0.5; time.n_steps = 200; time.scheme = 'mlts'
+cost/o1_b_mlts2_n|1|cost.lua|mesh.level = 2; time.final_time = 0.2; time.n_steps = 80; time.scheme = 'mlts'; time.level_ratios = {256}
+cost/o1_b_mlts2_2n|1|cost.lua|mesh.level = 2; time.final_time = 0.4; time.n_steps = 160; time.scheme = 'mlts'; time.level_ratios = {256}
+cost/o1_b_li_n|1|cost.lua|mesh.level = 2; time.final_time = 1.0; time.n_steps = 400; time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.li_solver = 'pardiso'; time.li_refinement = 0
+cost/o1_b_li_2n|1|cost.lua|mesh.level = 2; time.final_time = 2.0; time.n_steps = 800; time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.li_solver = 'pardiso'; time.li_refinement = 0
+cost/o2_b_erk_n|1|cost2.lua|mesh.level = 2; time.final_time = 0.05; time.n_steps = 5120
+cost/o2_b_erk_2n|1|cost2.lua|mesh.level = 2; time.final_time = 0.1; time.n_steps = 10240
+cost/o2_b_mlts_n|1|cost2.lua|mesh.level = 2; time.final_time = 0.05; time.n_steps = 20; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_b_mlts_2n|1|cost2.lua|mesh.level = 2; time.final_time = 0.1; time.n_steps = 40; time.scheme = 'mlts'; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_b_mlts2_n|1|cost2.lua|mesh.level = 2; time.final_time = 0.0625; time.n_steps = 25; time.scheme = 'mlts'; time.level_ratios = {256}; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_b_mlts2_2n|1|cost2.lua|mesh.level = 2; time.final_time = 0.125; time.n_steps = 50; time.scheme = 'mlts'; time.level_ratios = {256}; faces.projected = true; faces.projected_rings = 2; faces.projected_solver = 'explicit'
+cost/o2_b_li_n|1|cost2.lua|mesh.level = 2; time.final_time = 0.4; time.n_steps = 160; time.scheme = 'li'; time.li_coupling = 'stage'; faces.projected = true; faces.projected_rings = 2; time.li_local = true; time.li_refinement = 0
+cost/o2_b_li_2n|1|cost2.lua|mesh.level = 2; time.final_time = 0.8; time.n_steps = 320; time.scheme = 'li'; time.li_coupling = 'stage'; faces.projected = true; faces.projected_rings = 2; time.li_local = true; time.li_refinement = 0

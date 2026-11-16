@@ -1,0 +1,16 @@
+# Section 5.2.2 (1E), one thread: full runs; mlts l3-l5 also by n and 2n macro steps
+ls/erk_l1|1|lshape.lua|mesh.level = 1|time.scheme = 'erk'; time.n_steps = 50000
+ls/li2_l1|1|lshape.lua|mesh.level = 1; time.li_solver = 'pardiso'; time.li_refinement = 0|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 80
+ls/li2_l2|1|lshape.lua|mesh.level = 2; time.li_solver = 'pardiso'; time.li_refinement = 0|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 120
+ls/li2_l3|1|lshape.lua|mesh.level = 3; time.li_solver = 'pardiso'; time.li_refinement = 0|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 160
+ls/li2_l4|1|lshape.lua|mesh.level = 4; time.li_solver = 'pardiso'; time.li_refinement = 0|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 240
+ls/li2_l5|1|lshape.lua|mesh.level = 5; time.li_solver = 'pardiso'; time.li_refinement = 0|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 320
+ls/mlts_l1|1|lshape.lua|mesh.level = 1|time.scheme = 'mlts'; time.n_steps = 40; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 8}
+ls/mlts_l2|1|lshape.lua|mesh.level = 2|time.scheme = 'mlts'; time.n_steps = 60; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 8}
+ls/mlts_l3|1|lshape.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 80; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}
+ls/mlts_l3_n|1|lshape.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 80; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}|local dt_x = time.final_time / time.n_steps; time.final_time = 10 * dt_x; time.n_steps = 10
+ls/mlts_l3_2n|1|lshape.lua|mesh.level = 3|time.scheme = 'mlts'; time.n_steps = 80; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}|local dt_x = time.final_time / time.n_steps; time.final_time = 20 * dt_x; time.n_steps = 20
+ls/mlts_l4_n|1|lshape.lua|mesh.level = 4|time.scheme = 'mlts'; time.n_steps = 120; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}|local dt_x = time.final_time / time.n_steps; time.final_time = 6 * dt_x; time.n_steps = 6
+ls/mlts_l4_2n|1|lshape.lua|mesh.level = 4|time.scheme = 'mlts'; time.n_steps = 120; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}|local dt_x = time.final_time / time.n_steps; time.final_time = 12 * dt_x; time.n_steps = 12
+ls/mlts_l5_n|1|lshape.lua|mesh.level = 5|time.scheme = 'mlts'; time.n_steps = 160; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}|local dt_x = time.final_time / time.n_steps; time.final_time = 3 * dt_x; time.n_steps = 3
+ls/mlts_l5_2n|1|lshape.lua|mesh.level = 5|time.scheme = 'mlts'; time.n_steps = 160; time.level_ratios = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 8}|local dt_x = time.final_time / time.n_steps; time.final_time = 6 * dt_x; time.n_steps = 6

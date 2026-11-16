@@ -1,0 +1,6 @@
+# head model, LI with Pardiso, full runs (figures and accuracy), six threads, untimed
+fit/plate_li|6|tfus_fit.lua|mesh.level = 2; time.li_solver = 'pardiso'; time.li_refinement = 0
+fit/plate_li_dt2|6|tfus_fit.lua|mesh.level = 2; time.li_solver = 'pardiso'; time.li_refinement = 0|time.n_steps = 2788|output.snapshots = {}
+fit/intact_li|6|tfus_fit.lua|mesh.level = 1; time.li_solver = 'pardiso'; time.li_refinement = 0
+fit/water_li|6|tfus_fit.lua|mesh.level = 1; time.li_solver = 'pardiso'; time.li_refinement = 0|problem.zones = { [1] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [2] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [3] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [4] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [5] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [6] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [7] = { medium = "acoustic", rho = 1.0, vp = 1.5 }, [8] = { medium = "acoustic", rho = 1.0, vp = 1.5 } }|output.snapshots = {}; output.sensors = { { name = "focus", x = 120.5, y = 179.6, fields = { "acoustic_pressure" } } }
+vor/plate_li|6|tfus_vor.lua|time.n_steps = 1290; time.li_solver = 'pardiso'; time.li_refinement = 0

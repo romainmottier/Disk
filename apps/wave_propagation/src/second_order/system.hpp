@@ -418,6 +418,10 @@ namespace hho_second_order {
         // (zero beyond). The cells are eliminated cell by cell, G = (M / h^2 + K_TT P_T)^-1 block diagonal, which leaves on
         // the faces of cap S = K_aa - K_aT P_T G K_Ta, factorized once (local system). local (time.li_local): the sub-blocks
         // on the cells C of the faces of cap are also kept, for stage_solve_zero.
+        // most iterative refinement steps of the Pardiso stage solves of factorize_stage_projected (time.li_refinement,
+        // Pardiso iparm[7]): 2, the default of Eigen (two steps per solve, three times its cost), 0: only after
+        // perturbed pivots
+        void set_li_refinement(int refinement) { m_li_refinement = refinement; }
         void factorize_stage_projected(RealType h, const vector_type& Py, const std::vector<char>& cap, bool local = false) {
             if (n_d > 0 || !splitting_Q || !m_local_ready)
                 throw std::runtime_error("li with faces.projected: no elasto-acoustic interface, faces.solver = \"splitting\"");
@@ -476,6 +480,7 @@ namespace hho_second_order {
 #ifdef HAVE_INTEL_MKL
             if (m_fast) {   // fast mode: Pardiso, as the stages of factorize_stage
                 m_stage_pardiso = std::make_unique<PardisoLDLT<sparse_type>>();
+                m_stage_pardiso->pardisoParameterArray()[7] = m_li_refinement;    // refinement steps (2: Eigen default)
                 m_stage_pardiso->pardisoParameterArray()[24] = 2;    // parallel forward / backward substitution
                 m_stage_pardiso->compute(SRR);
                 if (m_stage_pardiso->info() != Success)
@@ -838,6 +843,7 @@ namespace hho_second_order {
         vector_type m_sc_P;
 #ifdef HAVE_INTEL_MKL
         std::unique_ptr<PardisoLDLT<sparse_type>> m_stage_pardiso;     // fast mode
+        int m_li_refinement = 2;                                        // set_li_refinement
 #endif
 
         // S a = s on the faces of cap, zero elsewhere (factorize_stage_projected)

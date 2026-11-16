@@ -469,6 +469,7 @@ namespace hho_second_order {
         const bool zF = zero_force(pb, tf);
         projected_operator op(pb, prm.faces.projected_rings, zF);
         const bool local = prm.time.li_local;
+        sys.set_li_refinement(int(prm.time.li_refinement));
         sys.factorize_stage_projected(a(0,0) * (tf / nt), pb.Py, op.cap, local);
         std::cout << "      projected LI: fine cells " << op.pc.size() << ", faces of A " << op.cap_faces << " / "
                   << sys.graph().a_ofs.size() << " algebraic faces (" << prm.faces.projected_rings << " ring(s))"

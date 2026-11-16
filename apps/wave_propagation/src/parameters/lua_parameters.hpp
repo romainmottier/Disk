@@ -161,6 +161,16 @@ struct wave_parameters {
                                                         //   reduction from the coarse / fine interface)
         bool        li_condensation = false;            // li (matrix-free): static condensation of the fine cell
                                                         //   unknowns, the stage systems solved on the fine faces only
+        std::string li_solver = "sparse_lu";            // li (matrix-free, first order): sparse direct solver of the
+                                                        //   fine stage systems, Eigen SparseLU with the COLAMD ordering
+                                                        //   ("sparse_lu", sequential) or the LU of MKL Pardiso with
+                                                        //   the METIS ordering ("pardiso": multithreaded factorization
+                                                        //   and substitutions, as the stage systems of the second order)
+        size_t      li_refinement = 2;                  // li with Pardiso (first order with li_solver = "pardiso",
+                                                        //   second order with faces.projected in the fast mode): most
+                                                        //   iterative refinement steps of a stage solve (Pardiso
+                                                        //   iparm[7]); 2, the default of Eigen: two steps per solve,
+                                                        //   three times its cost; 0: only after perturbed pivots
         bool        li_local = false;                   // li with faces.projected (second order): stage right-hand
                                                         //   sides and solutions on the cells of the faces of the stage
                                                         //   system only (the stage leaves the other unknowns unchanged;
@@ -671,7 +681,7 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     sol::table time = get_table(lua, "time");
     check_keys(time, "time", {"scheme", "stages", "final_time", "n_steps", "dt_h", "substeps", "fine_size", "fine_layers", "newmark_beta",
                               "newmark_gamma", "steps_growth", "level_ratio", "level_ratios", "level_measure", "level_tolerance", "overlap",
-                              "mlts_refresh", "li_system", "li_coupling", "li_condensation", "li_local", "mlts_forcing", "overlaps", "mlts_reuse",
+                              "mlts_refresh", "li_system", "li_coupling", "li_condensation", "li_local", "li_solver", "li_refinement", "mlts_forcing", "overlaps", "mlts_reuse",
                               "level_size", "fine_measure"});
     p.time.scheme        = get_string(time, "time", "scheme", p.time.scheme, {"erk", "sdirk", "lts", "li", "mlts", "newmark"});
     p.time.stages        = get_count(time, "time", "stages", p.time.stages);
@@ -728,6 +738,8 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     p.time.mlts_forcing = get_string(time, "time", "mlts_forcing", p.time.mlts_forcing, {"exact", "cubic"});
     p.time.li_condensation = get_bool(time, "time", "li_condensation", p.time.li_condensation);
     p.time.li_local = get_bool(time, "time", "li_local", p.time.li_local);
+    p.time.li_solver = get_string(time, "time", "li_solver", p.time.li_solver, {"sparse_lu", "pardiso"});
+    p.time.li_refinement = get_count(time, "time", "li_refinement", p.time.li_refinement);
 
     sol::table mesh = get_table(lua, "mesh");
     check_keys(mesh, "mesh", {"type", "x", "y", "nx", "ny", "level", "refine_points", "refine_levels", "refine_box", "files"});
@@ -939,6 +951,13 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
         throw std::runtime_error("time.stages must be 1..3 for sdirk");
     if (p.time.level_ratio < 2)
         throw std::runtime_error("time.level_ratio must be at least 2");
+    if (p.time.li_solver != "sparse_lu" && (p.formulation != "first_order" || !p.solver.matrix_free))
+        throw std::runtime_error("time.li_solver: the solver of the matrix-free li of the first order (solver.matrix_free); "
+                                 "the second order solves its stages with Pardiso in the fast mode");
+#ifndef HAVE_INTEL_MKL
+    if (p.time.li_solver == "pardiso")
+        throw std::runtime_error("time.li_solver = \"pardiso\" needs a build with Intel MKL");
+#endif
     if (p.time.scheme == "newmark" && p.formulation != "second_order")
         throw std::runtime_error("time.scheme = \"newmark\" needs formulation = \"second_order\"");
     if (p.time.scheme == "newmark" && !(p.time.newmark_beta > 0.0 && p.time.newmark_gamma >= 0.5))

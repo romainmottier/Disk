@@ -62,6 +62,8 @@ namespace hho_first_order {
         bool m_mf_li_constraint = false;    // time.li_system = "constraint" (li)
         bool m_mf_li_stage = false;         // time.li_coupling = "stage" (li)
         bool m_mf_li_condensation = false;  // time.li_condensation (li)
+        bool m_mf_li_pardiso = false;       // time.li_solver = "pardiso" (li)
+        int m_mf_li_refinement = 2;         // time.li_refinement (li with Pardiso)
         bool m_mf_mlts_reuse = false;       // time.mlts_reuse (mlts)
         bool m_mf_profile = false;          // output.profile (lts, mlts)
         size_t m_mf_par_threshold = 20000;  // solver.parallel_threshold
@@ -73,6 +75,7 @@ namespace hho_first_order {
               m_mf_batch(int(prm.solver.matrix_free_batch)), m_mf_single(prm.solver.matrix_free_precision == "single"),
               m_mf_li_constraint(prm.time.li_system == "constraint"),
               m_mf_li_stage(prm.time.li_coupling == "stage"), m_mf_li_condensation(prm.time.li_condensation),
+              m_mf_li_pardiso(prm.time.li_solver == "pardiso"), m_mf_li_refinement(int(prm.time.li_refinement)),
               m_mf_mlts_reuse(prm.time.mlts_reuse), m_mf_profile(prm.output.profile),
               m_mf_par_threshold(prm.solver.parallel_threshold) {
 
@@ -187,6 +190,7 @@ namespace hho_first_order {
                 if (m_mf_li_constraint) m_mf->set_li_constraint(true);
                 if (m_mf_li_stage) m_mf->set_li_stage_coupling(true);
                 if (m_mf_li_condensation) m_mf->set_li_condensation(true);
+                if (m_mf_li_pardiso) m_mf->set_li_pardiso(true, m_mf_li_refinement);
                 if (m_mf_mlts_reuse) m_mf->set_mlts_reuse(true);
                 if (m_mf_profile) m_mf->set_profile(true);
                 if (m_mf_par_threshold != 20000) m_mf->set_parallel_threshold(m_mf_par_threshold);

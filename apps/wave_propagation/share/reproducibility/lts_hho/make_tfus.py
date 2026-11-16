@@ -20,7 +20,9 @@ water_mlts) and writes into the second one:
 Memories: with --memory <runs>, the algebraic memory of the time integration (output.algebraic_memory: operator, state
 and what the scheme allocates and keeps; <runs>/<fit|t1>/<run>/log.txt, campaign lts_work/algmem, same jobs, 3 steps);
 without it, the peak memory (maximum resident set size, time.txt).
-Usage: python3 make_tfus.py <runs> <figures> [--memory <runs>]
+With --short (2026-11-15), the six-thread times of MLTS and LI also come from 8 us runs without outputs
+(fit/plate_mlts_8us, fit/plate_li_8us), extrapolated as on one thread: the same protocol for every scheme.
+Usage: python3 make_tfus.py <runs> <figures> [--memory <runs>] [--short]
 """
 import math, os, re, sys
 import numpy as np
@@ -31,6 +33,10 @@ from matplotlib.colors import ListedColormap, TwoSlopeNorm
 from matplotlib.patches import Rectangle
 
 ARGS, MEM = sys.argv[1:], None
+# --short (2026-11-15, off by default): on six threads too, every scheme timed over the first 8 us without outputs
+# (fit/plate_erk_8us, fit/plate_mlts_8us, fit/plate_li_8us) and extrapolated, as on one thread (t1/)
+SHORT = "--short" in ARGS
+ARGS = [a for a in ARGS if a != "--short"]
 if "--memory" in ARGS:
     _k = ARGS.index("--memory")
     MEM, ARGS = ARGS[_k + 1], ARGS[:_k] + ARGS[_k + 2:]
@@ -651,13 +657,18 @@ def cost_data():
         v = [f(x) for x in (d, d + "_r2", d + "_r3") if integration(x) is not None]
         return min(v) / 60 if v else None
     mlts_run = "plate_mlts_w" if os.path.isdir(run("plate_mlts_w")) else "plate_mlts"
+    li_run = "plate_li"
     T = {("erk", 6): best(run("plate_erk_8us"), lambda x: 10 * integration(x)),
          ("mlts", 6): best(run(mlts_run), integration), ("li", 6): best(run("plate_li"), integration),
          ("erk", 1): best(run("erk_8us", "t1"), lambda x: 10 * integration(x)),
          ("mlts", 1): best(run("mlts_8us", "t1"), lambda x: integration(x) * 1394 / 139),
          ("li", 1): best(run("li_8us", "t1"), lambda x: (integration(x) - fact(x)) * 1394 / 139 + fact(x))}
+    if SHORT:
+        mlts_run, li_run = "plate_mlts_8us", "plate_li_8us"
+        T[("mlts", 6)] = best(run(mlts_run), lambda x: integration(x) * 1394 / 139)
+        T[("li", 6)] = best(run(li_run), lambda x: (integration(x) - fact(x)) * 1394 / 139 + fact(x))
     M = {(s_, th): os.path.join(d, "time.txt") for s_, th, d in
-         (("erk", 6, run("plate_erk_8us")), ("mlts", 6, run(mlts_run)), ("li", 6, run("plate_li")),
+         (("erk", 6, run("plate_erk_8us")), ("mlts", 6, run(mlts_run)), ("li", 6, run(li_run)),
           ("erk", 1, run("erk_8us", "t1")), ("mlts", 1, run("mlts_8us", "t1")), ("li", 1, run("li_8us", "t1")))}
     if MEM:   # algebraic memory of the same runs (line "algebraic memory: ... total X MB" of their log.txt), GiB
         M = {k: os.path.join(MEM, os.path.relpath(os.path.dirname(f), RUNS), "log.txt") for k, f in M.items()}

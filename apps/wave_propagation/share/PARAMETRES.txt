@@ -283,6 +283,20 @@ k = 1 / 2 / 3 : le splitting ne peut pas converger pour k = 1, 3
                systeme fin (inconnues de cellules eliminees cellule par
                cellule, LU du complement de Schur sur les faces fines :
                systeme 4 fois plus petit, 3 a 7 fois plus rapide)
+  li_solver    li (ordre 1, mode rapide) : "sparse_lu" (defaut : Eigen
+               SparseLU, ordre COLAMD, sequentiel) ou "pardiso" (MKL
+               Pardiso, ordre METIS, multithreade, substitutions
+               paralleles, comme l'ordre 2) : factorisation et resolutions
+               du systeme fin ; meme solution aux erreurs d'arrondi pres
+               (tete : facteurs 2.4 fois moins denses, memoire de LI / 2.2,
+               resolutions 2 fois plus rapides sur un thread, 3.8 sur six) ;
+               demande une compilation avec Intel MKL (2026-11-15)
+  li_refinement li avec Pardiso (ordre 1 avec li_solver = "pardiso" ;
+               ordre 2 avec faces.projected, mode rapide) : nombre maximal
+               de pas de raffinement iteratif par resolution (iparm[7] de
+               Pardiso) ; 2 (defaut, celui d'Eigen : deux pas a chaque
+               resolution, trois fois son cout) ; 0 : seulement apres des
+               pivots perturbes (campagne du preprint LTS_HHO, 2026-11-15)
   li_local     li avec faces.projected (ordre 2) : true = seconds
                membres et solutions des etages sur les seules cellules
                des faces du systeme d'etage (l'etage laisse les autres

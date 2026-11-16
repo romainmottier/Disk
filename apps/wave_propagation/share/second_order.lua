@@ -55,6 +55,9 @@ time = {
     substeps = 0,                   -- lts: fine substeps, 0: round(h_max / h_min) (default 0)
     fine_size = 0,                  -- lts, li: cells smaller than this (+ one layer of vertex neighbours) are fine;
                                     --   0: 0.75 h_max, everything on a uniform mesh (default 0)
+    -- li_refinement = 2,           -- li with faces.projected (fast mode, Pardiso): most iterative refinement steps
+                                    --   per stage solve (Pardiso iparm[7]; 2: Eigen default, three times the cost of a
+                                    --   solve; 0: only after perturbed pivots) (default 2)
 }
 
 -- Linear solvers --------------------------------------------------------------------------------------------------------

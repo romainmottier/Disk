@@ -41,6 +41,9 @@
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
+#ifdef HAVE_INTEL_MKL
+#include <Eigen/PardisoSupport>
+#endif
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -49,6 +52,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -118,6 +122,19 @@ public:
     // Static condensation of the fine stage systems of li (time.li_condensation): the fine cell unknowns are eliminated
     // cell by cell (their block I - gamma dt D_K is local) and the Schur complement on the fine faces is factorized
     void set_li_condensation(bool condensation) { m_li_condensation = condensation; }
+    // Sparse direct solver of the fine stage systems of li (time.li_solver): Eigen SparseLU with the COLAMD ordering
+    // (default, sequential) or the LU of MKL Pardiso with the METIS ordering (true: multithreaded factorization and
+    // forward / backward substitutions, as the stage systems of the second order). Same systems, same rows
+    // equilibration: the stages agree up to round-off. refinement (time.li_refinement): most iterative refinement steps
+    // of a solve (Pardiso iparm[7]): 2, the default of Eigen (two steps, three times the cost of a solve, as the second
+    // order by default), 0: only after perturbed pivots
+    void set_li_pardiso(bool pardiso, int refinement = 2) {
+#ifndef HAVE_INTEL_MKL
+        if (pardiso) throw std::runtime_error("matrix-free li: Pardiso needs a build with Intel MKL");
+#endif
+        m_li_pardiso = pardiso;
+        m_li_refinement = refinement;
+    }
     // Own coefficients of the MLTS levels reusing the chain (time.mlts_reuse): w_i = B_{Q F_i}(Q a_i) equals a_{i+1} =
     // B_{F_i}(a_i) on the deep unknowns of the band (cells of the band whose faces are all band faces, faces whose cells
     // are all deep), so that the masked products are applied only on the boundary layer of the band, plus one product
@@ -134,8 +151,13 @@ public:
     // dense block per fine cell, inverted), S = A_FF - A_FC A_CC^-1 A_CF on the fine faces (rows equilibrated, sparse LU)
     struct li_fine_solver {
         bool condensed = false;
+        bool use_pardiso = false;       // set_li_pardiso
+        int refinement = 2;             // set_li_pardiso: Pardiso iparm[7]
         int nc = 0;
         Eigen::SparseLU<sparse_type, Eigen::COLAMDOrdering<int>> lu;
+#ifdef HAVE_INTEL_MKL
+        std::unique_ptr<Eigen::PardisoLU<sparse_type>> pardiso;
+#endif
         vector_type row_scale;
         sparse_type Ainv, ACF, AFC;
         size_t n_rows = 0, nnz_matrix = 0;
@@ -149,13 +171,33 @@ public:
             A.makeCompressed();
             return sc;
         }
+        // sparse LU of the equilibrated matrix, by SparseLU or by Pardiso (use_pardiso)
+        bool factorize(const sparse_type& M) {
+#ifdef HAVE_INTEL_MKL
+            if (use_pardiso) {
+                pardiso = std::make_unique<Eigen::PardisoLU<sparse_type>>();
+                auto& ip = pardiso->pardisoParameterArray();
+                ip[7] = refinement;     // most iterative refinement steps per solve (0: only after perturbed pivots)
+                ip[24] = 2;             // parallel forward / backward substitutions (as the second order)
+                pardiso->compute(M);
+                return pardiso->info() == Eigen::Success;
+            }
+#endif
+            lu.analyzePattern(M);
+            lu.factorize(M);
+            return lu.info() == Eigen::Success;
+        }
+        vector_type lu_solve(const vector_type& b) const {
+#ifdef HAVE_INTEL_MKL
+            if (use_pardiso) return vector_type(pardiso->solve(b));
+#endif
+            return vector_type(lu.solve(b));
+        }
         bool factor(sparse_type A, int n_cell, const std::vector<std::pair<int, int>>& cells) {
             if (!condensed) {
                 row_scale = equilibrate(A);
                 n_rows = size_t(A.rows()); nnz_matrix = size_t(A.nonZeros());
-                lu.analyzePattern(A);
-                lu.factorize(A);
-                return lu.info() == Eigen::Success;
+                return factorize(A);
             }
             nc = n_cell;
             const int nf = int(A.rows()) - nc;
@@ -176,22 +218,35 @@ public:
             S.prune(T(0));
             row_scale = equilibrate(S);
             n_rows = size_t(S.rows()); nnz_matrix = size_t(S.nonZeros() + Ainv.nonZeros() + ACF.nonZeros() + AFC.nonZeros());
-            lu.analyzePattern(S);
-            lu.factorize(S);
-            return lu.info() == Eigen::Success;
+            return factorize(S);
         }
         vector_type solve(const vector_type& r) const {
-            if (!condensed) return lu.solve(vector_type(row_scale.cwiseProduct(r)));
+            if (!condensed) return lu_solve(vector_type(row_scale.cwiseProduct(r)));
             const int nf = int(r.size()) - nc;
             const vector_type rc = r.head(nc);
             const vector_type g = r.tail(nf) - AFC * (Ainv * rc);
-            const vector_type uf = lu.solve(vector_type(row_scale.cwiseProduct(g)));
+            const vector_type uf = lu_solve(vector_type(row_scale.cwiseProduct(g)));
             vector_type u(r.size());
             u.head(nc) = Ainv * vector_type(rc - ACF * uf);
             u.tail(nf) = uf;
             return u;
         }
-        double nnz_lu() const { return double(lu.nnzL() + lu.nnzU()); }
+        double nnz_lu() const {
+#ifdef HAVE_INTEL_MKL
+            if (use_pardiso) return double(pardiso->pardisoParameterArray()[17]);   // nonzeros of the factors
+#endif
+            return double(lu.nnzL() + lu.nnzU());
+        }
+        // Pardiso (KB, as reported by Pardiso): peak of the analysis, permanent memory, factors; perturbed pivots
+        std::array<long, 4> pardiso_report() const {
+#ifdef HAVE_INTEL_MKL
+            if (use_pardiso) {
+                const auto& ip = pardiso->pardisoParameterArray();
+                return {long(ip[14]), long(ip[15]), long(ip[16]), long(ip[13])};
+            }
+#endif
+            return {0, 0, 0, 0};
+        }
     };
 
     void set_single_precision() {
@@ -782,6 +837,8 @@ public:
         local_data L = make_local(fine);
         li_fine_solver solver;
         solver.condensed = m_li_condensation;
+        solver.use_pardiso = m_li_pardiso;
+        solver.refinement = m_li_refinement;
         // rows equilibrated (divided by their largest entry): on strongly graded meshes the rows of the smallest cells
         // carry entries gamma dt / h_T^2 (or 1 / h_T) larger by many orders of magnitude than those of the others, and
         // the factorization of the plain matrix loses its accuracy (the same system, solved more accurately)
@@ -811,7 +868,13 @@ public:
                       << " face), nnz " << A.nonZeros();
             if (solver.condensed) std::cout << ", condensed on the faces: " << solver.n_rows << " unknowns";
             std::cout << ", nnz(L + U) " << size_t(nnz_lu) << " (~"
-                      << (nnz_lu + double(solver.nnz_matrix)) * double(sizeof(T) + sizeof(int)) / 1048576.0 << " MB)" << std::endl;
+                      << (nnz_lu + double(solver.nnz_matrix)) * double(sizeof(T) + sizeof(int)) / 1048576.0 << " MB)";
+            if (solver.use_pardiso) {
+                const auto pr = solver.pardiso_report();
+                std::cout << ", Pardiso: analysis peak " << double(pr[0]) / 1024.0 << " MB, permanent " << double(pr[1]) / 1024.0
+                          << " MB, factors " << double(pr[2]) / 1024.0 << " MB, perturbed pivots " << pr[3];
+            }
+            std::cout << std::endl;
             if (m_profile) {
                 const double N = double(n), S = double(L.S.n_dof), Wk = 4 * N + 4 * S + double(s) * S;
                 std::cout << "      LI work per macro step (unknowns x products): 4 x " << N << " + 4 x " << S << " + "
@@ -967,6 +1030,8 @@ private:
     bool m_li_constraint = false;       // set_li_constraint
     bool m_li_stage_coupling = false;   // set_li_stage_coupling
     bool m_li_condensation = false;     // set_li_condensation
+    bool m_li_pardiso = false;          // set_li_pardiso
+    int m_li_refinement = 2;            // set_li_pardiso
     bool m_mlts_reuse = false;          // set_mlts_reuse
     bool m_profile = false;             // set_profile
     size_t m_par_threshold = 20000;     // set_parallel_threshold
