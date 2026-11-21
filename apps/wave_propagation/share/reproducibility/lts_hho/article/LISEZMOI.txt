@@ -16,7 +16,8 @@ numerical_results.tex puis fusionnees dans main.tex le 15 octobre 2026) :
        cartesiens 8x8..128x128, puis les memes raffines au centre
        (MLTS, LI, ERK4, SDIRK) ; ordre en temps a maillage fixe
   6.5  domaine en L, k = 3 : MLTS a l'ordre 4 (u = sin(2t) r^(4/3)
-       sin(4 theta / 3), gradation mu = 1/5), LI (stabilisation hybride),
+       sin(4 theta / 3), gradation mu = 1/5), LI (stabilisation hybride dans la campagne precedente seulement ;
+       les jobs actuels, jobs.txt, n'ont plus de surcharge space.scaling),
        singularite r^(2/3) (LI), couts et memoire
   6.6  efficacite : quand les schemas locaux sont plus rapides que ERK4
        (modele de cout, deux niveaux, plusieurs niveaux, LI) et cout des
@@ -105,7 +106,8 @@ Options du code utilisees (PARAMETRES.txt) :
   (L : trois niveaux les plus profonds regroupes, 15 % plus rapide,
   memes erreurs), time.li_system = "constraint" (L : sans cela le LI
   donne des NaN pour h_max / h_min > 10^6 avec la stabilisation hybride),
-  space.scaling = "hybrid", problem.lshape_exponent = 4/3 ;
+  space.scaling = "hybrid" (campagne precedente, jobs_previous_campaign.txt ; plus utilise dans jobs.txt, 2026-11-19),
+  problem.lshape_exponent = 4/3 ;
   6.7 : time.level_size = "width" et time.mlts_reuse = true (MLTS),
   time.fine_measure = "width" (zone implicite du LI sur Voronoi),
   problem.ricker.shape = "focused", output.snapshot_elastic = "stress",
@@ -497,3 +499,165 @@ matrice stockee, dans l'esprit d'un schema explicite) :
     MLTS en memoire ; 5.3 (1E) gains (a) MLTS 1.8, 2 niveaux 1.1, LI 1.5 (memoire x9.6) ; (b) LI 86 (x6.9), MLTS 3.4 ;
     (2E) (a) LI 2.9, MLTS 1.3 ; (b) LI 104, 2 niveaux 2.3, MLTS 1.7 ; memoire de LI (2E) = 1.5 x celle de LI (1E).
     Exactitude inchangee (capteurs de la tete a 1e-13 pres, erreurs du domaine en L a l'arrondi pres).
+  - 2026-11-16 : Fig. tfus-snap a trois instants (t = 4, 20, 44 us ; t = 4 us avant que la salve atteigne le crane) :
+    run court pardiso/jobs_snap.txt (fit/plate_li arrete apres 70 pas, ecrit dans <campagne>/out_full, 25 s sur
+    6 threads ; capteurs identiques au run complet a 1e-13 pres), puis make_tfus.py ... --three-snapshots (option,
+    defaut inchange : six instants ; avec l'option, l'etiquette de la barre de couleur ne dit plus "burst amplitude 1",
+    l'amplitude unite de la salve est donnee dans le texte, paragraphe Source). Fig. tfus-skull : option
+    --skull-strip (defaut inchange) : bandes de 28 x 14 mm dans le repere de la plaque (axe principal des cellules de
+    titane, plaque horizontale, scalp en haut), cisaillement sur une echelle commune en racine carree ; figure ~40 %
+    moins haute. Fig. tfus-focus : option --focus-row (une rangee : trois cartes et profil axial en dB depuis le
+    foyer geometrique ; le profil transverse est retire). Fig. tfus-signals : option --signals-row (precision et
+    energie seulement ; signaux au foyer des trois configurations et barres de cout retires, les couts etant dans le
+    tableau tfus-cost). Defauts inchanges (verifies au pixel pres). Bord de la boite d'eau : Dirichlet homogene sur la pression (probleme "ricker"),
+    totalement reflechissant ; l'echo du crane ne l'atteint qu'apres la focalisation (44 us).
+  - 2026-11-17 : ETIQUETTES DES FIGURES alignees sur l'article (rapport de raffinement beta au lieu de p, ERK(4),
+    SDIRK(3,4), T_f, p_T, v_T, grad R_T(p_h), "CPU time", Delta t = 6.38e-3), options desactivees par defaut
+    (sans elles, les 27 PDF produits sont identiques au pixel pres) : make_article.py et make_cost_examples.py
+    --paper-notation, make_tfus.py --signals-xmin <v> (fenetre de gauche de tfus_signals.pdf, defaut 44 us, article
+    36 us). Dix figures de l'article regenerees (donnees identiques, verifiees ; anciennes versions dans
+    ~/Github/Diskpp/lts_work/figs_notation/paper_backup_before_relabel) :
+      red_rho, red_dtc, stab, conv_cart, tconv (matplotlib 3.6.3 de /usr/bin/python3, celui des originaux) :
+        /usr/bin/python3 ../make_article.py ~/Github/Diskpp/lts_work/hT_timed/view_best <figures> --paper-notation
+      lshape, lshape2 (env_py) :
+        python3 ../make_article.py ~/Github/Diskpp/lts_work/pardiso/view_article_p <figures> --times
+          ~/Github/Diskpp/lts_work/pardiso/times.json --memory ~/Github/Diskpp/lts_work/pardiso/out_mem --paper-notation
+      cost_gains, cost_formulations (env_py ; creer <figures> avant) :
+        python3 ../make_cost_examples.py <figures> --runs <P>/out/cost <P>/out_r2/cost <P>/out_r3/cost --formulations
+          --memory <P>/out_mem --paper-notation        (P = ~/Github/Diskpp/lts_work/pardiso)
+      tfus_signals (env_py, depuis ~/Github/Diskpp/lts_work/head_fine) :
+        make_tfus.py runs_view_g <figures> --signals-row --energy-ymin 0.5 --fine-timing --memory mem_view_g
+          --fine-meshes meshes_g --signals-xmin 36   (fonction signals())
+  - 2026-11-18 : troisieme relecture, etiquettes completees, toujours sous --paper-notation (defauts inchanges) :
+    v en gras dans les legendes de conv_cart et lshape, L^2 en gras dans les normes des champs de vecteurs (lshape,
+    lshape2), etiquettes des barres de cost_formulations a trois chiffres significatifs (les rapports du texte s'y
+    retrouvent), et make_cfl_width.py --paper-notation (nouvelle option : Delta t_crit c_T/w au lieu de c/w_T) :
+        /usr/bin/python3 ../make_cfl_width.py ~/Github/Diskpp/lts_work/verif1e/cfl/cfl.json
+          ~/Github/Diskpp/lts_work/cflw/cfl.json ~/Github/Diskpp/lts_work/cfl2e_cell/cfl.json <figures> --paper-notation
+    Memes commandes que ci-dessus pour les autres. Verification : avant modification, les commandes redonnent les
+    figures de l'article au pixel pres ; apres, seules les cinq figures visees changent, et la sortie par defaut de
+    make_cfl_width.py est identique. Anciennes versions : ~/Github/Diskpp/lts_work/figs_notation/
+    paper_backup_before_labels_2026-11-18.
+  - 2026-11-18 (soir) : quatrieme relecture, onze figures regenerees, donnees inchangees, defauts inchanges (sorties sans
+    les options identiques au pixel pres, sorties des anciennes commandes identiques aux figures de l'article avant
+    modification) :
+      make_article.py --paper-notation (complete) : sans titres de panneaux dans red_rho et red_dtc, axe de gauche de
+        stab "estimate of rho(C)", unites entre crochets [s], [MiB] dans lshape, lshape2, lshape_form (axe des temps
+        "CPU time [s]" partout) ; memes commandes que ci-dessus (view_best et view_article_p) ;
+      make_cfl_width.py --cw-box (nouvelle option) : encadre de droite = intervalle de C_w sur les 17 maillages, celui
+        du texte ; commande ci-dessus plus --cw-box ;
+      make_cost_examples.py --paper-notation (complete) : etiquettes des barres a une decimale des 10 (238.8 / 122.5
+        redonne le 1.9 du texte), unites [ms], [MiB] ; commande ci-dessus ;
+      make_tfus.py --paper-labels (nouvelle option) : unites [us], [dB], sans titres de panneaux dans tfus_signals et
+        tfus_polytopal, "pressure at the geometric focus" et polices plus petites dans tfus_polytopal. Depuis
+        ~/Github/Diskpp/lts_work/head_fine, avec env_py :
+          tfus_signals : make_tfus.py runs_view_g <figures> --signals-row --energy-ymin 0.92 --fine-timing
+            --memory mem_view_g --fine-meshes meshes_g --signals-xmin 36 --paper-labels   (fonction signals())
+          tfus_focus : make_tfus.py runs_view_g <figures> --focus-row --fine-meshes meshes_g --paper-labels   (focus())
+          tfus_polytopal : make_tfus.py runs_view_g <figures> --fine-meshes meshes_g --paper-labels   (polytopal())
+    Anciennes versions : ~/Github/Diskpp/lts_work/figs_notation/paper_backup_before_review4_2026-11-18.
+  - 2026-11-18 (nuit) : calculs de la quatrieme relecture, campagne ~/Github/Diskpp/lts_work/review4 (chain.sh, unite
+    camp-review4, binaire head_fine/wave_propagation_hf) :
+      tconvp/li_taylor, tconvp/2_lip_taylor : LI avec les valeurs exactes W_T(c_i dt) (time.li_coupling = 'taylor',
+        le LI d'origine) au lieu de la formule d'etage, memes reglages que tconvp/li et tconvp/2_lip (refaits : li
+        identique aux donnees de l'article, 2_lip a l'arrondi pres). Erreur sur p : (1E) 2.8 a 3.2 fois celle du
+        couplage par etages, meme ordre ; (2E) 15, 15, 6.4, 3.5, 2.5, 2.3 fois (grands pas -> petits pas).
+        Fig. tconv : make_article.py ... --paper-notation --taylor ~/Github/Diskpp/lts_work/review4/out (nouvelle
+        option, courbes en tirets et marqueurs creux, sans pentes) ;
+      cfl/fit2g_mlts, cfl/fit2g_li : pas stables de MLTS (2 2 4 8) et de LI sur le quadtree de la tete (donnees
+        aleatoires, 1 us), comme vor2/cfl_* sur le Voronoi ;
+      t/r8_*, t/r7_*, t/r22228_* : MLTS chronometre sur 8 us, six threads, rapports 2 2 4 8 (article), 2 2 4 7 (plus
+        petit dernier rapport a cinq niveaux : x_T va jusqu'a 98.3, review4/level_ratios_check.py) et 2 2 2 2 8.
+        Resultats (19/11) : CFL de MLTS et de LI 0.0357 us (28 pas stables, 27 instables sur 1 us) ; produits par pas
+        grossier (ligne "MLTS work" de log.txt, compte exact) 5.23e8 (2 2 4 8), 4.85e8 (2 2 4 7, -7.2 %), 5.33e8
+        (2 2 2 2 8, +1.9 %) ; integration sur 278 pas (s) : 2 2 4 8 = 944 / 1612 / 1737, 2 2 4 7 = 1045 / 1620 / 1565,
+        2 2 2 2 8 = 1297. Les runs b et c sont lents : les six fils tournaient sur les coeurs Zen5c (cpu4-8, 2.4 GHz),
+        coeurs rapides au repos. Le meilleur 944 s redonne les 154 min du tableau tfus-cost a 2 % pres. Dans
+        l'article : m atteint 7, donc 8 est le plus petit dernier rapport a cinq niveaux apres 2 2 4 avec la regle
+        "pas <= dt/2^m" ; 2 2 2 2 8 : 2 % de produits en plus (2 2 4 7 non cite : cinq niveaux seulement avec la regle
+        x_T du code, gain sous la dispersion des temps).
+    tfus_snapshots : make_tfus.py ... --three-snapshots --fine-meshes meshes_g --paper-labels ("mean pressure"
+    -tr(sigma)/2 au lieu de "mean stress", fonction snapshots()).
+  - 2026-11-19 : cinquieme relecture (~/Github/Diskpp/lts_work/reviews/round5), toujours sous les options de l'article
+    (defauts inchanges : tfus_skull et tfus_model_steps redonnes au pixel pres sans --paper-labels) :
+      make_article.py --paper-notation : lshape_meshes sans les titres "zoom x32", "zoom x16384" (la legende donne les
+        facteurs) ; /usr/bin/python3 (matplotlib 3.6.3, celui de l'original) :
+        /usr/bin/python3 ../make_article.py ~/Github/Diskpp/lts_work/hT_timed/view_best <figures> --paper-notation
+          --taylor ~/Github/Diskpp/lts_work/review4/out      (conv_cart, tconv, stab, red_rho redonnes au pixel pres)
+      make_tfus.py --paper-labels : 1/2 tr s (s := -sigma, s ajoure \mathbb{s}) au lieu de -1/2 tr sigma dans les barres
+        de couleur de tfus_snapshots et tfus_skull ; signe moins typographique (U+2212) dans les graduations de ces
+        barres et dans les titres en dB de tfus_focus ; encart "236 x 280 [mm]" avec le signe x dans tfus_model_steps.
+        Depuis ~/Github/Diskpp/lts_work/head_fine, env_py (matplotlib 3.10.8), fonctions de make_tfus.py :
+          snapshots : --three-snapshots --fine-meshes meshes_g --paper-labels
+          skull : --skull-strip --fine-meshes meshes_g --paper-labels
+          model_steps : --mesh-zooms --fine-meshes meshes_g --paper-labels
+          focus : --focus-row --fine-meshes meshes_g --paper-labels
+      Puis (meme jour, a19) toujours sous --paper-labels : unites entre crochets dans les titres ("t = 4 [us]" de
+        tfus_snapshots et tfus_skull, "[dB]" de tfus_focus) ; tfus_polytopal : couleurs des schemas comme ailleurs
+        (MLTS, run Voronoi, en rouge ; LI, quadtree, en bleu), legende en haut a droite :
+          polytopal : --fine-meshes meshes_g --paper-labels
+      Non fait : v et L^2 en gras italique (\boldsymbol) dans conv_cart, lshape, lshape2 : matplotlib 3.6.3 (conv_cart)
+        n'a pas \boldsymbol, et env_py change la densite des graduations de conv_cart ; le gras droit est garde.
+      Anciennes versions : ~/Github/Diskpp/lts_work/figs_notation/paper_backup_before_round5_2026-11-19.
+  - 2026-11-19 (apres-midi) : sixieme relecture (~/Github/Diskpp/lts_work/reviews/round6). make_cfl_width.py --cw-box :
+    bornes de C_w arrondies vers l'exterieur (3 chiffres significatifs), au lieu de .3g ; (2E) [0.0987, 0.104] au lieu
+    de [0.0988, 0.104] (carre : 16/162 = 0.098765) ; (1E) inchange. Defaut (sans --cw-box) inchange.
+        /usr/bin/python3 ../make_cfl_width.py ~/Github/Diskpp/lts_work/verif1e/cfl/cfl.json
+          ~/Github/Diskpp/lts_work/cflw/cfl.json ~/Github/Diskpp/lts_work/cfl2e_cell/cfl.json <figures> --paper-notation --cw-box
+    make_article.py --taylor : dans tconv, ordres observes places d'abord sous leur segment (slope_labels, below=True
+    seulement avec --taylor), pour qu'aucun ne se lise comme l'ordre des courbes creuses ; conv_cart, stab, red_rho et
+    lshape_meshes redonnes au pixel pres :
+        /usr/bin/python3 ../make_article.py ~/Github/Diskpp/lts_work/hT_timed/view_best <figures> --paper-notation
+          --taylor ~/Github/Diskpp/lts_work/review4/out
+    Puis (b16) : make_tfus.py --paper-labels, tfus_signals (panneau droit) : eau en gris et plaque en violet, pour que
+    rouge et bleu ne designent que MLTS et LI (fonction signals_row, memes options que ci-dessus : --signals-row
+    --energy-ymin 0.92 --fine-timing --memory mem_view_g --fine-meshes meshes_g --signals-xmin 36 --paper-labels) ;
+    make_cfl_width.py --paper-notation : axe "smallest face |F|" ; make_article.py --paper-notation : red_dtc,
+    ordonnee min_eps Delta t_crit(beta, eps)/Delta t_ref (conv_cart, tconv, stab, red_rho redonnes au pixel pres).
+  - 2026-11-19 (soir) : septieme relecture (round7). make_cost_examples.py --paper-notation : dans cost_gains, un gain
+    inferieur a 1 est etiquete au-dessus de la ligne pointillee du rapport 1 (et non a travers) ; cost_formulations
+    identique au pixel pres. Commande : python3 ../make_cost_examples.py <figures> --runs <P>/out/cost <P>/out_r2/cost
+    <P>/out_r3/cost --formulations --memory <P>/out_mem --paper-notation   (P = ~/Github/Diskpp/lts_work/pardiso)
+    make_tfus.py --paper-labels : unite des temps "[µs]" avec le signe micro droit (U+00B5) au lieu de $\mu$ italique
+    (tfus_snapshots, tfus_skull, tfus_signals, tfus_polytopal ; memes options qu'au 19/11 matin ; anciennes versions dans
+    ~/Github/Diskpp/lts_work/figs_notation/paper_backup_before_round7_2026-11-19).
+    Puis (c16) : make_cfl_width.py --paper-notation : tests (i) et (iii) en violet (#805ad5) et brun (#8b5a2b) au lieu
+    de bleu et rouge, couleurs de LI et MLTS dans le reste de l'article (memes options qu'au 19/11 apres-midi : --cw-box) ;
+    les couleurs cfli et cfliii des croquis TikZ de main.tex suivent. make_tfus.py --paper-labels : dans tfus_skull, barres
+    de couleur raccourcies (shrink 0.85) pour que les etiquettes -0.6 et 2 ne se touchent plus (memes options qu'au 19/11
+    matin). Anciennes versions dans ~/Github/Diskpp/lts_work/figs_notation/paper_backup_before_round7_2026-11-19.
+    Anciennes versions (cfl_width, tconv, red_dtc, tfus_signals, cost_gains) : ~/Github/Diskpp/lts_work/figs_notation/paper_backup_before_round6_2026-11-19.
+      Remarque 5.1 (memoire de MLTS a condensation exacte, (2E), 3 pas) : ~/Github/Diskpp/lts_work/remark_exact/mem
+        (jobs_mem.txt, binaire pardiso/wave_propagation_p2) : 10.9 MB (a), 19.6 MB (b), soit 2.3 et 3.5 fois ERK(4)
+        (4.68 et 5.56 MB, pardiso/out_mem/cost/o2_*_erk_n).
+
+SECTION 5.4 : MODELE DE TETE FIN (2026-11-16 a 18), scripts dans head_fine/
+  Les calculs de l'article ont ete faits dans ~/Github/Diskpp/lts_work/head_fine ; head_fine/ en est la copie des
+  scripts et des fichiers de jobs (chemins absolus de cette machine ; sorties, maillages et binaires non copies).
+  Les entrees inputs/tfus_fit.lua et tfus_vor.lua decrivent le modele de reference : les jobs les surchargent
+  (maillages fins, time.fine_size = 0.375, nombres de pas, et pour MLTS time.level_size = 'width',
+  time.level_ratios = {2, 2, 4, 8}, time.mlts_reuse = true ; defauts des entrees : 'area', {2, 2, 16}, 0.75, 1394 pas).
+  - Maillages (toutes les tailles divisees par deux par rapport a inputs/) : head_fine/gen_meshes.sh, avec
+    generate_head_model_fitted.py, generate_head_model_voronoi.py, fix_degenerate_cells.py (une cellule plate a NaN
+    sur fit2_plate) et gen_graded.py (maillage fit2g gradue vers le titane), tous dans src/mesh_generation/brain_mri.
+  - Calculs, un job a la fois (run_set.sh), le detail dans l'en-tete de chaque script : chain_full.sh (chaines A et B,
+    runs complets non chronometres), chain_after_C.sh, chain_G.sh (diagnostic : maillage fit2g gradue vers le titane),
+    chain_after_G.sh (plan B : runs de la plaque refaits sur fit2g, pas stable d'ERK(4), puis chain_T.sh q fit2g : runs
+    chronometres d'ERK(4), MLTS et LI sur six et un threads, trois fois : out_t, out_t_r2, out_t_r3), chain_after_V.sh
+    (Voronoi fin vor2 : chain_V1.sh pas stable de MLTS, chain_V2.sh run complet et sondes memoire, chain_T.sh v runs
+    chronometres de MLTS), chain_LI.sh (Voronoi fin : LI, voir ci-dessous). Analyse : analyze_fine.py, puis make_tfus.py
+    (commandes ci-dessus).
+  - Binaires : wave_propagation_hf = build lts_work/build_p du 15/11 (sources du commit 35468ad) ;
+    wave_propagation_hf2 = le meme plus l'option solver.release_assembly (2026-11-18, desactivee par defaut) : une fois
+    l'operateur sans matrice construit, les matrices assemblees LHS et COUPLING sont liberees (dimensions gardees) et
+    malloc_trim rend au systeme la memoire de la mise en place. Resultats inchanges (Voronoi grossier, LI 10 pas :
+    capteurs et energie identiques a ceux de wave_propagation_hf au bruit pres des calculs paralleles, le meme qu'entre
+    deux runs de wave_propagation_hf) ; pic memoire 19.2 -> 14.6 Go sur ce maillage.
+  - LI sur le Voronoi fin (chain_LI.sh, MemoryMax 64G) : le premier essai (vor2/mem_li, wave_propagation_hf) a ete tue a
+    60 Gio pendant la construction du systeme fin de LI (aucun bloc partage : operateur de 16.7 Go, mise en place a
+    56 Go). Relance avec wave_propagation_hf2 et solver.release_assembly : pas stable de LI (aleatoire, 1 us), sonde
+    memoire a 0.9 de ce pas, puis runs chronometres sur les 8 premieres us, trois fois. Resultats (18/11, pic de l'unite
+    54.6 Go, sans swap) : pas stable 1/30 us, production 2667 pas (dt = 0.030 us), runs chronometres de 267 pas ;
+    facteurs nnz(L + U) = 1.01e9 (4.8e8 sur fit2g) ; memoire algebrique 41.05 Gio (MLTS : 18.59 Gio, operateur 16.32
+    Gio) ; temps ramene a 80 us, meilleur des trois, factorisation comptee une fois : LI 116.1 min, MLTS 823.1 min
+    (4944 s x 1778/178), sur six threads. LI est 7.1 fois plus rapide que MLTS, avec 2.2 fois sa memoire.

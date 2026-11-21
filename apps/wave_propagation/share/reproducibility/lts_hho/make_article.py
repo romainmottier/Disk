@@ -19,7 +19,8 @@ Times of the L-shaped domain: with --times <json> (2026-11-15, off by default), 
 is read in this file ({"ls/mlts_l4": seconds, ...}: one thread, best of three, extrapolated from runs of n and 2n macro
 steps for the longest runs, lts_work/pardiso/analyze.py) instead of the cpu column of its c.dat (the errors still come
 from the c.dat of the run), and the axes say "one thread".
-Usage: python3 make_article.py <results> <output directory> [--memory <runs>] [--times <json>]"""
+With --paper-notation (2026-11-17, off by default): labels of red_*, stab, conv_cart, tconv, lshape* as in the paper.
+Usage: python3 make_article.py <results> <output directory> [--memory <runs>] [--times <json>] [--paper-notation]"""
 import glob, math, os, re, sys
 import numpy as np
 import matplotlib
@@ -43,6 +44,20 @@ if "--times" in ARGS:
     import json
     _k = ARGS.index("--times")
     TIMES, ARGS = json.load(open(ARGS[_k + 1])), ARGS[:_k] + ARGS[_k + 2:]
+# --taylor <dir> (2026-11-18, off by default): tconv.pdf also shows LI with the Taylor values of the coarse contribution
+# (time.li_coupling = 'taylor', the original LI) from <dir>/tconvp/li_taylor (left) and <dir>/tconvp/2_lip_taylor
+# (right), dashed with hollow markers, without slope labels (campaign lts_work/review4)
+TAYLOR = None
+if "--taylor" in ARGS:
+    _k = ARGS.index("--taylor")
+    TAYLOR, ARGS = ARGS[_k + 1], ARGS[:_k] + ARGS[_k + 2:]
+# --paper-notation (2026-11-17, off by default): labels of red_rho, red_dtc, stab, conv_cart, tconv, lshape, lshape2
+# in the notation of the paper (ERK(4), beta, Delta t_crit, T_f, p_T, SDIRK(3,4), bold v, R_T); the data are unchanged
+# (2026-11-18: also bold v in the legends of conv_cart and lshape, bold L^2 in the norms of vector fields)
+# (2026-11-18, fourth review: no panel titles in red_rho and red_dtc, left axis of stab "estimate of rho(C)", units in
+# brackets [s] and [MiB] in lshape, lshape2 and lshape_form, whose time axis becomes "CPU time [s]" as in lshape)
+PAPER = "--paper-notation" in ARGS
+ARGS = [a for a in ARGS if a != "--paper-notation"]
 R = ARGS[0] if len(ARGS) > 0 else os.path.join(HERE, "results")
 OUT = ARGS[1] if len(ARGS) > 1 else os.path.join(HERE, "article_figures")
 MEMORY_LABEL = "algebraic memory" if MEM else "peak memory"
@@ -63,6 +78,27 @@ SCH = {   # scheme -> (label, color, marker)
 GRID = dict(ls=":", lw=0.4, color="#b4b4b0")
 BOX = dict(boxstyle="round,pad=0.35", fc="white", ec="#9a9a96", lw=0.5)
 MISSING = []
+
+
+def notation(old, new):
+    """Label old, or new with --paper-notation (2026-11-17)."""
+    return new if PAPER else old
+
+
+def erk_label(label):
+    """Label with ERK4 written ERK(4) with --paper-notation (2026-11-17)."""
+    return label.replace("ERK4", "ERK(4)") if PAPER else label
+
+
+def unit(label):
+    """Axis label with its unit in brackets, " [s]", " [MiB]", with --paper-notation (2026-11-18)."""
+    return label.replace(" (s)", " [s]").replace(" (MiB)", " [MiB]") if PAPER else label
+
+
+def panel_title(ax, title, **kw):
+    """Panel title, none with --paper-notation (2026-11-18: the caption names the panels)."""
+    if not PAPER:
+        ax.set_title(title, **kw)
 
 
 # ----------------------------------------------------------------------------------------------------------- data
@@ -186,7 +222,7 @@ def legend(ax, **kw):
     return lg
 
 
-def slope_labels(fig, ax, curves, theory, name, labelled=None):
+def slope_labels(fig, ax, curves, theory, name, labelled=None, below=False):
     """Observed slope of every segment, placed greedily from the finest segment on, never on a label, a solid curve,
     the legend or a text box, avoiding the dashed reference lines when possible (make_figures.py of the a priori
     paper)."""
@@ -207,6 +243,8 @@ def slope_labels(fig, ax, curves, theory, name, labelled=None):
     def hits(pts, bb):
         return len(pts) and np.any((pts[:, 0] > bb.x0) & (pts[:, 0] < bb.x1) & (pts[:, 1] > bb.y0) & (pts[:, 1] < bb.y1))
     offsets = [(-6, 4), (6, -9), (-11, -2), (10, 2), (0, 7), (0, -11), (-15, 6), (14, -11)]
+    if below:   # (2026-11-19, tconv with --taylor) labels below their segment first, away from the hollow curves above
+        offsets = [(6, -9), (0, -11), (14, -11), (-11, -2), (10, 2), (-6, 4), (0, 7), (-15, 6)]
     nseg = max(len(h) - 1 for h, _, _ in curves)
     for back in range(1, nseg + 1):
         for k, (h, e, c) in enumerate(curves):
@@ -237,7 +275,7 @@ def slope_labels(fig, ax, curves, theory, name, labelled=None):
 
 
 def conv_panel(ax, fig, series, order, xlabel, ylabel, formula, name, legend_loc="lower right", ref_index=0,
-               labelled=None):
+               labelled=None, below=False):
     """Convergence panel: series = [(h, e, scheme key or (label, color, marker), linestyle)], dashed line of slope
     `order` through the first point of series[ref_index], observed slopes on every segment."""
     H = np.concatenate([s[0] for s in series]); E = np.concatenate([s[1] for s in series])
@@ -257,7 +295,7 @@ def conv_panel(ax, fig, series, order, xlabel, ylabel, formula, name, legend_loc
     if formula:
         ax.text(0.03, 0.96, formula, transform=ax.transAxes, fontsize=6.5, va="top", ha="left", bbox=BOX)
     legend(ax, loc=legend_loc)
-    slope_labels(fig, ax, curves, theory, name, labelled)
+    slope_labels(fig, ax, curves, theory, name, labelled, below)
 
 
 def read_cells(path):
@@ -381,13 +419,14 @@ def reduced():
     fig, axs = plt.subplots(1, 3, figsize=(6.3, 2.2), sharey=True)
     for ax, (key, title) in zip(axs, models):
         for s in ("erk", "mlts4", "li"):
-            lab, c, mk = SCH[RED_STYLE[s]]
+            lab, c, mk = SCH[RED_STYLE[s]]; lab = erk_label(lab)
             ax.plot(X, D[f"{key}_{s}_rho"].max(axis=0), "-" + mk, color=c, lw=1.0, ms=2.5, label=RED_LABEL.get(s, lab))
         ax.set_xscale("log", base=2); ax.set_yscale("log"); ax.grid(True, which="major", **GRID)
-        ax.set_xlabel(r"$p^3$", labelpad=1); ax.set_title(title, fontsize=7, pad=3)
+        ax.set_xlabel(notation(r"$p^3$", r"$\beta^3$"), labelpad=1); panel_title(ax, title, fontsize=7, pad=3)
         ax.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
         ax.axhline(1.0, color="#6a6a66", lw=0.6, ls="--")
-    axs[0].set_ylabel(r"$\max_\varepsilon\,\rho(C_p(\Delta t_{\rm ref}))$", labelpad=1)
+    axs[0].set_ylabel(notation(r"$\max_\varepsilon\,\rho(C_p(\Delta t_{\rm ref}))$",
+                               r"$\max_\varepsilon\,\rho(C_\beta(\Delta t_{\rm ref}))$"), labelpad=1)
     legend(axs[0], loc="upper left")
     fig.tight_layout(pad=0.2, w_pad=0.6)
     save(fig, "red_rho.pdf")
@@ -395,12 +434,13 @@ def reduced():
     fig, axs = plt.subplots(1, 3, figsize=(6.3, 2.2), sharey=True)
     for ax, (key, title) in zip(axs, models):
         for s in ("erk", "mlts4", "li"):
-            lab, c, mk = SCH[RED_STYLE[s]]
+            lab, c, mk = SCH[RED_STYLE[s]]; lab = erk_label(lab)
             ax.plot(X, D[f"{key}_{s}_dtc"].min(axis=0), "-" + mk, color=c, lw=1.0, ms=2.5, label=RED_LABEL.get(s, lab))
         ax.set_xscale("log", base=2); ax.set_yscale("log"); ax.grid(True, which="major", **GRID)
-        ax.set_xlabel(r"$p^3$", labelpad=1); ax.set_title(title, fontsize=7, pad=3)
+        ax.set_xlabel(notation(r"$p^3$", r"$\beta^3$"), labelpad=1); panel_title(ax, title, fontsize=7, pad=3)
         ax.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
-    axs[0].set_ylabel(r"$\min_\varepsilon\,\Delta t_c(p)/\Delta t_{\rm ref}$", labelpad=1)
+    axs[0].set_ylabel(notation(r"$\min_\varepsilon\,\Delta t_c(p)/\Delta t_{\rm ref}$",
+                               r"$\min_\varepsilon\,\Delta t_{\rm crit}(\beta,\varepsilon)/\Delta t_{\rm ref}$"), labelpad=1)
     legend(axs[0], loc="lower left")
     fig.tight_layout(pad=0.2, w_pad=0.6)
     save(fig, "red_dtc.pdf")
@@ -418,11 +458,13 @@ def stability():
             r = col(f"rho/L{l}_{s}", "rho")
             if r is not None and r[0] > 0:
                 pp.append(2 ** l); rr.append(r[0])
-        lab, c, mk = SCH[s]; lab = LAB.get(s, lab)
+        lab, c, mk = SCH[s]; lab = erk_label(LAB.get(s, lab))
         ax.plot(pp, rr, "-" + mk, color=c, lw=1.0, ms=3.2, label=lab)
     ax.set_xscale("log", base=2); ax.set_yscale("log"); ax.grid(True, which="major", **GRID)
     ax.axhline(1.0, color="#6a6a66", lw=0.6, ls="--")
-    ax.set_xlabel(r"$p=h_{\max}/h_{\min}$", labelpad=1); ax.set_ylabel(r"$\rho(\mathcal{C})$, $\Delta t=6.4\times10^{-3}$", labelpad=1)
+    ax.set_xlabel(notation(r"$p=h_{\max}/h_{\min}$", r"$\beta=h_{\max}/h_{\min}$"), labelpad=1)
+    ax.set_ylabel(notation(r"$\rho(\mathcal{C})$, $\Delta t=6.4\times10^{-3}$",
+                           r"estimate of $\rho(C)$, $\Delta t=6.38\times10^{-3}$"), labelpad=1)
     ax.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
     legend(ax, loc="upper left")
     ax = axs[1]
@@ -434,7 +476,7 @@ def stability():
             if v is None or (s == "li" and l == 0):
                 continue
             pp.append(2 ** l); dd.append(v[0])
-        lab, c, mk = SCH[s]; lab = LAB.get(s, lab)
+        lab, c, mk = SCH[s]; lab = erk_label(LAB.get(s, lab))
         ax.plot(pp, dd, "-" + mk, color=c, lw=1.0, ms=3.2, label=lab)
     # second-order formulation (setting (2E), stab2/): ERK4, LTS, MLTS and LI with the projected condensation (dashed,
     # hollow); LI from p = 2 (on the uniform mesh, its fine region is the whole mesh)
@@ -456,7 +498,8 @@ def stability():
                                   label="second order (2E)")],
                   loc="lower left", fontsize=6, frameon=False)
     ax.set_xscale("log", base=2); ax.set_yscale("log"); ax.grid(True, which="major", **GRID)
-    ax.set_xlabel(r"$p=h_{\max}/h_{\min}$", labelpad=1); ax.set_ylabel(r"CFL limit $\Delta t_{\rm crit}$", labelpad=1)
+    ax.set_xlabel(notation(r"$p=h_{\max}/h_{\min}$", r"$\beta=h_{\max}/h_{\min}$"), labelpad=1)
+    ax.set_ylabel(r"CFL limit $\Delta t_{\rm crit}$", labelpad=1)
     ax.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
     ax.set_ylim(1.5e-4, 2.5e-2)
     fig.tight_layout(pad=0.2, w_pad=1.2)
@@ -492,7 +535,8 @@ def convergence():
     full, grad p hollow). ERK4 on the uniform meshes (dashed), MLTS and LI on the meshes refined three times; dashed grey: reference
     slopes; observed slopes of MLTS on every segment (LI coincides with MLTS)."""
     P = (("conv", {"erk": "conv/erk_u", "mlts": "conv/mlts_g", "li": "conv/li_g"},
-          (("acoustic_q", r"$v$", 4), ("acoustic_p", r"$p$", 4)), r"(1E), $k=3$, $\Delta t\propto h_{\max}$"),
+          (("acoustic_q", notation(r"$v$", r"$\mathbf{v}$"), 4), ("acoustic_p", r"$p$", 4)),
+          r"(1E), $k=3$, $\Delta t\propto h_{\max}$"),
          ("conv2", {"erk": "conv2/erk_u", "mlts": "conv2/mltsp_g", "li": "conv2/lip_g"},
           (("acoustic_phi", r"$p$", 4), ("acoustic_grad_phi", r"$\nabla p$", 3)), r"(2E), $k=2$, $\Delta t\propto h_{\max}$"))
     fig, axs = plt.subplots(1, 2, figsize=(6.3, 2.7))
@@ -508,7 +552,8 @@ def convergence():
         curves, theory, labelled, drawn = [], [], [], set()
         upper = max(range(len(Q)), key=lambda j: g("erk", Q[j][0])[0])
         for j, (fld, qlab, order) in enumerate(Q):
-            for key, mk, lab in (("erk", "o", "ERK4, uniform"), ("mlts", "^", "MLTS, refined"), ("li", "D", "LI, refined")):
+            for key, mk, lab in (("erk", "o", erk_label("ERK4, uniform")), ("mlts", "^", "MLTS, refined"),
+                                 ("li", "D", "LI, refined")):
                 c = SCH[key][1]
                 ls = "--" if key == "erk" else "-"     # first error full markers, second one hollow
                 ax.plot(g(key, "h"), g(key, fld), ls + mk, color=c, lw=1.0, ms=3.0 if key != "li" else 2.6, mew=0.8,
@@ -544,11 +589,12 @@ def time_orders():
     error on p against it at t_f is the time error alone (no reference solution). Runs of lts_work/tconv_poly merged
     by its merge.py into tconvp/ (6 levels and their extensions to smaller steps): left (1E), k = 3; right (2E), k = 2
     (MLTS and LI with the projected condensation, globally implicit SDIRK(3,4) for comparison)."""
-    P = ((r"(1E), $k=3$, $16\times16$, $p=8$", "acoustic_p", (("mlts", "tconvp/mlts"), ("li", "tconvp/li"))),
-         (r"(2E), $k=2$, $16\times16$, $p=8$", "acoustic_phi",
+    P = ((notation(r"(1E), $k=3$, $16\times16$, $p=8$", r"(1E), $k=3$, $16\times16$, $\beta=8$"), "acoustic_p",
+          (("mlts", "tconvp/mlts"), ("li", "tconvp/li"))),
+         (notation(r"(2E), $k=2$, $16\times16$, $p=8$", r"(2E), $k=2$, $16\times16$, $\beta=8$"), "acoustic_phi",
           (("mlts", "tconvp/2_mltsp"), ("li", "tconvp/2_lip"), ("sdirk", "tconvp/2_sdirk"))))
     fig, axs = plt.subplots(1, 2, figsize=(6.3, 2.7))
-    for ax, (tag, fld, runs) in zip(axs, P):
+    for ax, (tag, fld, runs), tay in zip(axs, P, ("tconvp/li_taylor", "tconvp/2_lip_taylor")):
         series = []
         for key, d in runs:
             D = dat(d)
@@ -556,11 +602,25 @@ def time_orders():
                 continue
             dt, e = D[1][:, D[0].index("dt")], D[1][:, D[0].index(fld)]
             ok = np.isfinite(e) & (e < 1)
+            if PAPER and key == "sdirk":   # --paper-notation: legend SDIRK(3,4), same color and marker
+                key = ("SDIRK(3,4)",) + SCH["sdirk"][1:]
             series.append((dt[ok], e[ok], key, "-"))
         if not series:
             print("time_orders: missing runs"); return
-        conv_panel(ax, fig, series, 4, r"$\Delta t$", r"$\Vert p(t_f)-p_h(t_f)\Vert_{L^2(\Omega)}$", tag, "tconv.pdf",
-                   legend_loc="lower right")
+        labelled = None
+        if TAYLOR is not None:   # --taylor: LI with the Taylor values, dashed and hollow, slopes not labelled
+            f = os.path.join(TAYLOR, tay, "c.dat")
+            if os.path.exists(f):
+                names = open(f).readline().lstrip("#").split()
+                rows = np.atleast_2d(np.loadtxt(f, comments="#"))
+                dt, e = rows[:, names.index("dt")], rows[:, names.index(fld)]
+                labelled = list(range(len(series)))
+                series.append((dt, e, (r"LI, ${\rm W}_{\mathcal{T}}(c_i\Delta t)$",) + SCH["li"][1:], "--"))
+            else:
+                print("time_orders: missing", f)
+        conv_panel(ax, fig, series, 4, r"$\Delta t$", notation(r"$\Vert p(t_f)-p_h(t_f)\Vert_{L^2(\Omega)}$",
+                   r"$\Vert p(T_{\rm f})-p_{\mathcal{T}}(T_{\rm f})\Vert_{L^2(\Omega)}$"), tag, "tconv.pdf",
+                   legend_loc="lower right", labelled=labelled, below=labelled is not None)
     fig.tight_layout(pad=0.2, w_pad=1.2)
     save(fig, "tconv.pdf")
 
@@ -594,7 +654,8 @@ def lshape_meshes():
             s.set_visible(False)
         ax.plot([-w, w, w, 0, 0, -w, -w], [-w, -w, 0, 0, w, w, -w], color="#1a1a1a", lw=0.7, clip_on=False,
                 solid_joinstyle="miter")
-        ax.set_title(f"{len(cells)} cells" if w == 0.5 else rf"zoom $\times{0.5 / w:.0f}$", fontsize=7.5, pad=3)
+        if w == 0.5 or not PAPER:   # --paper-notation (2026-11-19): no "zoom" titles, the caption gives the factors
+            ax.set_title(f"{len(cells)} cells" if w == 0.5 else rf"zoom $\times{0.5 / w:.0f}$", fontsize=7.5, pad=3)
     axes[0].text(0.03, 0.03, rf"$h_{{\max}}/h_{{\min}}={0.0625 / smin:.0f}$", transform=axes[0].transAxes, fontsize=6, bbox=BOX)
     fig.tight_layout(pad=0.2, w_pad=3.2)
     save(fig, "lshape_meshes.pdf")
@@ -636,7 +697,7 @@ def two_errors_panel(ax, fig, Q, name, erk=None, legend_loc="lower right"):
             curves.append((h, e, c))
         if erk is not None and len(erk[j][0]):
             ax.plot(erk[j][0], erk[j][1], "o", color=SCH["erk"][1], ms=3.5, mew=0.8, mfc=SCH["erk"][1] if j == 0 else "white",
-                    zorder=4, label="ERK4" if j == 0 else None)
+                    zorder=4, label=erk_label("ERK4") if j == 0 else None)
         h0 = max(d[0][0] for d in D.values()); e0 = min(d[1][0] for d in D.values()); e_top = max(d[1][0] for d in D.values())
         if order not in drawn or j != upper:
             ref = min(d[1][0] for _, o, DD in Q if o == order for d in DD.values())
@@ -656,7 +717,8 @@ def lshape():
     data = {"mlts": ls_series("mlts", lv), "li": ls_series("li2", lv)}
     erk = ls_series("erk", (1,))
     fig, axs = plt.subplots(1, 3, figsize=(6.3, 2.35))
-    Q = [(r"$v$", 4, {s: (data[s][0], data[s][2]) for s in ("mlts", "li") if len(data[s][0]) >= 2}),
+    Q = [(notation(r"$v$", r"$\mathbf{v}$"), 4, {s: (data[s][0], data[s][2]) for s in ("mlts", "li")
+                                                  if len(data[s][0]) >= 2}),
          (r"$p$", 4, {s: (data[s][0], data[s][1]) for s in ("mlts", "li") if len(data[s][0]) >= 2})]
     two_errors_panel(axs[0], fig, Q, "lshape[errors]", erk=[(erk[0], erk[2]), (erk[0], erk[1])])
     ax = axs[1]
@@ -665,16 +727,19 @@ def lshape():
         lab, c, mk = SCH[s]
         ax.plot(cc, qq, "-" + mk, color=c, lw=1.0, ms=3.0, label=lab)
     if len(erk[0]):
-        ax.plot(erk[3], erk[2], "o", color=SCH["erk"][1], ms=3.5, label="ERK4")
-    style_log(ax, "CPU time (s)", r"$\Vert v-v_h\Vert_{L^2(\Omega)}$")
-    legend(ax, loc="lower left")
+        ax.plot(erk[3], erk[2], "o", color=SCH["erk"][1], ms=3.5, label=erk_label("ERK4"))
+    v_err = notation(r"$\Vert v-v_h\Vert_{L^2(\Omega)}$",
+                     r"$\Vert \mathbf{v}-\mathbf{v}_{\mathcal{T}}\Vert_{\mathbf{L}^2(\Omega)}$")
+    style_log(ax, unit("CPU time (s)"), v_err)
+    # --paper-notation: the wider "ERK(4)" entry covers the finest LI point at the lower left, the upper right is empty
+    legend(ax, loc="upper right" if PAPER else "lower left")
     ax = axs[2]
     for s in ("mlts", "li"):
         lab, c, mk = SCH[s]
         ax.plot([memory(d) for d in data[s][4]], data[s][2], "-" + mk, color=c, lw=1.0, ms=3.0, label=lab)
     if len(erk[0]):
-        ax.plot([memory(erk[4][0])], erk[2], "o", color=SCH["erk"][1], ms=3.5, label="ERK4")
-    style_log(ax, f"{MEMORY_LABEL} (MiB)", r"$\Vert v-v_h\Vert_{L^2(\Omega)}$"); mem_linear(ax, "x")
+        ax.plot([memory(erk[4][0])], erk[2], "o", color=SCH["erk"][1], ms=3.5, label=erk_label("ERK4"))
+    style_log(ax, unit(f"{MEMORY_LABEL} (MiB)"), v_err); mem_linear(ax, "x")
     legend(ax, loc="upper right")
     fig.tight_layout(pad=0.2, w_pad=0.6)
     save(fig, "lshape.pdf")
@@ -716,13 +781,15 @@ def lshape_2e():
     for s in ("mlts", "li"):
         lab, c, mk = SCH[s]
         ax.plot(data[s][3], data[s][2], "-" + mk, color=c, lw=1.0, ms=3.0, label=lab)
-    style_log(ax, "CPU time (s)", r"$\Vert \nabla p-\nabla p_h\Vert_{L^2(\Omega)}$")
+    g_err = notation(r"$\Vert \nabla p-\nabla p_h\Vert_{L^2(\Omega)}$",
+                     r"$\Vert \nabla p-\nabla R_{\mathcal{T}}(\hat{p}_h)\Vert_{\mathbf{L}^2(\Omega)}$")
+    style_log(ax, unit("CPU time (s)"), g_err)
     legend(ax, loc="upper right")
     ax = axs[2]
     for s in ("mlts", "li"):
         lab, c, mk = SCH[s]
         ax.plot(data[s][4], data[s][2], "-" + mk, color=c, lw=1.0, ms=3.0, label=lab)
-    style_log(ax, f"{MEMORY_LABEL} (MiB)", r"$\Vert \nabla p-\nabla p_h\Vert_{L^2(\Omega)}$"); mem_linear(ax, "x")
+    style_log(ax, unit(f"{MEMORY_LABEL} (MiB)"), g_err); mem_linear(ax, "x")
     legend(ax, loc="upper right")
     fig.tight_layout(pad=0.2, w_pad=0.6)
     save(fig, "lshape2.pdf")
@@ -754,9 +821,10 @@ def lshape_formulations():
         ls = "-" if o == 1 else "--"
         axs[0].plot(t, e, ls + mk, **kw)
         axs[1].plot(m, e, ls + mk, **kw)
-    style_log(axs[0], "CPU time on one thread (s)" if TIMES is not None else "CPU time on six threads (s)",
-              r"error on $\nabla u$")
-    style_log(axs[1], f"{MEMORY_LABEL} (MiB)", r"error on $\nabla u$"); mem_linear(axs[1], "x")
+    # --paper-notation (2026-11-18): "CPU time [s]" as in lshape and lshape2 (all on one thread, Section 5 of the paper)
+    tlab = "CPU time on one thread (s)" if TIMES is not None else "CPU time on six threads (s)"
+    style_log(axs[0], unit("CPU time (s)" if PAPER and TIMES is not None else tlab), r"error on $\nabla u$")
+    style_log(axs[1], unit(f"{MEMORY_LABEL} (MiB)"), r"error on $\nabla u$"); mem_linear(axs[1], "x")
     fig.legend(*axs[0].get_legend_handles_labels(), loc="upper center", ncol=4, fontsize=6.5, frameon=False,
                bbox_to_anchor=(0.5, 1.0), handlelength=2.2, columnspacing=1.6)
     fig.tight_layout(pad=0.2, w_pad=1.5, rect=(0, 0, 1, 0.9))

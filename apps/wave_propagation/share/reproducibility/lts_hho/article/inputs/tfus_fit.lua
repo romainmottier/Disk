@@ -5,6 +5,8 @@
 -- frontal bone). Focused transducer (arc of radius 80 mm, half aperture 25 deg, axis through the plate) emitting a
 -- 3-cycle tone burst at 250 kHz towards a focus 45 mm below the outer surface of the skull (frontal gray matter).
 -- Lengths in mm, times in us, densities in g/cm^3, velocities in mm/us (stresses in GPa).
+-- Final version of the preprint (5.4, 2026-11-16): meshes with all cell sizes halved (../head_fine/gen_meshes.sh); the
+-- jobs of ../head_fine override mesh.files, time.fine_size (0.375) and the numbers of steps (LISEZMOI, Section 5.4).
 formulation = "first_order"
 space   = { k = 3, order = "equal", stabilization = "least_squares", scaling = "1" }
 time    = { scheme = "li", final_time = 80.0, n_steps = 1394, fine_size = 0.75, li_system = "constraint", li_coupling = "stage",

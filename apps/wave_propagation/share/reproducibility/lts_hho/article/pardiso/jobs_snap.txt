@@ -1,0 +1,4 @@
+# 2026-11-16: snapshot before the burst reaches the skull (t = 4 us) for the three-panel Fig. tfus-snap
+# (make_tfus.py --three-snapshots); same run as fit/plate_li of jobs_full.txt (LI, Pardiso, 6 threads, same time step
+# 80/1394), stopped after 70 steps; written into <out>/out_full by run_pardiso.sh
+fit/plate_li_early|6|tfus_fit.lua|mesh.level = 2; time.li_solver = 'pardiso'; time.li_refinement = 0; time.final_time = 4.017216642754663; time.n_steps = 70; output.snapshots = { 4.0 }

@@ -1,0 +1,2 @@
+# 2026-11-16 diagnostic G: plate mesh graded towards the titanium (gen_graded.py 0.25, head_s80_fit2g_plate.txt), LI as fit2/plate_li
+fit2g/plate_li|6|tfus_fit.lua|mesh.files = { "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_fit2_intact.txt", "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_fit2g_plate.txt" }; mesh.level = 2; time.li_solver = 'pardiso'; time.li_refinement = 0; time.fine_size = 0.375; time.n_steps = 2788

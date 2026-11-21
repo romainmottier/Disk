@@ -1,0 +1,2 @@
+# made by chain_LI.sh: Voronoi LI, first 267 of the 2667 steps (8 us), six threads
+vor/plate_li_8us|6|tfus_vor.lua|mesh.files = { "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_vor2_plate.txt" }|time.li_solver = 'pardiso'; time.li_refinement = 0; time.fine_size = 0.375; solver.release_assembly = true; time.n_steps = 2667|local dt_x = time.final_time / time.n_steps; time.final_time = 267 * dt_x; time.n_steps = 267|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0

@@ -1,0 +1,2 @@
+# 2026-11-16 diagnostic: plate mesh with implant cells halved (--size-implant 0.03125, head_s80_fit2i_plate.txt), LI as fit2/plate_li
+fit2i/plate_li|6|tfus_fit.lua|mesh.files = { "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_fit2_intact.txt", "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_fit2i_plate.txt" }; mesh.level = 2; time.li_solver = 'pardiso'; time.li_refinement = 0; time.fine_size = 0.375; time.n_steps = 2788

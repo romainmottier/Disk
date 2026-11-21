@@ -14,6 +14,7 @@ LI. Two modes:
     --formulations   with --runs, also cost_formulations.pdf (2026-11-15, Fig. cost-formulations): wall time per coarse
             step and memory of the schemes in the two settings, as absolute values (same runs, same time steps in both
             settings), for the comparison of the formulations; off by default
+    --paper-notation   labels of cost_gains.pdf and cost_formulations.pdf as in the paper (2026-11-17); off by default
     without --runs   gains of the cost model below (no computation: unknowns are counted per cell)
     top     extended refinement of moderate depth: a curved layer of thickness 3h, the squares meeting it refined once,
             containing a small inclusion of radius h/5, refined three times (bands of about one square per level),
@@ -33,7 +34,7 @@ Model (per coarse step, in products): ERK4 4 P_{L-1} N; MLTS 4 N + beta sum_{l>=
 otherwise, T_l: band of level l and one ring (1E), levels >= l and two rings (2E), beta = 1 (1E), 2 (2E); LI
 4 N + 3 (1 + rho) |S|, S: the refined cells and their rings (one in (1E), two in (2E)). Level of a cell = its depth
 (squares, uniform speed); rings by vertex adjacency, as the overlap rings of the code.
-Usage: python3 make_cost_examples.py <figures> [<meshes>] [--formulations] [--memory <algmem runs>]
+Usage: python3 make_cost_examples.py <figures> [<meshes>] [--formulations] [--paper-notation] [--memory <algmem runs>]
                                       [--runs <cost> <cost_r2> <cost_r3>]
 """
 import math, os, sys
@@ -181,6 +182,12 @@ COL = {"ERK4": "#1a1a1a", "MLTS, 2 levels": "#dd6b20", "MLTS": "#b7202e", "LI": 
 light = lambda c: tuple(0.55 + 0.45 * x for x in matplotlib.colors.to_rgb(c))
 SCHEMES = (("ERK4", "erk"), ("MLTS, 2 levels", "mlts2"), ("MLTS", "mlts"), ("LI", "li"))   # name, run of jobs.txt
 MEM = None   # --memory <runs>: algebraic memory (output.algebraic_memory) of the runs <runs>/cost/<run>/log.txt
+PAPER = False   # --paper-notation (2026-11-17, off by default): ERK(4) and "CPU time" in cost_gains/cost_formulations.pdf
+
+
+def shown(label):
+    """Label as printed: ERK4 written ERK(4) with --paper-notation."""
+    return label.replace("ERK4", "ERK(4)") if PAPER else label
 
 
 def measured(runs, tag, L):
@@ -308,11 +315,14 @@ def mesh_panels(ax, zax, E, leaves, L, N, short=False):
 
 
 def main():
-    global MEM
+    global MEM, PAPER
     args, runs = sys.argv[1:], None
     formulations = "--formulations" in args   # also cost_formulations.pdf (absolute values, both settings)
     if formulations:
         args.remove("--formulations")
+    if "--paper-notation" in args:   # labels in the notation of the paper (2026-11-17, off by default)
+        PAPER = True
+        args.remove("--paper-notation")
     if "--memory" in args:    # algebraic memory of the runs instead of the peak memory (campaign lts_work/algmem)
         k = args.index("--memory")
         MEM, args = args[k + 1], args[:k] + args[k + 2:]
@@ -432,8 +442,9 @@ def gains_figure(data, path):
                 c = c if f == 0 else light(c)
                 v = G[setting][nm]
                 ax.bar(i + off, v, width=0.36, color=c, edgecolor="#1a1a1a", linewidth=0.4, hatch=hatch[f])
-                ax.text(i + off, v * 1.10, f"{v:.0f}" if v >= 10 else f"{v:.2f}" if v < 1 else f"{v:.1f}", ha="center",
-                        va="bottom", fontsize=6)
+                # --paper-notation (2026-11-19): a gain below 1 is labelled above the dashed ratio-1 line, not across it
+                ax.text(i + off, (max(v, 1.0) if PAPER else v) * 1.10,
+                        f"{v:.0f}" if v >= 10 else f"{v:.2f}" if v < 1 else f"{v:.1f}", ha="center", va="bottom", fontsize=6)
                 v = Mem[setting][nm]
                 axm.bar(i + off, v, width=0.36, color=c, edgecolor="#1a1a1a", linewidth=0.4, hatch=hatch[f])
                 axm.text(i + off, v + (0.02 * mmax if mbig else 0.03), f"{v:.1f}" if mbig else f"{v:.2f}", ha="center",
@@ -457,10 +468,10 @@ def gains_figure(data, path):
             a.grid(True, axis="y", which="major", ls=":", lw=0.4, color="#b4b4b0")
             a.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
         ax.tick_params(labelbottom=False)
-        axm.set_xticklabels([nm.replace(", ", ",\n") for nm in names], fontsize=7)
+        axm.set_xticklabels([shown(nm).replace(", ", ",\n") for nm in names], fontsize=7)
         if col == 0:
-            ax.set_ylabel("gain over ERK4", labelpad=2)
-            axm.set_ylabel(("algebraic" if MEM else "peak") + " memory / ERK4", labelpad=2)
+            ax.set_ylabel(shown("gain over ERK4"), labelpad=2)
+            axm.set_ylabel(shown(("algebraic" if MEM else "peak") + " memory / ERK4"), labelpad=2)
     axs[0, 0].legend(handles=[plt.Rectangle((0, 0), 1, 1, fc="#5a5a56", ec="#1a1a1a", lw=0.4, label="setting (1E)"),
                               plt.Rectangle((0, 0), 1, 1, fc=light("#5a5a56"), ec="#1a1a1a", lw=0.4, hatch=hatch[1],
                                             label="setting (2E)")],
@@ -478,6 +489,13 @@ def formulations_figure(data_abs, path):
     hatch = {0: None, 1: "////"}
     mmax = max(v for (E, T, M) in data_abs for s in M for v in M[s].values())
     fig, axs = plt.subplots(2, 2, figsize=(6.3, 3.9), gridspec_kw=dict(height_ratios=[1.5, 1], hspace=0.10, wspace=0.20))
+    # --paper-notation (2026-11-18): bar labels with three significant digits, so that the ratios quoted in the text can
+    # be recovered from them; default unchanged (two significant digits). Fourth review (2026-11-18): four significant
+    # digits from 100 on (238.8 / 122.5 = 1.95, the ratio 1.9 of the text, where 239 / 122 gave 1.96), units in brackets
+    if PAPER:
+        lab = lambda v: f"{v:.1f}" if v >= 10 else f"{v:.2f}"
+    else:
+        lab = lambda v: f"{v:.0f}" if v >= 10 else f"{v:.1f}"
     for col, (E, T, M) in enumerate(data_abs):
         ax, axm = axs[0, col], axs[1, col]
         names = list(T["1E"].keys())
@@ -488,11 +506,10 @@ def formulations_figure(data_abs, path):
                 c = c if f == 0 else light(c)
                 v = T[setting][nm]
                 ax.bar(i + off, v, width=0.36, color=c, edgecolor="#1a1a1a", linewidth=0.4, hatch=hatch[f])
-                ax.text(i + off, v * 1.10, f"{v:.0f}" if v >= 10 else f"{v:.1f}", ha="center", va="bottom", fontsize=6)
+                ax.text(i + off, v * 1.10, lab(v), ha="center", va="bottom", fontsize=6)
                 v = M[setting][nm]
                 axm.bar(i + off, v, width=0.36, color=c, edgecolor="#1a1a1a", linewidth=0.4, hatch=hatch[f])
-                axm.text(i + off, v + 0.02 * mmax, f"{v:.0f}" if v >= 10 else f"{v:.1f}", ha="center", va="bottom",
-                         fontsize=5.5)
+                axm.text(i + off, v + 0.02 * mmax, lab(v), ha="center", va="bottom", fontsize=5.5)
         tmin = min(v for s in T for v in T[s].values())
         tmax = max(v for s in T for v in T[s].values())
         ax.set_yscale("log"); ax.set_ylim(tmin / 2, tmax * 4)
@@ -506,10 +523,10 @@ def formulations_figure(data_abs, path):
             a.grid(True, axis="y", which="major", ls=":", lw=0.4, color="#b4b4b0")
             a.tick_params(which="major", length=2.5, width=0.5, pad=1.5)
         ax.tick_params(labelbottom=False)
-        axm.set_xticklabels([nm.replace(", ", ",\n") for nm in names], fontsize=7)
+        axm.set_xticklabels([shown(nm).replace(", ", ",\n") for nm in names], fontsize=7)
         if col == 0:
-            ax.set_ylabel("wall time per coarse step (ms)", labelpad=2)
-            axm.set_ylabel(("algebraic" if MEM else "peak") + " memory (MiB)", labelpad=2)
+            ax.set_ylabel("CPU time per coarse step [ms]" if PAPER else "wall time per coarse step (ms)", labelpad=2)
+            axm.set_ylabel(("algebraic" if MEM else "peak") + (" memory [MiB]" if PAPER else " memory (MiB)"), labelpad=2)
     axs[0, 0].legend(handles=[plt.Rectangle((0, 0), 1, 1, fc="#5a5a56", ec="#1a1a1a", lw=0.4, label="setting (1E)"),
                               plt.Rectangle((0, 0), 1, 1, fc=light("#5a5a56"), ec="#1a1a1a", lw=0.4, hatch=hatch[1],
                                             label="setting (2E)")],

@@ -1,0 +1,2 @@
+# made by chain_LI.sh: stable step of LI on the fine Voronoi mesh
+vor2/cfl_li|6|tfus_vor.lua|mesh.files = { "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_vor2_plate.txt" }|time.li_solver = 'pardiso'; time.li_refinement = 0; time.fine_size = 0.375; solver.release_assembly = true|study = { type = 'cfl', cfl_random = true, cfl_decrement = 0.01 }|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0; output.profile = false|time.final_time = 1.0; time.n_steps = 29

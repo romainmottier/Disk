@@ -39,5 +39,6 @@ for o in out out_r2 out_r3; do
   done
 done
 run_set "$here/jobs_full.txt" "$out/out_full"
+run_set "$here/jobs_snap.txt" "$out/out_full"    # 2026-11-16: t = 4 us snapshot (make_tfus.py --three-snapshots)
 run_set "$here/jobs_mem.txt" "$out/out_mem"
 echo "$(date +%T) finished"

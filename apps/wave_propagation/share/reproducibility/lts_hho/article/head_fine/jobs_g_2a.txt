@@ -1,0 +1,2 @@
+# 2026-11-17 plan B: LI at dt/2 (accuracy in time)
+fit2g/plate_li_dt2|6|tfus_fit.lua|mesh.files = { "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_fit2_intact.txt", "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_fit2g_plate.txt" }; mesh.level = 2; time.li_solver = 'pardiso'; time.li_refinement = 0; time.fine_size = 0.375; time.n_steps = 5576|output.snapshots = {}

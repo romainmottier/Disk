@@ -15,7 +15,13 @@ space.stabilization_size = "cell"), three tests on the 16 x 16 squares, one geom
 Also prints, for the text, dt c / w on the meshes with an isolated thin cell (thin_<eps>, corner_<eps>, circle_<i>).
 Inputs: the cfl.json of analyze_cfl.py for efficiency/run_cfl_cells.sh (setting (1E)), run_cfl_random.sh
 (circle-fitted meshes, setting (1E), printed only) and run_cfl_2e.sh (setting (2E), inputs/cfl_cells2.lua).
-Usage: python3 make_cfl_width.py <1E families cfl.json> <1E circles cfl.json> <2E cfl.json> <figures>
+Usage: python3 make_cfl_width.py <1E families cfl.json> <1E circles cfl.json> <2E cfl.json> <figures> [--paper-notation]
+                                  [--cw-box]
+    --paper-notation   (2026-11-18, off by default) boxes of the right panel in the notation of the paper,
+                       Delta t_crit c_T/w instead of Delta t_crit c/w_T (same values: c_T = 1, all the widths equal)
+    --cw-box           (2026-11-18, off by default) box of the right panel: range of C_w = Delta t_crit c_T / min_T w_T
+                       over the 17 meshes of the three tests (square mesh included), three significant digits, the
+                       interval of the paper, instead of the range over the square and thin cells only
 """
 import json, os, sys
 import numpy as np
@@ -23,7 +29,16 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-FJ, CJ, EJ, OUT = sys.argv[1:5]
+PAPER = "--paper-notation" in sys.argv[1:]
+CW_BOX = "--cw-box" in sys.argv[1:]
+
+
+def sig3(x, up):
+    """x rounded to 3 significant digits, up or down (2026-11-19, --cw-box: the interval is rounded outward, so that
+    it contains all the meshes; .3g rounded 0.098765 up to 0.0988)."""
+    e = 10.0 ** (int(np.floor(np.log10(abs(x)))) - 2)
+    return (np.ceil(x / e - 1e-9) if up else np.floor(x / e + 1e-9)) * e
+FJ, CJ, EJ, OUT = [a for a in sys.argv[1:] if a not in ("--paper-notation", "--cw-box")][:4]
 
 
 def kind(r):
@@ -45,10 +60,13 @@ plt.rcParams.update({"font.family": "serif", "font.serif": ["cmr10"], "mathtext.
 GRID = dict(ls=":", lw=0.4, color="#b4b4b0")
 h = 1 / 16
 # test -> (title, color, marker, size, size varied, label)
+# --paper-notation (2026-11-19): tests (i) and (iii) in violet and brown, red and blue being MLTS and LI in the paper
+C_I, C_III = ("#805ad5", "#8b5a2b") if PAPER else ("#2b6cb0", "#b7202e")
 TESTS = {
-    "face":    ("(i) small faces", "#2b6cb0", "s", 4.0, "face", "smallest face"),
+    "face":    ("(i) small faces", C_I, "s", 4.0, "face",
+                r"smallest face $|F|$" if PAPER else "smallest face"),   # --paper-notation (2026-11-19): |F| as in the text
     "stretch": ("(ii) stretched cells", "#2f855a", "o", 4.0, "diam", r"smallest diameter $h_T$"),
-    "thin":    ("(iii) thin cells", "#b7202e", "^", 4.5, "w", r"smallest width $w_T$"),
+    "thin":    ("(iii) thin cells", C_III, "^", 4.5, "w", r"smallest width $w_T$"),
 }
 
 fig = plt.figure(figsize=(6.3, 2.15))
@@ -71,9 +89,14 @@ for i, (f, (lab, c, mk, ms, m, xlab)) in enumerate(TESTS.items()):
                 mfc=c if row == 0 else "white")
         ax.plot([sq[m]], [sq["dt"]], "*", color="#1a1a1a", ms=6.5, mew=0.7, zorder=4,
                 mfc="#1a1a1a" if row == 0 else "white")
-        if f == "thin":
+        if f == "thin" and CW_BOX:
+            # --cw-box: C_w over the 17 meshes of the three tests (c_T = 1), as the interval given in the text
+            v = np.array([r["dt"] / r["w"] for r in R if r["kind"] != "isolated"])
+            txt.append(rf"{SHORT[row]}: $C_{{\rm w}}\in[{sig3(v.min(), False):.3g},{sig3(v.max(), True):.3g}]$")
+        elif f == "thin":
             v = np.array([r["dt"] / r["w"] for r in S + [sq]])
-            txt.append(rf"{SHORT[row]}: $\Delta t_{{\rm crit}}\,c/w_T\in[{v.min():.3f},{v.max():.3f}]$")
+            q = r"c_T/w" if PAPER else r"c/w_T"
+            txt.append(rf"{SHORT[row]}: $\Delta t_{{\rm crit}}\,{q}\in[{v.min():.3f},{v.max():.3f}]$")
         else:
             v = np.array([r["dt"] for r in S]) / sq["dt"]
             txt.append(rf"{SHORT[row]}: ratio to $\star$ ${v.min():.2f}$ to ${v.max():.2f}$")

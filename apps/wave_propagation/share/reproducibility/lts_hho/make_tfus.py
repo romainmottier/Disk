@@ -22,7 +22,10 @@ and what the scheme allocates and keeps; <runs>/<fit|t1>/<run>/log.txt, campaign
 without it, the peak memory (maximum resident set size, time.txt).
 With --short (2026-11-15), the six-thread times of MLTS and LI also come from 8 us runs without outputs
 (fit/plate_mlts_8us, fit/plate_li_8us), extrapolated as on one thread: the same protocol for every scheme.
-Usage: python3 make_tfus.py <runs> <figures> [--memory <runs>] [--short]
+With --three-snapshots (2026-11-16), tfus_snapshots.pdf has three panels: t = 4 us, before the burst reaches the skull
+(run fit/plate_li_early: fit/plate_li stopped after 70 steps, job of article/pardiso/jobs_snap.txt), 20 and 44 us.
+With --signals-xmin <v> (2026-11-17, off by default: 44): left panel of tfus_signals.pdf (--signals-row) from t = v us.
+Usage: python3 make_tfus.py <runs> <figures> [--memory <runs>] [--short] [--three-snapshots]
 """
 import math, os, re, sys
 import numpy as np
@@ -36,15 +39,79 @@ ARGS, MEM = sys.argv[1:], None
 # --short (2026-11-15, off by default): on six threads too, every scheme timed over the first 8 us without outputs
 # (fit/plate_erk_8us, fit/plate_mlts_8us, fit/plate_li_8us) and extrapolated, as on one thread (t1/)
 SHORT = "--short" in ARGS
-ARGS = [a for a in ARGS if a != "--short"]
+# --three-snapshots (2026-11-16, off by default): Fig. tfus-snap with t = 4 (fit/plate_li_early), 20 and 44 us
+THREE_SNAPSHOTS = "--three-snapshots" in ARGS
+# --skull-strip (2026-11-16, off by default): Fig. tfus-skull as strips along the plate (rotated view, plate horizontal,
+# scalp up), shear stress on a common scale for the three times
+SKULL_STRIP = "--skull-strip" in ARGS
+# --focus-row (2026-11-16, off by default): Fig. tfus-focus in one row, the three peak-pressure maps and the profile
+# along the axis in dB, from the geometric focus; --signals-row: Fig. tfus-signals without the focal signals of the
+# three configurations and without the cost bars (Table tfus-cost): accuracy check and discrete energy only
+FOCUS_ROW = "--focus-row" in ARGS
+SIGNALS_ROW = "--signals-row" in ARGS
+# --mesh-zooms (2026-11-16, off by default): tfus_model_steps.pdf with three zooms on the same window, staircase,
+# quadtree with split cells and Voronoi with split cells (instead of the staircase and the split quadtree)
+MESH_ZOOMS = "--mesh-zooms" in ARGS
+# --fine-timing (2026-11-16, off by default): Table tfus-cost from the timed runs of the meshes twice finer
+# (lts_work/head_fine/chain_T.sh): ERK(4) over 2 us (plate_erk_2us, t1/erk_2us), MLTS and LI over 278 of 2788 steps
+FINE_TIMING = "--fine-timing" in ARGS
+# --paper-labels (2026-11-18, off by default, fourth review of the paper): units in brackets ([us], [dB]) in
+# tfus_signals, tfus_focus and tfus_polytopal; no panel titles in tfus_signals and tfus_polytopal (the captions name the
+# panels); in tfus_polytopal, "pressure at the geometric focus" and slightly smaller fonts in the right panel; in
+# tfus_snapshots, "mean pressure" for -tr(sigma)/2 instead of "mean stress"
+PAPER_LABELS = "--paper-labels" in ARGS
+ARGS = [a for a in ARGS if a not in ("--short", "--three-snapshots", "--skull-strip", "--focus-row", "--signals-row",
+                                     "--mesh-zooms", "--fine-timing", "--paper-labels")]
+# --paper-labels: upright micro sign (U+00B5) in the unit, as \textmu in the preprint (2026-11-19, was $\mu$, italic)
+T_LABEL = "$t$ [µs]" if PAPER_LABELS else r"$t$ ($\mu$s)"
+
+
+def minus(s):
+    """--paper-labels (2026-11-19): typographic minus sign (U+2212) instead of the hyphen, for numbers only."""
+    return s.replace("-", "−") if PAPER_LABELS else s
+
+
+def t_title(t):
+    """Time in the panels: "t = 4 [mu s]" with --paper-labels (2026-11-19, unit in brackets), else "t = 4 mu s"."""
+    return f"$t={t:.0f}$ [µs]" if PAPER_LABELS else rf"$t={t:.0f}\,\mu$s"
+
+
+DB = " [dB]" if PAPER_LABELS else " dB"   # --paper-labels (2026-11-19): unit in brackets in the titles of tfus_focus
 if "--memory" in ARGS:
     _k = ARGS.index("--memory")
     MEM, ARGS = ARGS[_k + 1], ARGS[:_k] + ARGS[_k + 2:]
+# --fine-meshes <dir> (2026-11-16, off by default): the meshes twice finer of <dir> (head_s80_{fit,hf,vor}2_*,
+# lts_work/head_fine/meshes) instead of those of mesh_generation/brain_mri/meshes; the tissue rasters are identical
+FINE = None
+if "--fine-meshes" in ARGS:
+    _k = ARGS.index("--fine-meshes")
+    FINE, ARGS = ARGS[_k + 1], ARGS[:_k] + ARGS[_k + 2:]
+# --energy-ymin <v> (2026-11-17, off by default): energy axis of Fig. tfus-signals (--signals-row) from v to 1.005,
+# instead of the automatic range, which magnifies the small losses of the fitted interfaces
+ENERGY_YMIN = None
+if "--energy-ymin" in ARGS:
+    _k = ARGS.index("--energy-ymin")
+    ENERGY_YMIN, ARGS = float(ARGS[_k + 1]), ARGS[:_k] + ARGS[_k + 2:]
+# --signals-xmin <v> (2026-11-17, off by default: 44): time axis of the left panel of Fig. tfus-signals (--signals-row)
+# from v to 56 us instead of 44 to 56 us
+SIGNALS_XMIN = 44
+if "--signals-xmin" in ARGS:
+    _k = ARGS.index("--signals-xmin")
+    SIGNALS_XMIN, ARGS = float(ARGS[_k + 1]), ARGS[:_k] + ARGS[_k + 2:]
 RUNS = ARGS[0] if len(ARGS) > 0 else "."
 OUT = ARGS[1] if len(ARGS) > 1 else "."
 MEMORY_LABEL = "algebraic memory" if MEM else "peak memory"
 HERE = os.path.dirname(os.path.abspath(__file__))
 MESHES = os.path.join(HERE, "..", "..", "..", "src", "mesh_generation", "brain_mri", "meshes")
+
+
+def mesh_path(name):
+    """A mesh file (or tissue raster) of the preprint, or with --fine-meshes its twice finer version."""
+    if FINE:
+        for a in ("fit", "hf", "vor"):
+            name = name.replace(f"head_s80_{a}_", f"head_s80_{a}2_")
+        return os.path.join(FINE, name)
+    return os.path.join(MESHES, name)
 os.makedirs(OUT, exist_ok=True)
 plt.rcParams.update({"font.family": "serif", "font.size": 7.5, "axes.labelsize": 7.5, "legend.fontsize": 6.5,
                      "xtick.labelsize": 6.5, "ytick.labelsize": 6.5, "axes.linewidth": 0.6, "lines.linewidth": 1.0,
@@ -67,6 +134,15 @@ def save(fig, name):
 
 def run(d, kind="fit"):
     return os.path.join(RUNS, kind, d)
+
+
+def first_run(kind, *names):
+    """The first existing run among names, else the first one. The fine campaign (2026-11-16) has the staircase runs
+    with LI (tfus/*_li, not tfus/*_mlts) and the Voronoi run with MLTS (vor/plate_mlts, not vor/plate_li)."""
+    for r in names:
+        if os.path.isdir(run(r, kind)):
+            return run(r, kind)
+    return run(names[0], kind)
 
 
 def read_samples(path):
@@ -172,7 +248,7 @@ def solid_outline(ax, med, polys, box, color="#1a1a1a", lw=0.4):
 
 
 def tissue_underlay(ax, box, alpha=0.35):
-    tis = np.load(os.path.join(MESHES, "head_s80_fit_plate_tissues.npy"))
+    tis = np.load(mesh_path("head_s80_fit_plate_tissues.npy"))
     H, W = tis.shape
     order = [t for t, _, _ in TISSUES]
     cmap = ListedColormap([c for _, _, c in TISSUES])
@@ -210,7 +286,7 @@ def transducer(ax, lw=1.6):
 
 # --------------------------------------------------------------------------------------------------------- model
 def model():
-    tis = np.load(os.path.join(MESHES, "head_s80_fit_plate_tissues.npy"))
+    tis = np.load(mesh_path("head_s80_fit_plate_tissues.npy"))
     H, W = tis.shape
     order = [t for t, _, _ in TISSUES]
     cmap = ListedColormap([c for _, _, c in TISSUES])
@@ -228,7 +304,7 @@ def model():
     ax.text(0.03, 0.97, f"{W} x {H} mm", transform=ax.transAxes, va="top", fontsize=6)
     # zoom on the plate: cells of the mesh around it
     ax2 = fig.add_axes([0.45, 0.05, 0.53, 0.93])
-    pts, cells = read_mesh(os.path.join(MESHES, "head_s80_fit_plate.txt"), (138, 164, 196, 222))
+    pts, cells = read_mesh(mesh_path("head_s80_fit_plate.txt"), (138, 164, 196, 222))
     from matplotlib.collections import PolyCollection
     col = {t: c for t, _, c in TISSUES}
     ax2.add_collection(PolyCollection([pts[r] for r, _ in cells], facecolors=[col[t] for _, t in cells], edgecolors="k",
@@ -247,6 +323,7 @@ def model():
 # T1 MRI and FSL segmentation of the head model (OpenNeuro ds001734, subject 1, slice 80; ~/Downloads/mri_dataset)
 MRI_DATA = os.environ.get("TFUS_MRI_DATA", os.path.expanduser("~/Downloads/mri_dataset/data"))
 ZOOM = (138, 164, 196, 222)     # window around the plate (mm), as in model()
+ZOOM_MESH = (153.5, 163.5, 199.5, 209.5)   # --mesh-zooms: 10 mm around the lower screw (158.5, 204.5)
 
 
 def mri_slice():
@@ -258,7 +335,7 @@ def mri_slice():
     seg = np.load(os.path.join(MRI_DATA, "segmentation", "sub-001_T1w.npy"))[80]
     t1 = G.read_nifti(os.path.join(MRI_DATA, "mri", "sub-001_T1w.nii.gz"))[80]
     tag, (r0, c0) = G.crop(G.tissues(seg, t1, 60.0, 120.0), 40, 4)
-    ref = np.load(os.path.join(MESHES, "head_s80_fit_plate_tissues.npy"))
+    ref = np.load(mesh_path("head_s80_fit_plate_tissues.npy"))
     if tag.shape != ref.shape or not np.array_equal(tag, ref):
         raise RuntimeError("the crop of the MRI slice differs from the tissue raster of the meshes")
     H, W = tag.shape
@@ -286,11 +363,18 @@ def model_steps():
     lo, hi = np.percentile(img[img > 0], [1, 99.5])
     gray = dict(cmap="gray", vmin=lo, vmax=hi, origin="lower", interpolation="nearest", extent=(0, W, 0, H))
     col = {t: c for t, _, c in TISSUES}
-    x0, x1, y0, y1 = ZOOM
-    fig = plt.figure(figsize=(6.3, 2.45))
-    hgt = 0.86
-    wa = hgt * 2.45 / 6.3 * W / H
-    wz = hgt * 2.45 / 6.3 * (x1 - x0) / (y1 - y0)
+    if MESH_ZOOMS:                    # (2026-11-16) three zooms of 10 mm around the lower screw, same window
+        x0, x1, y0, y1 = ZOOM_MESH
+        Hf, hgt = 1.95, 0.78
+        names = (("head_s80_hf_plate.txt", "staircase"), ("head_s80_fit_plate.txt", "quadtree, split cells"),
+                 ("head_s80_vor_plate.txt", "Voronoi, split cells"))
+    else:
+        x0, x1, y0, y1 = ZOOM
+        Hf, hgt = 2.45, 0.86
+        names = (("head_s80_hf_plate.txt", None), ("head_s80_fit_plate.txt", None))
+    fig = plt.figure(figsize=(6.3, Hf))
+    wa = hgt * Hf / 6.3 * W / H
+    wz = hgt * Hf / 6.3 * (x1 - x0) / (y1 - y0)
     ax = fig.add_axes([0.0, 0.12, wa, hgt])
     ax.imshow(img, **gray)
     ax.imshow(idx, cmap=cmap, vmin=-0.5, vmax=len(order) - 0.5, alpha=0.5, origin="lower", interpolation="nearest",
@@ -300,7 +384,9 @@ def model_steps():
     ax.plot([FOCUS[0], FOCUS[0] + RADIUS * e[0]], [FOCUS[1], FOCUS[1] + RADIUS * e[1]], ":", color="#d69e2e", lw=0.6)
     ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False, ec="#b7202e", lw=0.8))
     ax.set_xlim(0, W); ax.set_ylim(0, H); ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
-    ax.text(0.03, 0.97, f"{W} x {H} mm", transform=ax.transAxes, va="top", fontsize=5.5, color="white")
+    # --paper-labels (2026-11-19): multiplication sign and unit in brackets, as in the preprint
+    ax.text(0.03, 0.97, f"{W} × {H} [mm]" if PAPER_LABELS else f"{W} x {H} mm", transform=ax.transAxes, va="top",
+            fontsize=5.5, color="white")
     # smoothed skull: level 1/2 of the smoothed bone indicator, cubic interpolation on a fine grid of the window
     phi = ndi.gaussian_filter(np.isin(tag, [1, 2]).astype(float), 1.0) - 0.5
     coef = ndi.spline_filter(phi, order=3)
@@ -308,14 +394,29 @@ def model_steps():
     XX, YY = np.meshgrid(xs, ys)
     PHI = ndi.map_coordinates(coef, [YY.ravel() - 0.5, XX.ravel() - 0.5], order=3, prefilter=False,
                               mode="nearest").reshape(XX.shape)
-    for k, name in enumerate(("head_s80_hf_plate.txt", "head_s80_fit_plate.txt")):
+    for k, (name, title) in enumerate(names):
         axz = fig.add_axes([wa + 0.02 + k * (wz + 0.02), 0.12, wz, hgt])
         axz.imshow(img, **gray)
-        pts, cells = read_mesh(os.path.join(MESHES, name), ZOOM)
+        pts, cells = read_mesh(mesh_path(name), (x0, x1, y0, y1))
         axz.add_collection(PolyCollection([pts[r] for r, _ in cells], facecolors=[to_rgba(col[t], 0.4) for _, t in cells],
                                           edgecolors=(0, 0, 0, 0.7), linewidths=0.08))
-        if k == 1:
+        if MESH_ZOOMS:
+            # (2026-11-16) the solid-fluid interface of each mesh (edges between a solid cell, bone or titanium, and a
+            # fluid cell), thin, in the three zooms: steps on the staircase, the smoothed skull on the split meshes
+            from matplotlib.collections import LineCollection
+            owner, segs = {}, []
+            for ring, t in cells:
+                s_ = t in (1, 2, 8)
+                for a, b in zip(ring, ring[1:] + ring[:1]):
+                    key = (min(a, b), max(a, b))
+                    if key in owner and owner[key] != s_:
+                        segs.append([pts[a], pts[b]])
+                    owner.setdefault(key, s_)
+            axz.add_collection(LineCollection(segs, colors="#b7202e", linewidths=0.45))
+        elif k >= 1:
             axz.contour(XX, YY, PHI, levels=[0.0], colors="#b7202e", linewidths=0.7)
+        if title:
+            axz.set_title(title, fontsize=7, pad=2)
         axz.set_xlim(x0, x1); axz.set_ylim(y0, y1); axz.set_aspect("equal"); axz.set_xticks([]); axz.set_yticks([])
         for s in axz.spines.values():
             s.set_edgecolor("#b7202e"); s.set_linewidth(0.8)
@@ -365,11 +466,18 @@ def snapshots():
     X0, X1, Y0, Y1, px = 60.0, 225.0, 120.0, 270.0, 0.2
     med, polys = read_cells(os.path.join(d, "c_cells.dat"))
     times = snapshot_times(d)
-    sel = [i for i, t in times if t in (20.0, 28.0, 36.0, 44.0, 52.0, 68.0)]
-    fig, axs = plt.subplots(2, 3, figsize=(6.3, 4.1))
+    if THREE_SNAPSHOTS:
+        de = run("plate_li_early")                                    # same mesh, stopped at t = 4 us
+        sel = [(de, i, t) for i, t in snapshot_times(de) if t == 4.0] + [(d, i, t) for i, t in times if t in (20.0, 44.0)]
+        H = 2.3
+        fig, axs = plt.subplots(1, 3, figsize=(6.3, H))
+    else:
+        sel = [(d, i, t) for i, t in times if t in (20.0, 28.0, 36.0, 44.0, 52.0, 68.0)]
+        H = 4.1
+        fig, axs = plt.subplots(2, 3, figsize=(6.3, H))
     lim = 1.0
-    for ax, i in zip(axs.flat, sel):
-        _, vals = read_samples(os.path.join(d, f"c_snapshot_{i}_samples.dat"))
+    for ax, (ds, i, t) in zip(np.ravel(axs), sel):
+        _, vals = read_samples(os.path.join(ds, f"c_snapshot_{i}_samples.dat"))
         img = signed_root(raster_cells(polys, vals, X0, X1, Y0, Y1, px), lim)
         tissue_underlay(ax, (X0, X1, Y0, Y1), alpha=0.45)
         rgba = plt.get_cmap("RdBu_r")((img + 1) / 2)
@@ -377,27 +485,107 @@ def snapshots():
         im = ax.imshow(rgba, origin="lower", extent=(X0, X1, Y0, Y1), interpolation="bilinear")
         solid_outline(ax, med, polys, (X0, X1, Y0, Y1), lw=0.3)
         transducer(ax, lw=1.0)
-        t = dict(times)[i]
-        ax.text(0.03, 0.96, rf"$t={t:.0f}\,\mu$s", transform=ax.transAxes, va="top", fontsize=7,
+        ax.text(0.03, 0.96, t_title(t), transform=ax.transAxes, va="top", fontsize=7,
                 bbox=dict(fc="white", ec="none", alpha=0.8, pad=1))
         ax.set_xlim(X0, X1); ax.set_ylim(Y0, Y1); ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
-    cax = fig.add_axes([0.25, 0.04, 0.5, 0.013])
+    # colour bar: same size in inches for both layouts (4.1 in high with six panels)
+    cax = fig.add_axes([0.25, 0.04 * 4.1 / H + (0.02 if THREE_SNAPSHOTS else 0.0), 0.5, 0.013 * 4.1 / H])
     from matplotlib.cm import ScalarMappable
     from matplotlib.colors import Normalize
     cb = fig.colorbar(ScalarMappable(norm=Normalize(-1, 1), cmap="RdBu_r"), cax=cax, orientation="horizontal")
     ticks = np.array([-1, -0.25, -0.04, 0, 0.04, 0.25, 1])
-    cb.set_ticks(signed_root(ticks, lim)); cb.set_ticklabels([f"{t:g}" for t in ticks])
-    cb.set_label(r"pressure $p$ (fluids), mean stress $-\frac{1}{2}\mathrm{tr}\,\sigma$ (bone, titanium); burst amplitude 1",
-                 fontsize=6.5, labelpad=1)
+    cb.set_ticks(signed_root(ticks, lim)); cb.set_ticklabels([minus(f"{t:g}") for t in ticks])
+    # with --three-snapshots, the unit amplitude of the burst is stated in the text of the preprint (Source paragraph)
+    # --paper-labels (2026-11-18): "mean pressure" -tr(sigma)/2, the sign of the pressure (mean stress = +tr(sigma)/2)
+    solid = "mean pressure" if PAPER_LABELS else "mean stress"
+    # --paper-labels (2026-11-19): 1/2 tr s with the blackboard s := -sigma of the preprint
+    trace = r" $\frac{1}{2}\mathrm{tr}\,\mathbb{s}$" if PAPER_LABELS else r" $-\frac{1}{2}\mathrm{tr}\,\sigma$"
+    cb.set_label(r"pressure $p$ (fluids), " + solid + trace + r" (bone, titanium)"
+                 + ("" if THREE_SNAPSHOTS else "; burst amplitude 1"), fontsize=6.5, labelpad=1)
     cb.ax.tick_params(labelsize=6)
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.09, wspace=0.03, hspace=0.04)
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=(0.17 if THREE_SNAPSHOTS else 0.09), wspace=0.03,
+                        hspace=0.04)
     save(fig, "tfus_snapshots.pdf")
+
+
+def skull_strip(d):
+    """tfus_skull.pdf with --skull-strip (2026-11-16): strips of 28 x 14 mm along the plate, in the frame of the plate
+    (principal axis of the titanium cells of head_s80_fit_plate.txt, normal towards the transducer), resampled from an
+    axis-aligned raster (nearest pixel of 0.04 mm). Top row: p and the mean stress (signed square root, as before); bottom
+    row: shear stress tau_max in the solids, one square-root scale for the three times."""
+    from matplotlib.collections import LineCollection
+    from matplotlib.colors import PowerNorm
+    from scipy import ndimage as ndi
+    pts, cells = read_mesh(mesh_path("head_s80_fit_plate.txt"), (130.0, 180.0, 185.0, 235.0))
+    ti = [pts[r] for r, tag in cells if tag == 8]
+    cent = np.array([q.mean(axis=0) for q in ti])
+    area = np.array([abs(0.5 * np.sum(q[:, 0] * np.roll(q[:, 1], -1) - np.roll(q[:, 0], -1) * q[:, 1])) for q in ti])
+    c = (cent * area[:, None]).sum(0) / area.sum()
+    t = np.linalg.eigh(((cent - c).T * area) @ (cent - c))[1][:, 1]
+    n = np.array([-t[1], t[0]])
+    if n @ np.array([math.cos(AXIS), math.sin(AXIS)]) < 0:                # normal towards the transducer (scalp up)
+        n = -n
+    if t[0] < 0:
+        t = -t
+    S0, S1, R0, R1, px = -14.0, 14.0, -9.0, 5.0, 0.04
+    corn = np.array([c + s * t + r * n for s in (S0, S1) for r in (R0, R1)])
+    X0, X1 = math.floor(corn[:, 0].min()) - 1.0, math.ceil(corn[:, 0].max()) + 1.0
+    Y0, Y1 = math.floor(corn[:, 1].min()) - 1.0, math.ceil(corn[:, 1].max()) + 1.0
+    sc = S0 + (np.arange(int(round((S1 - S0) / px))) + 0.5) * px
+    rc = R0 + (np.arange(int(round((R1 - R0) / px))) + 0.5) * px
+    SS, RR = np.meshgrid(sc, rc)
+    idx = [(c[1] + SS * t[1] + RR * n[1] - Y0) / px - 0.5, (c[0] + SS * t[0] + RR * n[0] - X0) / px - 0.5]
+    strip = lambda img: ndi.map_coordinates(img, idx, order=0, mode="nearest")
+    med, polys = read_cells(os.path.join(d, "c_cells.dat"))
+    solid = strip(raster_cells(polys, np.array(med, float)[:, None, None] * np.ones((1, 1, 1)), X0, X1, Y0, Y1, px, fill=0.0))
+    owner, segs = {}, []                                                 # solid outline, in the frame of the plate
+    for k, q in enumerate(polys):
+        if q[:, 0].max() < X0 or q[:, 0].min() > X1 or q[:, 1].max() < Y0 or q[:, 1].min() > Y1:
+            continue
+        for e in range(len(q)):
+            a, b = tuple(np.round(q[e], 9)), tuple(np.round(q[(e + 1) % len(q)], 9))
+            key = (min(a, b), max(a, b))
+            if key in owner and owner[key] != med[k]:
+                segs.append([((np.array(p_) - c) @ t, (np.array(p_) - c) @ n) for p_ in (a, b)])
+            owner.setdefault(key, med[k])
+    times = dict(snapshot_times(d))
+    sel = [i for i, tt in sorted(times.items()) if tt in (28.0, 36.0, 44.0)]
+    fig, axs = plt.subplots(2, 3, figsize=(6.3, 2.3))
+    ext = (S0, S1, R0, R1)
+    for j, i in enumerate(sel):
+        _, vals = read_samples(os.path.join(d, f"c_snapshot_{i}_samples.dat"))
+        im0 = axs[0, j].imshow(signed_root(strip(raster_cells(polys, vals, X0, X1, Y0, Y1, px)), 0.6), cmap="RdBu_r",
+                               vmin=-1, vmax=1, origin="lower", extent=ext, interpolation="bilinear")
+        axs[0, j].set_title(t_title(times[i]), fontsize=7, pad=2)
+        _, vals = read_samples(os.path.join(d, f"c_snapshot_{i}_shear.dat"))
+        tau = np.where(solid > 0.5, strip(raster_cells(polys, vals, X0, X1, Y0, Y1, px)), np.nan)
+        im1 = axs[1, j].imshow(tau, cmap="magma_r", norm=PowerNorm(0.5, vmin=0.0, vmax=2.0), origin="lower", extent=ext,
+                               interpolation="bilinear")
+        for a in (axs[0, j], axs[1, j]):
+            a.add_collection(LineCollection(segs, colors="#1a1a1a", linewidths=0.5))
+            a.set_xlim(S0, S1); a.set_ylim(R0, R1); a.set_aspect("equal"); a.set_xticks([]); a.set_yticks([])
+    for txt, r in (("scalp", 4.3), ("skull", -4.6)):
+        axs[0, 0].text(S0 + 0.6, r, txt, fontsize=5.5, va="center", bbox=dict(fc="white", ec="none", alpha=0.7, pad=0.6))
+    fig.subplots_adjust(left=0.01, right=0.9, top=0.92, bottom=0.02, wspace=0.03, hspace=0.06)
+    # --paper-labels (2026-11-19): shorter color bars, so that their end labels (-0.6 and 2) do not touch
+    cb_kw = dict(shrink=0.85) if PAPER_LABELS else {}
+    cb = fig.colorbar(im0, ax=axs[0, :].tolist(), fraction=0.02, pad=0.01, **cb_kw)
+    ticks = np.array([-0.6, -0.15, -0.02, 0, 0.02, 0.15, 0.6])
+    cb.set_ticks(signed_root(ticks, 0.6)); cb.set_ticklabels([minus(f"{x:g}") for x in ticks])
+    cb.set_label(r"$p$, $\frac{1}{2}\mathrm{tr}\,\mathbb{s}$" if PAPER_LABELS else r"$p$, $-\frac{1}{2}\mathrm{tr}\,\sigma$",
+                 fontsize=6.5); cb.ax.tick_params(labelsize=5.5)   # --paper-labels (2026-11-19): s := -sigma
+    cb = fig.colorbar(im1, ax=axs[1, :].tolist(), fraction=0.02, pad=0.01, **cb_kw)
+    cb.set_ticks([0, 0.1, 0.5, 1, 2]); cb.set_ticklabels(["0", "0.1", "0.5", "1", "2"])
+    cb.set_label(r"$\tau_{\max}$", fontsize=6.5); cb.ax.tick_params(labelsize=5.5)
+    save(fig, "tfus_skull.pdf")
 
 
 def skull():
     d = run("plate_li")
     if not os.path.isdir(d):
         print("skull: missing", d); return
+    if SKULL_STRIP:
+        return skull_strip(d)
     X0, X1, Y0, Y1, px = 136.0, 170.0, 192.0, 226.0, 0.04
     med, polys = read_cells(os.path.join(d, "c_cells.dat"))
     solid = raster_cells(polys, np.array(med, float)[:, None, None] * np.ones((1, 1, 1)), X0, X1, Y0, Y1, px, fill=0.0)
@@ -448,7 +636,7 @@ def focus():
         _, vals = read_samples(os.path.join(run(r), "c_peak_samples.dat"))
         P[r] = raster_cells(polys, vals, X0, X1, Y0, Y1, px)
         geo[r] = (med, polys)
-    tis = np.load(os.path.join(MESHES, "head_s80_fit_plate_tissues.npy"))
+    tis = np.load(mesh_path("head_s80_fit_plate_tissues.npy"))
     xc = X0 + (np.arange(P["water_li"].shape[1]) + 0.5) * px
     yc = Y0 + (np.arange(P["water_li"].shape[0]) + 0.5) * px
     XX, YY = np.meshgrid(xc, yc)
@@ -456,11 +644,19 @@ def focus():
     ref = np.nanmax(np.where(brain, P["water_li"], 0))
     kw = np.unravel_index(np.nanargmax(np.where(brain, P["water_li"], 0)), XX.shape)
     fw = np.array([XX[kw], YY[kw]])
-    fig = plt.figure(figsize=(6.3, 4.2))
-    gs = fig.add_gridspec(2, 3, height_ratios=[1.25, 1], hspace=0.3, wspace=0.08)
+    if FOCUS_ROW:
+        # one row (2026-11-16): the three maps (side s inches) and a vertical colour bar; the titles give the peak in
+        # the brain and the peak at the geometric focus (sensor "focus"), both in dB re the focal peak in water
+        W, s, g, x0, y0 = 6.3, 1.88, 0.06, 0.02, 0.03
+        H = y0 + s + 0.34
+        fig = plt.figure(figsize=(W, H))
+        row_axes = [fig.add_axes([(x0 + j * (s + g)) / W, y0 / H, s / W, s / H]) for j in range(3)]
+    else:
+        fig = plt.figure(figsize=(6.3, 4.2))
+        gs = fig.add_gridspec(2, 3, height_ratios=[1.25, 1], hspace=0.3, wspace=0.08)
     stats = {}
     for j, (r, lab) in enumerate(runs):
-        ax = fig.add_subplot(gs[0, j])
+        ax = row_axes[j] if FOCUS_ROW else fig.add_subplot(gs[0, j])
         db = 20 * np.log10(np.maximum(P[r], 1e-12) / ref)
         im = ax.imshow(db, cmap="inferno", vmin=-18, vmax=0, origin="lower", extent=(X0, X1, Y0, Y1), interpolation="bilinear")
         if r != "water_li":
@@ -473,8 +669,36 @@ def focus():
                         lateral=float(dd @ n), area=float(np.sum(lab_ == lab_[k]) * px * px))
         ax.plot(*FOCUS, "+", color="#4fd1c5", ms=6, mew=1.0)
         ax.plot(*f, "x", color="white", ms=4, mew=0.8)
-        ax.set_title(f"{lab}: {20 * math.log10(stats[r]['peak']):+.1f} dB", fontsize=7, pad=2)
+        db = 20 * math.log10(stats[r]['peak'])
+        ax.set_title(f"{lab}: {minus(f'{db:+.1f}')}{DB}", fontsize=7, pad=2)
         ax.set_xlim(X0, X1); ax.set_ylim(Y0, Y1); ax.set_xticks([]); ax.set_yticks([])
+    if FOCUS_ROW:
+        for j, (r, lab) in enumerate(runs):
+            f = os.path.join(run(r), "c_focus.csv")
+            tgt = np.max(np.abs(csv(f)[:, 1])) / ref if os.path.exists(f) else float("nan")
+            db, db_t = 20 * math.log10(stats[r]['peak']), 20 * math.log10(tgt)
+            row_axes[j].set_title(f"{lab}\nmax {minus(f'{db:+.1f}')}{DB}, "
+                                  f"target {minus(f'{db_t:+.1f}')}{DB}", fontsize=7, pad=2, linespacing=1.3)
+        cax = fig.add_axes([(x0 + 3 * s + 2 * g + 0.06) / W, y0 / H, 0.09 / W, s / H])
+        cb = fig.colorbar(im, cax=cax)
+        cb.set_label("peak pressure [dB]" if PAPER_LABELS else "peak pressure (dB)", fontsize=6.5, labelpad=2)
+        cb.ax.tick_params(labelsize=6)
+        save(fig, "tfus_focus.pdf")
+    else:
+        focus_profiles(fig, gs, im, runs, P, ref, fw, e, n, X0, Y0, px)
+    with open(os.path.join(OUT, "tfus_focus.txt"), "w") as fo:
+        fo.write(f"water focus at ({fw[0]:.2f}, {fw[1]:.2f}), {np.hypot(*(fw - FOCUS)):.2f} mm from the geometric focus\n")
+        for r, lab in runs:
+            st = stats[r]
+            fo.write(f"{lab}: peak in the brain {st['peak']:.3f} ({20 * math.log10(st['peak']):+.2f} dB) at ({st['x']:.2f}, "
+                     f"{st['y']:.2f}), shift {st['shift']:.2f} mm (axial {st['axial']:+.2f}, lateral {st['lateral']:+.2f}), "
+                     f"-3 dB area {st['area']:.1f} mm^2\n")
+    print(open(os.path.join(OUT, "tfus_focus.txt")).read())
+
+
+def focus_profiles(fig, gs, im, runs, P, ref, fw, e, n, X0, Y0, px):
+    """Default layout of tfus_focus.pdf (before 2026-11-16): colour bar at the right of the maps, profiles of the peak
+    pressure along the axis (from the water focus) and across it, in the second row."""
     cb = fig.colorbar(im, ax=fig.axes[:3], fraction=0.02, pad=0.01)
     cb.set_label("peak pressure (dB re focus in water)", fontsize=6.5); cb.ax.tick_params(labelsize=6)
     for j, (dirv, xl, ss) in enumerate(((e, "along the axis, from the water focus (mm)", np.linspace(-40, 30, 561)),
@@ -490,14 +714,6 @@ def focus():
             ax.set_ylabel("peak pressure / water focus", labelpad=1)
             ax.legend(loc="upper left", frameon=False)
     save(fig, "tfus_focus.pdf")
-    with open(os.path.join(OUT, "tfus_focus.txt"), "w") as fo:
-        fo.write(f"water focus at ({fw[0]:.2f}, {fw[1]:.2f}), {np.hypot(*(fw - FOCUS)):.2f} mm from the geometric focus\n")
-        for r, lab in runs:
-            st = stats[r]
-            fo.write(f"{lab}: peak in the brain {st['peak']:.3f} ({20 * math.log10(st['peak']):+.2f} dB) at ({st['x']:.2f}, "
-                     f"{st['y']:.2f}), shift {st['shift']:.2f} mm (axial {st['axial']:+.2f}, lateral {st['lateral']:+.2f}), "
-                     f"-3 dB area {st['area']:.1f} mm^2\n")
-    print(open(os.path.join(OUT, "tfus_focus.txt")).read())
 
 
 def ndi_label(mask):
@@ -539,7 +755,45 @@ def energy(d):
     return E[:, 0], E[:, 1] / E[0, 1]
 
 
+def signals_row():
+    """tfus_signals.pdf with --signals-row (2026-11-16): accuracy check with the plate (LI at dt and dt/2, MLTS) and
+    discrete energy; the costs are in Table tfus-cost, the focal peaks in Fig. tfus-focus."""
+    fig, axs = plt.subplots(1, 2, figsize=(6.3, 2.0))
+    ax = axs[0]
+    mlts_run = "plate_mlts_w" if os.path.isdir(run("plate_mlts_w")) else "plate_mlts"
+    for r, lab, c, ls in (("plate_li", r"LI, $\Delta t$", SCH["li"][1], "-"), ("plate_li_dt2", r"LI, $\Delta t/2$", "#90cdf4", "--"),
+                          (mlts_run, "MLTS", SCH["mlts"][1], ":")):
+        f = os.path.join(run(r), "c_focus.csv")
+        if os.path.exists(f):
+            A = csv(f); ax.plot(A[:, 0], A[:, 1], ls, color=c, lw=0.8, label=lab)
+    ax.set_xlabel(T_LABEL, labelpad=1); ax.set_ylabel("pressure at the geometric focus", labelpad=1)
+    ax.set_xlim(SIGNALS_XMIN, 56); ax.grid(True, **GRID)
+    ax.legend(loc="upper right", frameon=False, fontsize=5.5)
+    if not PAPER_LABELS:
+        ax.set_title("skull and plate", fontsize=7, pad=2)
+    ax = axs[1]
+    # --paper-labels (2026-11-19): configurations in colors outside the scheme colors (MLTS red, LI blue in the paper)
+    c_water, c_plate = ("#4a4a4a", "#805ad5") if PAPER_LABELS else ("#2b6cb0", "#b7202e")
+    for r, kind, lab, c, ls in (("water_li", "fit", "water", c_water, "-"), ("intact_li", "fit", "intact, fitted", "#2f855a", "-"),
+                                ("plate_li", "fit", "plate, fitted", c_plate, "-"),
+                                ("intact_mlts", "tfus", "intact, staircase", "#2f855a", "--"),
+                                ("plate_mlts", "tfus", "plate, staircase", c_plate, "--")):
+        E = energy(first_run(kind, r, r.replace("_mlts", "_li")))
+        if E is not None:
+            ax.plot(E[0], E[1], ls, color=c, lw=0.8, label=lab)
+    ax.set_xlabel(T_LABEL, labelpad=1); ax.set_ylabel(r"$E(t)/E(0)$", labelpad=1); ax.grid(True, **GRID)
+    if ENERGY_YMIN is not None:
+        ax.set_ylim(ENERGY_YMIN, 1.005)
+    ax.legend(loc="lower left", frameon=False, fontsize=5.5)
+    if not PAPER_LABELS:
+        ax.set_title("discrete energy", fontsize=7, pad=2)
+    fig.tight_layout(pad=0.2, w_pad=1.5)
+    save(fig, "tfus_signals.pdf")
+
+
 def signals():
+    if SIGNALS_ROW:
+        return signals_row()
     # top: signals and energies; bottom: costs of Table tfus-cost (times, peak memories)
     fig = plt.figure(figsize=(6.3, 4.2))
     gs = fig.add_gridspec(2, 6, height_ratios=[1, 0.9])
@@ -606,20 +860,21 @@ def signals():
 
 def polytopal():
     """Voronoi (polytopal) mesh of the head with the plate: mesh around the plate, snapshot, pressure at the focus against
-    the quadtree mesh (runs vor/plate_li and fit/plate_li)."""
-    d = run("plate_li", "vor")
+    the quadtree mesh (runs vor/plate_li and fit/plate_li; fine campaign: vor/plate_mlts)."""
+    d = first_run("vor", "plate_li", "plate_mlts")
     if not os.path.isdir(d):
         print("polytopal: missing", d); return
     from matplotlib.collections import PolyCollection
     fig = plt.figure(figsize=(6.3, 2.4))
     gs = fig.add_gridspec(1, 3, width_ratios=[1, 1.1, 1.1], wspace=0.32)
     ax = fig.add_subplot(gs[0, 0])
-    pts, cells = read_mesh(os.path.join(MESHES, "head_s80_vor_plate.txt"), (144, 160, 202, 218))
+    pts, cells = read_mesh(mesh_path("head_s80_vor_plate.txt"), (144, 160, 202, 218))
     col = {t: c for t, _, c in TISSUES}
     ax.add_collection(PolyCollection([pts[r] for r, _ in cells], facecolors=[col[t] for _, t in cells], edgecolors="k",
                                      linewidths=0.12))
     ax.set_xlim(144, 160); ax.set_ylim(202, 218); ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
-    ax.set_title("Voronoi cells around the plate", fontsize=6.5, pad=2)
+    if not PAPER_LABELS:
+        ax.set_title("Voronoi cells around the plate", fontsize=6.5, pad=2)
     ax = fig.add_subplot(gs[0, 1])
     X0, X1, Y0, Y1, px = 60.0, 225.0, 120.0, 270.0, 0.25
     med, polys = read_cells(os.path.join(d, "c_cells.dat"))
@@ -634,15 +889,25 @@ def polytopal():
     solid_outline(ax, med, polys, (X0, X1, Y0, Y1), lw=0.3)
     transducer(ax, lw=1.0)
     ax.set_xlim(X0, X1); ax.set_ylim(Y0, Y1); ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
-    ax.set_title(r"$t=44\,\mu$s, Voronoi mesh", fontsize=6.5, pad=2)
+    if not PAPER_LABELS:
+        ax.set_title(r"$t=44\,\mu$s, Voronoi mesh", fontsize=6.5, pad=2)
     ax = fig.add_subplot(gs[0, 2])
-    for r, kind, lab, c, ls in (("plate_li", "fit", "quadtree", "#b7202e", "-"),
-                                ("plate_li", "vor", "Voronoi", "#2b6cb0", "--")):
-        f = os.path.join(run(r, kind), "c_focus.csv")
+    # --paper-labels (2026-11-19): colors of the schemes as in the other figures, MLTS (Voronoi run) red, LI (quadtree) blue
+    c_quad, c_vor = ("#2b6cb0", "#b7202e") if PAPER_LABELS else ("#b7202e", "#2b6cb0")
+    for r, kind, lab, c, ls in (("plate_li", "fit", "quadtree", c_quad, "-"),
+                                ("plate_li", "vor", "Voronoi", c_vor, "--")):
+        f = os.path.join(first_run(kind, r, "plate_mlts") if kind == "vor" else run(r, kind), "c_focus.csv")
         if os.path.exists(f):
             A = csv(f); ax.plot(A[:, 0], A[:, 1], ls, color=c, lw=0.8, label=lab)
-    ax.set_xlabel(r"$t$ ($\mu$s)", labelpad=1); ax.set_ylabel("pressure at the focus", labelpad=1)
-    ax.set_xlim(40, 60); ax.grid(True, **GRID); ax.legend(loc="lower left", frameon=False, fontsize=5.5)
+    if PAPER_LABELS:   # smaller fonts than the defaults (labels 7, ticks 6), closer to the small panels on the left
+        ax.set_xlabel(T_LABEL, labelpad=1, fontsize=7); ax.set_ylabel("pressure at the geometric focus", labelpad=1,
+                                                                     fontsize=7)
+        ax.tick_params(labelsize=6)
+    else:
+        ax.set_xlabel(r"$t$ ($\mu$s)", labelpad=1); ax.set_ylabel("pressure at the focus", labelpad=1)
+    # --paper-labels (2026-11-19): legend at the upper right, off the dip of the signal near 45-46 us
+    ax.set_xlim(40, 60); ax.grid(True, **GRID)
+    ax.legend(loc="upper right" if PAPER_LABELS else "lower left", frameon=False, fontsize=5.5)
     save(fig, "tfus_polytopal.pdf")
 
 
@@ -657,7 +922,7 @@ def cost_data():
         v = [f(x) for x in (d, d + "_r2", d + "_r3") if integration(x) is not None]
         return min(v) / 60 if v else None
     mlts_run = "plate_mlts_w" if os.path.isdir(run("plate_mlts_w")) else "plate_mlts"
-    li_run = "plate_li"
+    li_run, erk6, erk1 = "plate_li", "plate_erk_8us", "erk_8us"
     T = {("erk", 6): best(run("plate_erk_8us"), lambda x: 10 * integration(x)),
          ("mlts", 6): best(run(mlts_run), integration), ("li", 6): best(run("plate_li"), integration),
          ("erk", 1): best(run("erk_8us", "t1"), lambda x: 10 * integration(x)),
@@ -667,9 +932,20 @@ def cost_data():
         mlts_run, li_run = "plate_mlts_8us", "plate_li_8us"
         T[("mlts", 6)] = best(run(mlts_run), lambda x: integration(x) * 1394 / 139)
         T[("li", 6)] = best(run(li_run), lambda x: (integration(x) - fact(x)) * 1394 / 139 + fact(x))
+    if FINE_TIMING:
+        # --fine-timing (2026-11-16, meshes twice finer, lts_work/head_fine/chain_T.sh): ERK(4) over 2 us x 40, MLTS and
+        # LI over the first 278 of the 2788 macro steps, the factorization of LI counted once, on six and one threads
+        r_ = 2788 / 278
+        mlts_run, li_run, erk6, erk1 = "plate_mlts_8us", "plate_li_8us", "plate_erk_2us", "erk_2us"
+        T = {("erk", 6): best(run(erk6), lambda x: 40 * integration(x)),
+             ("mlts", 6): best(run(mlts_run), lambda x: integration(x) * r_),
+             ("li", 6): best(run(li_run), lambda x: (integration(x) - fact(x)) * r_ + fact(x)),
+             ("erk", 1): best(run(erk1, "t1"), lambda x: 40 * integration(x)),
+             ("mlts", 1): best(run("mlts_8us", "t1"), lambda x: integration(x) * r_),
+             ("li", 1): best(run("li_8us", "t1"), lambda x: (integration(x) - fact(x)) * r_ + fact(x))}
     M = {(s_, th): os.path.join(d, "time.txt") for s_, th, d in
-         (("erk", 6, run("plate_erk_8us")), ("mlts", 6, run(mlts_run)), ("li", 6, run(li_run)),
-          ("erk", 1, run("erk_8us", "t1")), ("mlts", 1, run("mlts_8us", "t1")), ("li", 1, run("li_8us", "t1")))}
+         (("erk", 6, run(erk6)), ("mlts", 6, run(mlts_run)), ("li", 6, run(li_run)),
+          ("erk", 1, run(erk1, "t1")), ("mlts", 1, run("mlts_8us", "t1")), ("li", 1, run("li_8us", "t1")))}
     if MEM:   # algebraic memory of the same runs (line "algebraic memory: ... total X MB" of their log.txt), GiB
         M = {k: os.path.join(MEM, os.path.relpath(os.path.dirname(f), RUNS), "log.txt") for k, f in M.items()}
         M = {k: float(re.search(r"algebraic memory: .* total ([0-9.]+) MB", open(f).read()).group(1)) / 1024
@@ -689,6 +965,15 @@ def cost_table():
             g = lambda th: T[("erk", th)] / T[(s_, th)] if T[(s_, th)] and T[("erk", th)] else float("nan")
             fo.write(f"{s_:5} | {T[(s_, 6)] or float('nan'):6.1f} {g(6):5.2f} | {T[(s_, 1)] or float('nan'):6.1f} {g(1):5.2f} | "
                      f"{M.get(s_, float('nan')):4.1f} {M.get(s_, float('nan')) / M.get('erk', float('nan')):5.2f}\n")
+        if FINE_TIMING:
+            # Voronoi mesh, MLTS on six threads (vor/plate_mlts_8us: first kv of the nv steps of the full run, case.lua)
+            d = run("plate_mlts_8us", "vor")
+            if os.path.exists(os.path.join(d, "case.lua")):
+                n_ = [int(x) for x in re.findall(r"time\.n_steps = ([0-9]+)", open(os.path.join(d, "case.lua")).read())]
+                v = [integration(x) for x in (d, d + "_r2", d + "_r3") if integration(x) is not None]
+                if v and len(n_) >= 2:
+                    fo.write(f"voronoi mlts | {min(v) * n_[0] / n_[-1] / 60:6.1f} min on 6 threads ({n_[-1]} of {n_[0]} "
+                             f"steps, best of {len(v)})\n")
     print(open(os.path.join(OUT, "tfus_cost.txt")).read())
 
 

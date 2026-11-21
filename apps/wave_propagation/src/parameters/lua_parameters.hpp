@@ -103,6 +103,11 @@ struct wave_parameters {
                                                         //   than this on the threads, the others on one thread
         std::string matrix_free_precision = "double";   // "single": compute blocks of the cells stored in single
                                                         //   precision (products in double; operator perturbed at 1e-7)
+        bool release_assembly = false;                  // first order, matrix_free with the least-squares stabilization
+                                                        //   (2026-11-18, off by default): the assembled global matrices
+                                                        //   (LHS, COUPLING) are freed once the matrix-free operator is
+                                                        //   built, their dimensions kept (memory of the large meshes
+                                                        //   without congruent cells; results unchanged)
         bool fast = false;                              // fast mode of every scheme (results equal up to round-off):
                                                         //   first order = matrix_free; second order: parallel assembly,
                                                         //   cached F(t) data, parallel products, algebraic faces by
@@ -661,7 +666,7 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
     sol::table solver = get_table(lua, "solver");
     check_keys(solver, "solver", {"static_condensation", "iterative", "tolerance", "tolerance_growth", "matrix_free",
                                   "matrix_free_tolerance", "matrix_free_batch", "matrix_free_precision", "fast",
-                                  "parallel_threshold"});
+                                  "parallel_threshold", "release_assembly"});
     p.solver.static_condensation = get_bool(solver, "solver", "static_condensation", p.solver.static_condensation);
     p.solver.iterative = get_bool(solver, "solver", "iterative", p.solver.iterative);
     p.solver.tolerance = get_number(solver, "solver", "tolerance", p.solver.tolerance);
@@ -673,6 +678,7 @@ inline wave_parameters load_wave_parameters(const std::string& file, const std::
                                                 {"double", "single"});
     p.solver.fast = get_bool(solver, "solver", "fast", p.solver.fast);
     p.solver.parallel_threshold = get_count(solver, "solver", "parallel_threshold", p.solver.parallel_threshold);
+    p.solver.release_assembly = get_bool(solver, "solver", "release_assembly", p.solver.release_assembly);
     if (p.solver.fast && p.formulation == "first_order")
         p.solver.matrix_free = true;
     if (p.solver.matrix_free && p.formulation == "second_order")     // matrix-free products of the fast mode

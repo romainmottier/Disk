@@ -1,0 +1,2 @@
+# made by chain_T.sh v: Voronoi MLTS, first 178 of the 1778 steps of vor2/plate_mlts
+vor/plate_mlts_8us|6|tfus_vor.lua|mesh.files = { "/home/mottie0000/Github/Diskpp/lts_work/head_fine/meshes/head_s80_vor2_plate.txt" }|time.scheme = 'mlts'; time.level_size = 'width'; time.mlts_reuse = true; time.level_ratios = {2, 2, 4, 8}; time.n_steps = 1778|local dt_x = time.final_time / time.n_steps; time.final_time = 178 * dt_x; time.n_steps = 178|output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0

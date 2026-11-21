@@ -1,0 +1,2 @@
+# 2026-11-17 13:2x: setup memory of MLTS on the COARSE Voronoi mesh (80975 cells), to extrapolate the fine one (OOM at 45G)
+vorc/mem_mlts|6|tfus_vor.lua|time.scheme = 'mlts'; time.level_size = 'width'; time.mlts_reuse = true; time.level_ratios = {2, 2, 4, 8}|local dt_mem = time.final_time / time.n_steps; time.final_time = 3 * dt_mem; time.n_steps = 3; output.algebraic_memory = true; output.snapshots = {}; output.sensors = {}; output.energy = false; output.peak_samples = 0

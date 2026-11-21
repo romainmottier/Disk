@@ -15,6 +15,9 @@
 #include "../studies/convergence.hpp"
 #include "../assembly/elastodynamic_three_fields_assembler.hpp"
 #include <chrono>
+#ifdef __GLIBC__
+#include <malloc.h>     // malloc_trim (solver.release_assembly)
+#endif
 #include "../time_schemes/dirk_coupling_hho_scheme.hpp"
 #include "../time_schemes/mf_erk_operator.hpp"
 
@@ -67,6 +70,8 @@ namespace hho_first_order {
         bool m_mf_mlts_reuse = false;       // time.mlts_reuse (mlts)
         bool m_mf_profile = false;          // output.profile (lts, mlts)
         size_t m_mf_par_threshold = 20000;  // solver.parallel_threshold
+        bool m_release_assembly = false;    // solver.release_assembly: LHS and COUPLING freed once mf() is built (2026-11-18)
+        bool m_assembly_released = false;
         wave_parameters::problem_data::ricker_data ricker;
 
         problem(const wave_parameters& prm, size_t level, bool zero_data = false)
@@ -77,7 +82,7 @@ namespace hho_first_order {
               m_mf_li_stage(prm.time.li_coupling == "stage"), m_mf_li_condensation(prm.time.li_condensation),
               m_mf_li_pardiso(prm.time.li_solver == "pardiso"), m_mf_li_refinement(int(prm.time.li_refinement)),
               m_mf_mlts_reuse(prm.time.mlts_reuse), m_mf_profile(prm.output.profile),
-              m_mf_par_threshold(prm.solver.parallel_threshold) {
+              m_mf_par_threshold(prm.solver.parallel_threshold), m_release_assembly(prm.solver.release_assembly) {
 
             build_mesh(msh, prm.mesh, level, &tags);
             dd = classify_domain(msh, prm, tags);
@@ -163,6 +168,8 @@ namespace hho_first_order {
         // built at its first use: not for sdirk without consistent initial faces (memory of the large meshes)
         erk_type& erk() {
             if (!m_erk) {
+                if (m_assembly_released)
+                    throw std::runtime_error("ERK operator requested after solver.release_assembly freed the assembled matrices");
                 assembler_type& as = *m_assembler;
                 m_erk = std::make_unique<erk_type>(as.LHS, as.RHS, as.MASS, as.COUPLING,
                     as.get_e_n_cells_dof(), as.get_a_n_cells_dof(), as.get_e_face_dof(), as.get_a_face_dof());
@@ -194,9 +201,22 @@ namespace hho_first_order {
                 if (m_mf_mlts_reuse) m_mf->set_mlts_reuse(true);
                 if (m_mf_profile) m_mf->set_profile(true);
                 if (m_mf_par_threshold != 20000) m_mf->set_parallel_threshold(m_mf_par_threshold);
+                // solver.release_assembly (2026-11-18, off by default): with the least-squares stabilization, nothing
+                // uses the assembled LHS and COUPLING after this point (initial faces, energy, schemes: mf()); they are
+                // freed, their dimensions kept (numbers of unknowns of the outputs); erk() refuses to run afterwards.
+                // malloc_trim then returns to the system the memory freed by the setup (local matrices of the threads
+                // of the parallel assembly, kept by the allocator otherwise)
+                if (m_release_assembly && ls_Q) {
+                    SparseMatrix<RealType>(as.LHS.rows(), as.LHS.cols()).swap(as.LHS);
+                    SparseMatrix<RealType>(as.COUPLING.rows(), as.COUPLING.cols()).swap(as.COUPLING);
+                    m_assembly_released = true;
+#ifdef __GLIBC__
+                    malloc_trim(0);
+#endif
+                }
                 std::chrono::duration<double> el = std::chrono::steady_clock::now() - t0;
                 std::cout << bold << cyan << "      matrix-free operator: " << m_mf->summary() << ", built in " << el.count()
-                          << " s" << reset << std::endl;
+                          << " s" << (m_assembly_released ? ", assembled matrices released" : "") << reset << std::endl;
             }
             return *m_mf;
         }

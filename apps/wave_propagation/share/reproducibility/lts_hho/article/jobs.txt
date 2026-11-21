@@ -105,7 +105,7 @@ stab/L5_erk|2|stab.lua|mesh.refine_levels = 5|time.n_steps = 5120
 stab/L5_lts|2|stab.lua|mesh.refine_levels = 5|time.scheme = 'lts'
 stab/L5_mlts|2|stab.lua|mesh.refine_levels = 5|time.scheme = 'mlts'
 stab/L5_lis|2|stab.lua|mesh.refine_levels = 5|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true
-# 6.4 smooth solution: dt = 1/(20 n) on the n x n meshes (5 meshes): 45 % of the coarse limit, LI time error below the space error
+# 6.4 smooth solution: dt = 1/(20 n) on the n x n meshes (5 meshes): 43 % of the coarse limit, LI time error below the space error
 conv/erk_u|6|cart.lua|time.n_steps = 160|study = { type = 'space', last_level = 4 }
 conv/mlts_g|6|cart.lua|mesh.refine_levels = 3|time.scheme = 'mlts'; time.n_steps = 160|study = { type = 'space', last_level = 4 }
 conv/li_g|6|cart.lua|mesh.refine_levels = 3|time.scheme = 'li'; time.li_system = 'constraint'; time.li_coupling = 'stage'; time.li_condensation = true; time.n_steps = 160|study = { type = 'space', last_level = 4 }

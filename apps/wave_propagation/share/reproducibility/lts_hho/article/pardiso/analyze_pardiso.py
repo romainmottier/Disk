@@ -22,7 +22,12 @@ Then (figures of the preprint, in <figures>):
       (lshape.pdf, lshape2.pdf, lshape_form.pdf)
   python3 ../../make_cost_examples.py <figures> --runs <campaign>/out/cost <campaign>/out_r2/cost <campaign>/out_r3/cost \\
       --formulations --memory <campaign>/out_mem      (cost_formulations.pdf, cost_gains.pdf, cost_meshes.pdf)
-  python3 ../../make_tfus.py <campaign>/view_head <figures> --memory <campaign>/out_mem --short     (tfus_*.pdf)
+  python3 ../../make_tfus.py <campaign>/view_head <figures> --memory <campaign>/out_mem --short --three-snapshots \\
+      --skull-strip --focus-row --signals-row
+      (tfus_*.pdf; since 2026-11-16: --three-snapshots, Fig. tfus-snap at t = 4, 20 and 44 us; --skull-strip, Fig.
+      tfus-skull as strips in the frame of the plate, shear stress on a common scale; --focus-row, Fig. tfus-focus in
+      one row with the axial profile in dB from the geometric focus; --signals-row, Fig. tfus-signals with the accuracy
+      check and the energy only, the costs being in Table tfus-cost)
 """
 import json, os, re, sys
 
@@ -119,7 +124,8 @@ def view_head():
         for r in runs:
             for rep, suf in zip(REPS, ("", "_r2", "_r3")):
                 link(os.path.join(W, rep, kind, r), os.path.join(V, kind, r + suf))
-    for kind, r in (("fit", "plate_li"), ("fit", "plate_li_dt2"), ("fit", "intact_li"), ("fit", "water_li"), ("vor", "plate_li")):
+    for kind, r in (("fit", "plate_li"), ("fit", "plate_li_dt2"), ("fit", "intact_li"), ("fit", "water_li"), ("vor", "plate_li"),
+                    ("fit", "plate_li_early")):                    # plate_li_early: jobs_snap.txt (2026-11-16)
         link(os.path.join(W, "out_full", kind, r), os.path.join(V, kind, r))
     if ART:
         link(os.path.join(ART, "fit", "plate_mlts_w"), os.path.join(V, "fit", "plate_mlts_w"))   # MLTS signal, energy

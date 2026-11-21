@@ -240,6 +240,10 @@ def main():
     ap.add_argument("--screw-diameter", type=float, default=1.5, help="screw diameter in mm (default 1.5)")
     ap.add_argument("--screw-length", type=float, default=4.0, help="screw depth below the plate in mm (default 4)")
     ap.add_argument("--size-implant", type=float, default=0.125, help="cell side in the implant in mm (default 0.125)")
+    ap.add_argument("--fill-gap", action="store_true",
+                    help="(2026-11-16, off by default) the fluid between the inner face of the plate and the staircase "
+                         "skull, within 1.5 pixel, becomes cortical bone, as in generate_head_model_fitted.py: the "
+                         "plate lies on bone (without it, a thin layer of scalp is left under the plate)")
     a = ap.parse_args()
 
     seg = np.load(os.path.join(a.data, "segmentation", f"sub-{a.subject:03d}_T1w.npy"))[a.slice]
@@ -254,6 +258,17 @@ def main():
     if a.plate:
         ti, geo = implant_raster(tag, scale, a.pixel, a.plate, a.plate_thickness, a.screw_diameter, a.screw_length)
         fine[ti] = TITANIUM
+        if a.fill_gap:
+            xc, yc = geo["center"]
+            R = geo["radius"]
+            b0, b1 = (math.radians(x) for x in geo["angles"])
+            Hf, Wf = fine.shape
+            X, Y = np.meshgrid((np.arange(Wf) + 0.5) * unit, (np.arange(Hf) + 0.5) * unit)
+            r, th = np.hypot(X - xc, Y - yc), np.arctan2(Y - yc, X - xc)
+            gap = np.isin(fine, [WATER, SCALP]) & (r < R) & (r >= R - 1.5 * a.pixel) & (th >= b0) & (th <= b1)
+            fine[gap] = CORTICAL
+            print(f"   fill-gap: {int(gap.sum())} raster cells of fluid under the plate become cortical bone "
+                  f"({gap.sum() * unit * unit:.2f} mm^2)")
     f = lambda mm: max(1, int(round(mm / unit)))
     sizes = {t: f(a.size_soft) for t in (WATER, SCALP, CSF, GRAY, WHITE)}
     sizes.update({CORTICAL: f(a.size_bone), CANCELLOUS: f(a.size_bone), TITANIUM: f(a.size_implant)})
